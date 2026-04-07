@@ -1,0 +1,6 @@
+industry_tag,report_period,metric_code,metric_name,value,source
+工程机械,202412,demand_index_yoy,行业需求景气同比,-0.06,mock
+工程机械,202412,inventory_turnover_benchmark,行业存货周转率,3.1,mock
+工程机械,202412,ar_turnover_benchmark,行业应收周转率,4.9,mock
+工程机械,202412,gross_margin_benchmark,行业毛利率,20.5,mock
+

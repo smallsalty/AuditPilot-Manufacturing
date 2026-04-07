@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: auditpilot-postgres
+    environment:
+      POSTGRES_DB: auditpilot
+      POSTGRES_USER: auditpilot
+      POSTGRES_PASSWORD: auditpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  pgdata:

@@ -1,0 +1,61 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { BarChart3, Building2, ClipboardList, FileText, MessageSquare, ShieldAlert } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+
+const NAV_ITEMS = [
+  { href: "/", label: "Dashboard", icon: BarChart3 },
+  { href: "/risks", label: "风险清单", icon: ShieldAlert },
+  { href: "/audit-focus", label: "审计重点", icon: ClipboardList },
+  { href: "/documents", label: "文档中心", icon: FileText },
+  { href: "/chat", label: "AI问答", icon: MessageSquare },
+];
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  return (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(217,119,6,0.22),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.15),_transparent_28%),linear-gradient(180deg,_#09111f_0%,_#0f172a_55%,_#111827_100%)] text-white">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-5 py-6 lg:px-8">
+        <aside className="hidden w-72 shrink-0 rounded-[32px] border border-white/10 bg-slate/70 p-5 shadow-soft backdrop-blur md:block">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="rounded-2xl bg-ember/15 p-3 text-ember">
+              <Building2 className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.32em] text-steel">AuditPilot</p>
+              <h1 className="text-xl font-semibold text-white">Manufacturing</h1>
+            </div>
+          </div>
+          <nav className="space-y-2">
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition",
+                    active ? "bg-white/10 text-white" : "text-haze/75 hover:bg-white/5 hover:text-white",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+            <p className="mb-2 text-xs uppercase tracking-[0.24em] text-steel">Demo Flow</p>
+            <p>导入数据、运行分析、查看重点、继续追问，形成完整审计前期风险识别闭环。</p>
+          </div>
+        </aside>
+        <main className="flex-1">{children}</main>
+      </div>
+    </div>
+  );
+}
+

@@ -1,0 +1,225 @@
+[
+  {
+    "code": "REV_Q4_SPIKE",
+    "name": "收入确认风险：四季度收入占比异常偏高",
+    "risk_category": "财务风险",
+    "risk_level": "HIGH",
+    "description": "四季度收入占比异常偏高，可能存在期末突击确认收入风险。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "q4_revenue_ratio",
+          "operator": ">",
+          "value": 0.35,
+          "label": "四季度收入占比超过 35%"
+        }
+      ]
+    },
+    "focus_accounts": ["主营业务收入", "应收账款", "合同资产"],
+    "focus_processes": ["收入确认", "期末截止", "订单履约"],
+    "recommended_procedures": ["执行截止测试", "抽查重大合同与签收单", "检查期后退货与折让"],
+    "evidence_types": ["销售合同", "出库与签收单", "期后回款记录"],
+    "weight": 3.2,
+    "enabled": true
+  },
+  {
+    "code": "REV_AR_GAP",
+    "name": "收入确认风险：应收账款增速显著高于营收增速",
+    "risk_category": "财务风险",
+    "risk_level": "HIGH",
+    "description": "应收账款增速高于营收增速，可能存在放宽信用政策或收入质量下滑。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "ar_revenue_growth_gap",
+          "operator": ">",
+          "value": 0.1,
+          "label": "应收账款增速显著高于营收增速"
+        }
+      ]
+    },
+    "focus_accounts": ["应收账款", "坏账准备", "主营业务收入"],
+    "focus_processes": ["授信审批", "销售回款", "收入确认"],
+    "recommended_procedures": ["实施函证", "复核账龄结构", "执行期后回款测试"],
+    "evidence_types": ["应收账款明细", "账龄分析", "客户回款流水"],
+    "weight": 3.0,
+    "enabled": true
+  },
+  {
+    "code": "OCF_PROFIT_DIVERGENCE",
+    "name": "收入确认风险：经营现金流与利润背离",
+    "risk_category": "财务风险",
+    "risk_level": "HIGH",
+    "description": "经营现金流/净利润比值偏低，提示利润质量需重点核查。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "operating_cf_profit_ratio",
+          "operator": "<",
+          "value": 0.5,
+          "label": "经营现金流/净利润比值低于 0.5"
+        }
+      ]
+    },
+    "focus_accounts": ["经营活动现金流量", "主营业务收入", "应收账款"],
+    "focus_processes": ["收款循环", "收入确认", "现金流分析"],
+    "recommended_procedures": ["比较利润与现金流差异", "复核重大应收项目", "抽取异常订单穿行测试"],
+    "evidence_types": ["现金流量表", "银行回单", "客户对账单"],
+    "weight": 3.4,
+    "enabled": true
+  },
+  {
+    "code": "INV_BACKLOG",
+    "name": "存货减值/积压风险：存货增速高于营收增速且周转下降",
+    "risk_category": "经营风险",
+    "risk_level": "HIGH",
+    "description": "存货增速高于营收增速且周转率下降，存在积压和跌价风险。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "inventory_revenue_growth_gap",
+          "operator": ">",
+          "value": 0.1,
+          "label": "存货增速高于营收增速"
+        },
+        {
+          "metric": "inventory_turnover_delta",
+          "operator": "<",
+          "value": -0.2,
+          "label": "存货周转率持续下降"
+        }
+      ]
+    },
+    "focus_accounts": ["存货", "存货跌价准备"],
+    "focus_processes": ["采购与生产计划", "仓储管理", "减值测试"],
+    "recommended_procedures": ["实施存货监盘", "执行库龄分析", "复核跌价准备测算"],
+    "evidence_types": ["库存台账", "库龄清单", "跌价准备测算表"],
+    "weight": 3.5,
+    "enabled": true
+  },
+  {
+    "code": "INV_INDUSTRY_DOWN",
+    "name": "存货减值/积压风险：行业需求下行时存货上升",
+    "risk_category": "经营风险",
+    "risk_level": "MEDIUM",
+    "description": "行业景气度走弱时，企业存货继续上升，需关注产成品积压与去库存压力。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "industry_demand_down_inventory_up",
+          "operator": ">=",
+          "value": 1,
+          "label": "行业需求下行时存货仍上升"
+        }
+      ]
+    },
+    "focus_accounts": ["存货", "营业成本"],
+    "focus_processes": ["销售预测", "生产排产", "库存管理"],
+    "recommended_procedures": ["对比行业景气度与企业产销数据", "复核滞销物料清单"],
+    "evidence_types": ["行业数据", "产销报表", "库存结构分析"],
+    "weight": 2.6,
+    "enabled": true
+  },
+  {
+    "code": "AR_COLLECTION",
+    "name": "应收账款回款风险：回款周期延长",
+    "risk_category": "财务风险",
+    "risk_level": "HIGH",
+    "description": "应收账款周转率下降且账款规模上升，提示回款周期延长。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "ar_turnover_delta",
+          "operator": "<",
+          "value": -0.3,
+          "label": "应收账款周转率下降"
+        },
+        {
+          "metric": "accounts_receivable_growth_rate",
+          "operator": ">",
+          "value": 0.1,
+          "label": "应收账款规模明显上升"
+        }
+      ]
+    },
+    "focus_accounts": ["应收账款", "坏账准备"],
+    "focus_processes": ["信用管理", "回款管理"],
+    "recommended_procedures": ["检查账龄结构变化", "执行大额客户回款测试", "复核坏账准备计提"],
+    "evidence_types": ["账龄表", "回款台账", "坏账测算底稿"],
+    "weight": 3.1,
+    "enabled": true
+  },
+  {
+    "code": "COMPLIANCE_EVENTS",
+    "name": "合规与外部事件风险：诉讼处罚及负面舆情",
+    "risk_category": "合规风险",
+    "risk_level": "MEDIUM",
+    "description": "诉讼、处罚与负面舆情集中出现，可能影响经营与披露风险评估。",
+    "conditions": {
+      "logic": "any",
+      "conditions": [
+        {
+          "metric": "major_litigation_count",
+          "operator": ">",
+          "value": 0,
+          "label": "存在重大诉讼"
+        },
+        {
+          "metric": "penalty_count",
+          "operator": ">",
+          "value": 0,
+          "label": "存在行政处罚"
+        },
+        {
+          "metric": "negative_sentiment_count",
+          "operator": ">",
+          "value": 0,
+          "label": "存在负面舆情"
+        }
+      ]
+    },
+    "focus_accounts": ["预计负债", "营业外支出", "信息披露相关科目"],
+    "focus_processes": ["合规管理", "法务审查", "信息披露"],
+    "recommended_procedures": ["获取诉讼处罚资料", "询问法务与合规负责人", "复核是否充分披露"],
+    "evidence_types": ["法律函件", "处罚决定书", "董事会纪要"],
+    "weight": 2.8,
+    "enabled": true
+  },
+  {
+    "code": "RELATED_PARTY_CONTROL",
+    "name": "关联交易/内控风险：关联结构复杂且高管频繁变动",
+    "risk_category": "内控风险",
+    "risk_level": "MEDIUM",
+    "description": "关联方结构复杂且关键岗位频繁变动，可能增加内控执行偏差。",
+    "conditions": {
+      "logic": "any",
+      "conditions": [
+        {
+          "metric": "related_party_complexity_score",
+          "operator": ">",
+          "value": 0,
+          "label": "关联企业结构复杂"
+        },
+        {
+          "metric": "executive_change_count",
+          "operator": ">",
+          "value": 0,
+          "label": "高管存在频繁变动"
+        }
+      ]
+    },
+    "focus_accounts": ["关联交易", "其他应收应付", "采购成本"],
+    "focus_processes": ["关联方识别", "审批授权", "内控执行"],
+    "recommended_procedures": ["获取关联方清单", "检查审批链条", "复核异常关联交易定价"],
+    "evidence_types": ["关联方台账", "审批记录", "合同与定价依据"],
+    "weight": 2.7,
+    "enabled": true
+  }
+]
+

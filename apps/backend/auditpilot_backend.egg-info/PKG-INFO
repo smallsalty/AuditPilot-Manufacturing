@@ -1,0 +1,23 @@
+Metadata-Version: 2.4
+Name: auditpilot-backend
+Version: 0.1.0
+Summary: AuditPilot Manufacturing backend
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: sqlalchemy>=2.0.30
+Requires-Dist: psycopg[binary]>=3.2.1
+Requires-Dist: pydantic>=2.8.0
+Requires-Dist: pydantic-settings>=2.3.4
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: pandas>=2.2.2
+Requires-Dist: numpy>=1.26.4
+Requires-Dist: scikit-learn>=1.5.1
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: tenacity>=8.4.2
+Requires-Dist: pdfplumber>=0.11.2
+Requires-Dist: pypdf>=4.3.1
+Requires-Dist: akshare>=1.14.40
+Requires-Dist: openai>=1.40.3
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3.2; extra == "dev"

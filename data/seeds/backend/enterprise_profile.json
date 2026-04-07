@@ -1,0 +1,24 @@
+{
+  "name": "三一重工",
+  "ticker": "600031.SH",
+  "report_year": 2024,
+  "industry_tag": "工程机械",
+  "sub_industry": "专用设备制造",
+  "exchange": "SSE",
+  "province": "湖南",
+  "city": "长沙",
+  "listed_date": "2003-07-03",
+  "employee_count": 43000,
+  "description": "三一重工为中国工程机械制造龙头企业，业务覆盖挖掘机械、混凝土机械、起重机械和海外销售网络。",
+  "portrait": {
+    "market_position": "国内工程机械头部企业",
+    "sales_model": "直销+渠道",
+    "manufacturing_risks": [
+      "原材料价格波动",
+      "下游基建与地产需求波动",
+      "客户集中与海外回款压力"
+    ],
+    "shareholding_summary": "股权结构相对稳定，但关联企业较多，供应链协同复杂。"
+  }
+}
+

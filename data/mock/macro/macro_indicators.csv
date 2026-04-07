@@ -1,0 +1,6 @@
+indicator_name,indicator_code,report_period,value,unit,source
+制造业PMI,pmi,202412,49.3,index,mock
+PPI同比,ppi_yoy,202412,-2.1,pct,mock
+钢材价格指数,steel_price_index,202412,112.4,index,mock
+挖机开工小时数同比,excavator_hours_yoy,202412,-5.8,pct,mock
+

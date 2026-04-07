@@ -1,0 +1,13 @@
+{
+  "name": "auditpilot-manufacturing",
+  "private": true,
+  "workspaces": [
+    "apps/frontend",
+    "packages/shared-types"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace apps/frontend run dev",
+    "build:frontend": "npm --workspace apps/frontend run build"
+  }
+}
+
