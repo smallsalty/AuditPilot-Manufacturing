@@ -10,27 +10,61 @@ import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { buildRadarOption, buildTrendOption, getSafeTopRisks } from "@/lib/dashboard";
 
 export default function DashboardPage() {
   const [enterprises, setEnterprises] = useState<EnterpriseSummary[]>([]);
   const [selectedEnterprise, setSelectedEnterprise] = useState<number>(1);
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [enterpriseLoading, setEnterpriseLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [enterpriseError, setEnterpriseError] = useState<string | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      const enterpriseList = await api.listEnterprises();
-      setEnterprises(enterpriseList);
-      const firstId = enterpriseList[0]?.id ?? 1;
-      setSelectedEnterprise(firstId);
+      setEnterpriseLoading(true);
+      setEnterpriseError(null);
+      try {
+        const enterpriseList = await api.listEnterprises();
+        setEnterprises(enterpriseList);
+        const firstId = enterpriseList[0]?.id ?? 1;
+        setSelectedEnterprise(firstId);
+      } catch (error) {
+        setEnterprises([]);
+        setEnterpriseError(
+          error instanceof Error ? `企业列表加载失败：${error.message}` : "企业列表加载失败，请检查后端服务。",
+        );
+      } finally {
+        setEnterpriseLoading(false);
+      }
     }
-    load().finally(() => setLoading(false));
+    load();
   }, []);
 
   useEffect(() => {
-    if (!selectedEnterprise) return;
-    api.getDashboard(selectedEnterprise).then(setDashboard).catch(console.error);
-  }, [selectedEnterprise]);
+    if (!selectedEnterprise || enterpriseError) return;
+    async function loadDashboard() {
+      setDashboardLoading(true);
+      setDashboardError(null);
+      try {
+        const payload = await api.getDashboard(selectedEnterprise);
+        setDashboard(payload);
+      } catch (error) {
+        setDashboard(null);
+        setDashboardError(
+          error instanceof Error ? `企业总览加载失败：${error.message}` : "企业总览加载失败，请检查后端返回数据。",
+        );
+      } finally {
+        setDashboardLoading(false);
+      }
+    }
+    loadDashboard();
+  }, [selectedEnterprise, enterpriseError]);
+
+  const radarOption = buildRadarOption(dashboard?.radar);
+  const trendOption = buildTrendOption(dashboard?.trend);
+  const topRisks = getSafeTopRisks(dashboard);
 
   return (
     <div className="space-y-6 pb-10">
@@ -48,11 +82,25 @@ export default function DashboardPage() {
           <Card>
             <p className="text-xs uppercase tracking-[0.24em] text-steel">演示企业</p>
             <div className="mt-4">
-              <EnterpriseSelect
-                enterprises={enterprises}
-                value={selectedEnterprise}
-                onChange={setSelectedEnterprise}
-              />
+              {enterpriseError ? (
+                <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-4 text-sm text-red-100">
+                  {enterpriseError}
+                </div>
+              ) : enterpriseLoading ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-haze/75">
+                  正在加载企业列表...
+                </div>
+              ) : enterprises.length > 0 ? (
+                <EnterpriseSelect
+                  enterprises={enterprises}
+                  value={selectedEnterprise}
+                  onChange={setSelectedEnterprise}
+                />
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-haze/75">
+                  暂无可用企业数据
+                </div>
+              )}
             </div>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <Link href="/risks">
@@ -83,61 +131,40 @@ export default function DashboardPage() {
               <h3 className="mt-2 text-xl font-semibold text-white">风险雷达图</h3>
             </div>
           </div>
-          <EChart
-            height={340}
-            option={{
-              radar: {
-                radius: "65%",
-                splitNumber: 4,
-                axisName: { color: "#cbd5e1" },
-                splitArea: { areaStyle: { color: ["rgba(255,255,255,0.02)"] } },
-                splitLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
-                indicator: (dashboard?.radar ?? []).map((item) => ({ name: item.name, max: 100 })),
-              },
-              series: [
-                {
-                  type: "radar",
-                  data: [
-                    {
-                      value: (dashboard?.radar ?? []).map((item) => item.value),
-                      areaStyle: { color: "rgba(217,119,6,0.28)" },
-                      lineStyle: { color: "#f59e0b" },
-                      itemStyle: { color: "#f59e0b" },
-                    },
-                  ],
-                },
-              ],
-            }}
-          />
+          {dashboardError ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
+              总览数据加载失败
+            </div>
+          ) : dashboardLoading ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              正在加载雷达图数据...
+            </div>
+          ) : radarOption ? (
+            <EChart height={340} option={radarOption} />
+          ) : (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              暂无合法雷达图数据
+            </div>
+          )}
         </Card>
         <Card>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Risk Momentum</p>
           <h3 className="mt-2 text-xl font-semibold text-white">风险趋势图</h3>
-          <EChart
-            height={340}
-            option={{
-              xAxis: {
-                type: "category",
-                data: (dashboard?.trend ?? []).map((item) => item.report_period),
-                axisLabel: { color: "#cbd5e1" },
-              },
-              yAxis: {
-                type: "value",
-                axisLabel: { color: "#cbd5e1" },
-                splitLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
-              },
-              tooltip: { trigger: "axis" },
-              series: [
-                {
-                  data: (dashboard?.trend ?? []).map((item) => item.risk_score),
-                  type: "line",
-                  smooth: true,
-                  areaStyle: { color: "rgba(16,185,129,0.18)" },
-                  lineStyle: { color: "#10b981", width: 3 },
-                },
-              ],
-            }}
-          />
+          {dashboardError ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
+              总览数据加载失败
+            </div>
+          ) : dashboardLoading ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              正在加载趋势图数据...
+            </div>
+          ) : trendOption ? (
+            <EChart height={340} option={trendOption} />
+          ) : (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              暂无合法趋势数据
+            </div>
+          )}
         </Card>
       </section>
 
@@ -145,19 +172,29 @@ export default function DashboardPage() {
         <Card>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Top Risks</p>
           <h3 className="mt-2 text-xl font-semibold text-white">Top 风险项</h3>
-          <div className="mt-4 space-y-3">
-            {(dashboard?.top_risks ?? []).map((risk) => (
-              <div key={risk.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-white">{risk.risk_name}</p>
-                    <p className="mt-1 text-sm text-haze/70">{risk.source_type}</p>
+          {dashboardError ? (
+            <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+              总览数据加载失败
+            </div>
+          ) : topRisks.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {topRisks.map((risk) => (
+                <div key={risk.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-white">{risk.risk_name}</p>
+                      <p className="mt-1 text-sm text-haze/70">{risk.source_type}</p>
+                    </div>
+                    <span className="text-2xl font-semibold text-amber-300">{risk.risk_score.toFixed(1)}</span>
                   </div>
-                  <span className="text-2xl font-semibold text-amber-300">{risk.risk_score.toFixed(1)}</span>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+              暂无合法 Top 风险数据
+            </div>
+          )}
         </Card>
         <Card>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Action Strip</p>
@@ -178,4 +215,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

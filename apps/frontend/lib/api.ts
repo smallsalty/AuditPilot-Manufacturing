@@ -10,15 +10,22 @@ import type {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api${path}`, {
-    ...init,
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "请求失败");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api${path}`, {
+      ...init,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || "请求失败");
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("后端 API 不可访问，请检查 NEXT_PUBLIC_API_BASE_URL、后端服务和网络连接。");
+    }
+    throw error;
   }
-  return (await response.json()) as T;
 }
 
 export const api = {
@@ -76,4 +83,3 @@ export const api = {
       body: JSON.stringify({ question }),
     }),
 };
-
