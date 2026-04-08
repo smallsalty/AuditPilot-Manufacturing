@@ -36,7 +36,56 @@ docker/
 - `AKSHARE_ENABLE`
 - `NEXT_PUBLIC_API_BASE_URL`
 
-## 启动方式
+说明：
+
+- `.env` 以服务器数据库架构为准，Windows 本地开发与 Ubuntu 服务器 backend 共用同一套核心数据库配置
+- 不再提供任何本地 PostgreSQL 专用配置示例
+- `LLM_API_KEY` 为空时系统自动进入 Mock 模式
+
+## 一键运行
+
+### Windows 本地开发
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
+```
+
+首次运行时会按需完成：
+
+- 创建 `apps/backend/.venv`
+- 安装后端依赖
+- 安装前端依赖
+- 检查远程/服务器数据库是否 ready
+- 启动 FastAPI 与 Next.js
+
+如需初始化或重置 demo 数据：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Seed
+```
+
+### Ubuntu 服务器后端
+
+```bash
+chmod +x scripts/server-run.sh
+bash scripts/server-run.sh
+```
+
+该脚本会：
+
+- 启动 `postgres` 容器
+- 按需创建 `apps/backend/.venv`
+- 按需安装后端依赖
+- 检查数据库是否 ready
+- 启动 FastAPI
+
+如需初始化或重置 demo 数据：
+
+```bash
+bash scripts/server-run.sh --seed
+```
+
+## 手动启动方式
 
 ### 服务器数据库容器
 
@@ -53,7 +102,6 @@ cd apps/backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
-python -m app.scripts.seed_demo
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -74,7 +122,7 @@ npm run dev
 ## 数据导入与演示
 
 1. 启动数据库与后端。
-2. 运行 `python -m app.scripts.seed_demo` 初始化示例企业与规则。
+2. 首次初始化数据库或需要重置 demo 数据时，再运行 `python -m app.scripts.seed_demo`。
 3. 打开前端首页，选择三一重工。
 4. 在风险清单页点击“运行风险分析”。
 5. 在审计重点页查看重点科目、流程、审计程序。
@@ -88,9 +136,11 @@ LLM_PROVIDER=minimax
 LLM_API_KEY=your_key_here
 LLM_BASE_URL=https://api.minimax.io/v1
 LLM_MODEL=your_exact_minimax_model_name
-NEXT_PUBLIC_API_BASE_URL=http://your_server_ip:8000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 BACKEND_CORS_ORIGINS=http://localhost:3000
 ```
+
+如果前端不是本地开发而是直连服务器后端，可将 `NEXT_PUBLIC_API_BASE_URL` 改为服务器地址。
 
 ## 文档解析
 
@@ -126,6 +176,7 @@ pytest
 - FastAPI 使用服务器本机 Python 3.11 运行
 - 开发/试运行可直接用 `uvicorn`
 - 稳定运行建议通过 `systemd` 管理 `uvicorn`
+- 日常重启服务不建议默认执行 seed
 
 示例 `systemd` 服务模板：
 
