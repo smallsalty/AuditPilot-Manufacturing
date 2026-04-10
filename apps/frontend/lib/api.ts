@@ -1,13 +1,32 @@
 import type {
+  AnalysisStatus,
   AuditFocusPayload,
   ChatAnswerPayload,
   DashboardPayload,
+  DocumentListItem,
   EnterpriseDetail,
+  EnterpriseSearchItem,
   EnterpriseSummary,
   RiskResultPayload,
 } from "@auditpilot/shared-types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+async function readErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) {
+    return `请求失败（${response.status}）`;
+  }
+  try {
+    const payload = JSON.parse(text) as { detail?: string };
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      return payload.detail.trim();
+    }
+  } catch {
+    // Ignore JSON parse error and use raw text.
+  }
+  return text;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
@@ -16,8 +35,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       cache: "no-store",
     });
     if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || "请求失败");
+      throw new Error(await readErrorMessage(response));
     }
     return (await response.json()) as T;
   } catch (error) {
@@ -28,15 +46,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+export type RiskRunResponse = {
+  run: { run_id: number; status: AnalysisStatus | string; summary: string };
+  results: RiskResultPayload[];
+};
+
 export const api = {
-  listEnterprises: () => request<EnterpriseSummary[]>("/enterprises"),
+  listEnterprises: (query?: string) =>
+    request<EnterpriseSearchItem[]>(`/enterprises${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),
   getEnterprise: (enterpriseId: number) => request<EnterpriseDetail>(`/enterprises/${enterpriseId}`),
   getDashboard: (enterpriseId: number) => request<DashboardPayload>(`/enterprises/${enterpriseId}/dashboard`),
-  runRiskAnalysis: (enterpriseId: number) =>
-    request<{ run: { run_id: number; status: string; summary: string }; results: RiskResultPayload[] }>(
-      `/risk-analysis/${enterpriseId}/run`,
-      { method: "POST" },
-    ),
+  getEnterpriseDocuments: (enterpriseId: number) =>
+    request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`),
+  runRiskAnalysis: (enterpriseId: number) => request<RiskRunResponse>(`/risk-analysis/${enterpriseId}/run`, { method: "POST" }),
   getRiskResults: (enterpriseId: number) => request<RiskResultPayload[]>(`/risk-analysis/${enterpriseId}/results`),
   getAuditFocus: (enterpriseId: number) => request<AuditFocusPayload>(`/audit-focus/${enterpriseId}`),
   getReport: (enterpriseId: number, format = "json") => request(`/reports/${enterpriseId}?format=${format}`),
@@ -67,14 +89,10 @@ export const api = {
     const formData = new FormData();
     formData.append("enterprise_id", String(enterpriseId));
     formData.append("file", file);
-    const response = await fetch(`${API_BASE_URL}/api/ingestion/documents/upload`, {
+    return request<{ id: number; document_name: string; parse_status: string }>(`/ingestion/documents/upload`, {
       method: "POST",
       body: formData,
     });
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return response.json();
   },
   chat: (enterpriseId: number, question: string) =>
     request<ChatAnswerPayload>(`/chat/${enterpriseId}`, {

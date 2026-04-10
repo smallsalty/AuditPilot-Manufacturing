@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -10,8 +10,11 @@ router = APIRouter()
 
 
 @router.get("/enterprises")
-def list_enterprises(db: Session = Depends(get_db)) -> list[dict]:
-    enterprises = EnterpriseRepository(db).list_enterprises()
+def list_enterprises(
+    q: str | None = Query(default=None, description="按企业名称或股票代码模糊检索"),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    enterprises = EnterpriseRepository(db).list_enterprises(query=q)
     return [
         {
             "id": enterprise.id,
@@ -76,3 +79,22 @@ def get_dashboard(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+
+@router.get("/enterprises/{enterprise_id}/documents")
+def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    repo = EnterpriseRepository(db)
+    enterprise = repo.get_by_id(enterprise_id)
+    if enterprise is None:
+        raise HTTPException(status_code=404, detail="企业不存在")
+    documents = repo.get_documents(enterprise_id)
+    return [
+        {
+            "id": document.id,
+            "document_name": document.document_name,
+            "document_type": document.document_type,
+            "parse_status": document.parse_status,
+            "source": document.source,
+            "created_at": document.created_at.isoformat() if document.created_at else None,
+        }
+        for document in documents
+    ]

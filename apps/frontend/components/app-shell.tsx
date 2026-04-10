@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Building2, ClipboardList, FileText, MessageSquare, ShieldAlert } from "lucide-react";
 
+import { EnterpriseSwitcher } from "@/components/enterprise-switcher";
+import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -16,6 +18,7 @@ const NAV_ITEMS = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { currentEnterprise, currentEnterpriseId, enterpriseLoading } = useEnterpriseContext();
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(217,119,6,0.22),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.15),_transparent_28%),linear-gradient(180deg,_#09111f_0%,_#0f172a_55%,_#111827_100%)] text-white">
       <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-5 py-6 lg:px-8">
@@ -48,6 +51,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
+          <div className="mt-6">
+            <EnterpriseSwitcher />
+          </div>
+          <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+            <p className="mb-2 text-xs uppercase tracking-[0.24em] text-steel">Current Enterprise</p>
+            {enterpriseLoading ? (
+              <p>正在初始化企业上下文...</p>
+            ) : currentEnterprise ? (
+              <>
+                <p className="font-medium text-white">{currentEnterprise.name}</p>
+                <p className="mt-1 text-haze/75">
+                  {currentEnterprise.ticker} | {currentEnterprise.industry_tag}
+                </p>
+                <p className="mt-2 text-xs text-steel">企业 ID：{currentEnterpriseId}</p>
+              </>
+            ) : (
+              <p>暂无可用企业，请先导入或 seed 数据。</p>
+            )}
+          </div>
           <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
             <p className="mb-2 text-xs uppercase tracking-[0.24em] text-steel">Demo Flow</p>
             <p>导入数据、运行分析、查看重点、继续追问，形成完整审计前期风险识别闭环。</p>
@@ -58,4 +80,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-

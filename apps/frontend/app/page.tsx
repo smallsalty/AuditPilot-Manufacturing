@@ -1,70 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DashboardPayload, EnterpriseSummary } from "@auditpilot/shared-types";
 import Link from "next/link";
 
+import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { EChart } from "@/components/echart";
-import { EnterpriseSelect } from "@/components/enterprise-select";
 import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { api } from "@/lib/api";
 import { buildRadarOption, buildTrendOption, getSafeTopRisks } from "@/lib/dashboard";
+import { useDashboardResource } from "@/lib/enterprise-resources";
 
 export default function DashboardPage() {
-  const [enterprises, setEnterprises] = useState<EnterpriseSummary[]>([]);
-  const [selectedEnterprise, setSelectedEnterprise] = useState<number>(1);
-  const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
-  const [enterpriseLoading, setEnterpriseLoading] = useState(true);
-  const [dashboardLoading, setDashboardLoading] = useState(false);
-  const [enterpriseError, setEnterpriseError] = useState<string | null>(null);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      setEnterpriseLoading(true);
-      setEnterpriseError(null);
-      try {
-        const enterpriseList = await api.listEnterprises();
-        setEnterprises(enterpriseList);
-        const firstId = enterpriseList[0]?.id ?? 1;
-        setSelectedEnterprise(firstId);
-      } catch (error) {
-        setEnterprises([]);
-        setEnterpriseError(
-          error instanceof Error ? `企业列表加载失败：${error.message}` : "企业列表加载失败，请检查后端服务。",
-        );
-      } finally {
-        setEnterpriseLoading(false);
-      }
-    }
-    load();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedEnterprise || enterpriseError) return;
-    async function loadDashboard() {
-      setDashboardLoading(true);
-      setDashboardError(null);
-      try {
-        const payload = await api.getDashboard(selectedEnterprise);
-        setDashboard(payload);
-      } catch (error) {
-        setDashboard(null);
-        setDashboardError(
-          error instanceof Error ? `企业总览加载失败：${error.message}` : "企业总览加载失败，请检查后端返回数据。",
-        );
-      } finally {
-        setDashboardLoading(false);
-      }
-    }
-    loadDashboard();
-  }, [selectedEnterprise, enterpriseError]);
+  const { currentEnterprise, currentEnterpriseId, enterpriseError, enterpriseLoading, enterpriseOptions } =
+    useEnterpriseContext();
+  const { data: dashboard, loading: dashboardLoading, error: dashboardError } = useDashboardResource(currentEnterpriseId);
 
   const radarOption = buildRadarOption(dashboard?.radar);
   const trendOption = buildTrendOption(dashboard?.trend);
   const topRisks = getSafeTopRisks(dashboard);
+  const analysisStatus = dashboard?.analysis_status ?? "not_started";
 
   return (
     <div className="space-y-6 pb-10">
@@ -80,25 +34,33 @@ export default function DashboardPage() {
             </p>
           </div>
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">演示企业</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-steel">当前企业概况</p>
             <div className="mt-4">
               {enterpriseError ? (
                 <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-4 text-sm text-red-100">
-                  {enterpriseError}
+                  企业列表加载失败：{enterpriseError}
                 </div>
               ) : enterpriseLoading ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-haze/75">
-                  正在加载企业列表...
+                  正在初始化企业上下文...
                 </div>
-              ) : enterprises.length > 0 ? (
-                <EnterpriseSelect
-                  enterprises={enterprises}
-                  value={selectedEnterprise}
-                  onChange={setSelectedEnterprise}
-                />
+              ) : currentEnterprise ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                  <p className="text-lg font-semibold text-white">{currentEnterprise.name}</p>
+                  <p className="mt-2 text-sm text-haze/75">
+                    {currentEnterprise.ticker} | {currentEnterprise.industry_tag} | 报告年度 {currentEnterprise.report_year}
+                  </p>
+                  <p className="mt-3 text-sm text-haze/70">
+                    当前分析状态：{dashboard?.analysis_status ?? "not_started"}
+                  </p>
+                </div>
+              ) : enterpriseOptions.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-haze/75">
+                  当前没有可演示企业
+                </div>
               ) : (
                 <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-haze/75">
-                  暂无可用企业数据
+                  请先选择企业
                 </div>
               )}
             </div>
@@ -131,13 +93,29 @@ export default function DashboardPage() {
               <h3 className="mt-2 text-xl font-semibold text-white">风险雷达图</h3>
             </div>
           </div>
-          {dashboardError ? (
+          {enterpriseError ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
+              企业上下文初始化失败
+            </div>
+          ) : dashboardError ? (
             <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
               总览数据加载失败
             </div>
           ) : dashboardLoading ? (
             <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
               正在加载雷达图数据...
+            </div>
+          ) : analysisStatus === "not_started" ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              当前企业尚未运行风险分析
+            </div>
+          ) : analysisStatus === "running" ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              风险分析正在执行中
+            </div>
+          ) : analysisStatus === "failed" ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
+              风险分析失败：{dashboard?.last_error ?? "请重试分析任务"}
             </div>
           ) : radarOption ? (
             <EChart height={340} option={radarOption} />
@@ -150,13 +128,29 @@ export default function DashboardPage() {
         <Card>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Risk Momentum</p>
           <h3 className="mt-2 text-xl font-semibold text-white">风险趋势图</h3>
-          {dashboardError ? (
+          {enterpriseError ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
+              企业上下文初始化失败
+            </div>
+          ) : dashboardError ? (
             <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
               总览数据加载失败
             </div>
           ) : dashboardLoading ? (
             <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
               正在加载趋势图数据...
+            </div>
+          ) : analysisStatus === "not_started" ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              当前企业尚未运行风险分析
+            </div>
+          ) : analysisStatus === "running" ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm text-haze/75">
+              风险分析正在执行中
+            </div>
+          ) : analysisStatus === "failed" ? (
+            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 px-6 text-sm text-red-100">
+              风险分析失败：{dashboard?.last_error ?? "请重试分析任务"}
             </div>
           ) : trendOption ? (
             <EChart height={340} option={trendOption} />
@@ -172,9 +166,25 @@ export default function DashboardPage() {
         <Card>
           <p className="text-xs uppercase tracking-[0.24em] text-steel">Top Risks</p>
           <h3 className="mt-2 text-xl font-semibold text-white">Top 风险项</h3>
-          {dashboardError ? (
+          {enterpriseError ? (
+            <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+              企业上下文初始化失败
+            </div>
+          ) : dashboardError ? (
             <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
               总览数据加载失败
+            </div>
+          ) : analysisStatus === "not_started" ? (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+              当前企业尚未运行风险分析，暂无 Top 风险项。
+            </div>
+          ) : analysisStatus === "running" ? (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+              风险分析正在执行中，Top 风险项生成后会自动更新。
+            </div>
+          ) : analysisStatus === "failed" ? (
+            <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+              风险分析失败：{dashboard?.last_error ?? "请重试分析任务"}
             </div>
           ) : topRisks.length > 0 ? (
             <div className="mt-4 space-y-3">

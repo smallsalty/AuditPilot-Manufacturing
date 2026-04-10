@@ -19,3 +19,10 @@ class DocumentRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def list_documents(self, enterprise_id: int) -> list[DocumentMeta]:
+        stmt = (
+            select(DocumentMeta)
+            .where(DocumentMeta.enterprise_id == enterprise_id)
+            .order_by(DocumentMeta.created_at.desc(), DocumentMeta.id.desc())
+        )
+        return list(self.db.scalars(stmt).all())

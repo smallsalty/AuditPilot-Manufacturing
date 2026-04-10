@@ -1,0 +1,77 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
+
+import { useEnterpriseContext } from "@/components/enterprise-provider";
+
+export function EnterpriseSwitcher() {
+  const {
+    currentEnterpriseId,
+    enterpriseOptions,
+    enterpriseLoading,
+    enterpriseError,
+    refreshEnterpriseOptions,
+    searchKeyword,
+    selectEnterprise,
+    setSearchKeyword,
+  } = useEnterpriseContext();
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        await refreshEnterpriseOptions(searchKeyword);
+      } catch (error) {
+        setSearchError(error instanceof Error ? error.message : "企业检索失败");
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [refreshEnterpriseOptions, searchKeyword]);
+
+  const helperText = useMemo(() => {
+    if (enterpriseError) return enterpriseError;
+    if (searchError) return searchError;
+    if (enterpriseLoading || searching) return "正在加载企业列表...";
+    if (enterpriseOptions.length === 0) return "未找到匹配企业";
+    return "支持按企业名称或股票代码搜索";
+  }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching]);
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+      <p className="text-xs uppercase tracking-[0.24em] text-steel">Enterprise Context</p>
+      <div className="relative mt-4">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+        <input
+          value={searchKeyword}
+          onChange={(event) => setSearchKeyword(event.target.value)}
+          placeholder="搜索企业名称或股票代码"
+          className="w-full rounded-2xl border border-white/10 bg-black/10 py-3 pl-10 pr-4 text-sm text-white outline-none transition focus:border-amber-400/50"
+        />
+      </div>
+      {enterpriseOptions.length > 0 ? (
+        <select
+          value={currentEnterpriseId ?? ""}
+          onChange={(event) => selectEnterprise(Number(event.target.value))}
+          className="mt-3 w-full rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white outline-none transition focus:border-amber-400/50"
+        >
+          {enterpriseOptions.map((enterprise) => (
+            <option key={enterprise.id} value={enterprise.id} className="bg-slate text-white">
+              {enterprise.name} | {enterprise.ticker}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/75">
+          暂无可选企业
+        </div>
+      )}
+      <p className="mt-3 text-xs text-haze/65">{helperText}</p>
+    </div>
+  );
+}

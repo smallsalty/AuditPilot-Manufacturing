@@ -1,0 +1,97 @@
+[
+  {
+    "name": "三一重工",
+    "ticker": "600031.SH",
+    "report_year": 2024,
+    "industry_tag": "工程机械",
+    "sub_industry": "专用设备制造",
+    "exchange": "SSE",
+    "province": "湖南",
+    "city": "长沙",
+    "listed_date": "2003-07-03",
+    "employee_count": 43000,
+    "description": "三一重工为中国工程机械制造龙头企业，业务覆盖挖掘机械、混凝土机械、起重机械和海外销售网络。",
+    "portrait": {
+      "market_position": "国内工程机械头部企业",
+      "sales_model": "直销+渠道",
+      "demo_scenario": "收入确认 / 应收异常型",
+      "manufacturing_risks": ["原材料价格波动", "下游需求放缓", "客户集中与海外回款压力"]
+    }
+  },
+  {
+    "name": "拓普集团",
+    "ticker": "601689.SH",
+    "report_year": 2024,
+    "industry_tag": "汽车零部件",
+    "sub_industry": "汽车零部件制造",
+    "exchange": "SSE",
+    "province": "浙江",
+    "city": "宁波",
+    "listed_date": "2015-03-19",
+    "employee_count": 29000,
+    "description": "拓普集团主要从事汽车零部件、热管理及底盘系统研发制造，客户覆盖整车厂与新能源车供应链。",
+    "portrait": {
+      "market_position": "汽车零部件龙头",
+      "sales_model": "大客户直供",
+      "demo_scenario": "存货积压 / 减值型",
+      "manufacturing_risks": ["排产波动", "新品切换", "库存积压"]
+    }
+  },
+  {
+    "name": "万华化学",
+    "ticker": "600309.SH",
+    "report_year": 2024,
+    "industry_tag": "化工材料",
+    "sub_industry": "化工新材料",
+    "exchange": "SSE",
+    "province": "山东",
+    "city": "烟台",
+    "listed_date": "2001-01-05",
+    "employee_count": 31000,
+    "description": "万华化学从事聚氨酯、石化和新材料业务，具有连续化生产特征，环保合规和安全管理要求较高。",
+    "portrait": {
+      "market_position": "化工新材料龙头",
+      "sales_model": "直销+长单",
+      "demo_scenario": "诉讼处罚 / 合规事件型",
+      "manufacturing_risks": ["环保处罚", "安全生产", "价格波动"]
+    }
+  },
+  {
+    "name": "立讯精密",
+    "ticker": "002475.SZ",
+    "report_year": 2024,
+    "industry_tag": "消费电子制造",
+    "sub_industry": "电子元器件制造",
+    "exchange": "SZSE",
+    "province": "广东",
+    "city": "深圳",
+    "listed_date": "2010-09-15",
+    "employee_count": 120000,
+    "description": "立讯精密聚焦消费电子、通信与汽车连接器制造，供应链协同和客户项目切换频繁。",
+    "portrait": {
+      "market_position": "消费电子制造龙头",
+      "sales_model": "大客户项目制",
+      "demo_scenario": "关联交易 / 内控型",
+      "manufacturing_risks": ["客户集中", "关联采购", "关键岗位变动"]
+    }
+  },
+  {
+    "name": "汇川技术",
+    "ticker": "300124.SZ",
+    "report_year": 2024,
+    "industry_tag": "工业自动化",
+    "sub_industry": "工业控制设备",
+    "exchange": "SZSE",
+    "province": "广东",
+    "city": "深圳",
+    "listed_date": "2010-09-28",
+    "employee_count": 26000,
+    "description": "汇川技术主要从事工业自动化、工业机器人与新能源动力系统，经营整体稳健。",
+    "portrait": {
+      "market_position": "工业自动化龙头",
+      "sales_model": "渠道+项目制",
+      "demo_scenario": "低风险 / 未分析型",
+      "manufacturing_risks": ["原材料价格波动", "项目交付节奏"]
+    }
+  }
+]

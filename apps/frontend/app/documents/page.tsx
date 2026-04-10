@@ -1,45 +1,97 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { DocumentListItem } from "@auditpilot/shared-types";
 
+import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { useDocumentsResource } from "@/lib/enterprise-resources";
 
-type UploadResult = { id: number; document_name: string; parse_status: string };
+type ExtractItem = { id: number; title: string; extract_type: string; content: string };
+
+const PARSE_STATUS_LABELS: Record<string, string> = {
+  uploaded: "已上传",
+  parsing: "解析中",
+  parsed: "已解析",
+  failed: "解析失败",
+};
 
 export default function DocumentsPage() {
+  const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources } = useEnterpriseContext();
+  const { data: documents, loading, error, refresh } = useDocumentsResource(currentEnterpriseId);
   const [file, setFile] = useState<File | null>(null);
-  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
-  const [extracts, setExtracts] = useState<{ id: number; title: string; extract_type: string; content: string }[]>([]);
+  const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
+  const [extracts, setExtracts] = useState<ExtractItem[]>([]);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("可以上传 PDF 或文本文件进行解析。");
 
+  useEffect(() => {
+    setActiveDocumentId(null);
+    setExtracts([]);
+    setFile(null);
+  }, [currentEnterpriseId]);
+
+  const activeDocument = useMemo(
+    () => documents?.find((item) => item.id === activeDocumentId) ?? null,
+    [activeDocumentId, documents],
+  );
+
   const upload = async () => {
-    if (!file) return;
+    if (!file || !currentEnterpriseId) return;
+    setBusy(true);
     try {
-      const result = (await api.uploadDocument(1, file)) as UploadResult;
-      setUploadResult(result);
-      setMessage(`文档 ${result.document_name} 上传成功，接下来可执行解析。`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "上传失败");
+      const result = await api.uploadDocument(currentEnterpriseId, file);
+      invalidateEnterpriseResources(currentEnterpriseId, ["documents"]);
+      await refresh();
+      setActiveDocumentId(result.id);
+      setMessage(`文档 ${result.document_name} 上传成功。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "文档上传失败");
+    } finally {
+      setBusy(false);
     }
   };
 
-  const parse = async () => {
-    if (!uploadResult) return;
-    await api.parseDocument(uploadResult.id);
-    const response = (await api.getDocumentExtracts(uploadResult.id)) as {
-      extracts: { id: number; title: string; extract_type: string; content: string }[];
-    };
-    setExtracts(response.extracts);
-    setMessage(`已抽取 ${response.extracts.length} 条风险相关段落。`);
+  const parse = async (document: DocumentListItem) => {
+    setBusy(true);
+    try {
+      await api.parseDocument(document.id);
+      const response = (await api.getDocumentExtracts(document.id)) as { extracts: ExtractItem[] };
+      invalidateEnterpriseResources(currentEnterpriseId ?? 0, ["documents"]);
+      await refresh();
+      setActiveDocumentId(document.id);
+      setExtracts(response.extracts);
+      setMessage(`已抽取 ${response.extracts.length} 条风险相关段落。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "文档解析失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadExtracts = async (document: DocumentListItem) => {
+    setBusy(true);
+    try {
+      const response = (await api.getDocumentExtracts(document.id)) as { extracts: ExtractItem[] };
+      setActiveDocumentId(document.id);
+      setExtracts(response.extracts);
+      setMessage(`已加载 ${document.document_name} 的抽取结果。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "抽取结果加载失败");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <div className="space-y-6 pb-10">
       <Card>
         <p className="text-xs uppercase tracking-[0.24em] text-steel">Document Center</p>
-        <h2 className="mt-3 text-3xl font-semibold text-white">文档中心</h2>
+        <h2 className="mt-3 text-3xl font-semibold text-white">
+          {currentEnterprise ? `${currentEnterprise.name} 文档中心` : "文档中心"}
+        </h2>
         <p className="mt-2 text-haze/75">{message}</p>
         <div className="mt-5 flex flex-col gap-3 lg:flex-row">
           <input
@@ -48,25 +100,92 @@ export default function DocumentsPage() {
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-haze/75"
           />
-          <Button onClick={upload}>上传文档</Button>
-          <Button variant="outline" onClick={parse} disabled={!uploadResult}>
-            解析并抽取
+          <Button onClick={upload} disabled={!file || !currentEnterpriseId || busy}>
+            {busy ? "处理中..." : "上传文档"}
           </Button>
         </div>
       </Card>
-      <Card>
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">Extract Results</p>
-        <div className="mt-4 space-y-3">
-          {extracts.map((extract) => (
-            <div key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <p className="font-medium text-white">{extract.title}</p>
-              <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">{extract.extract_type}</p>
-              <p className="mt-3 text-haze/80">{extract.content}</p>
-            </div>
-          ))}
+
+      {enterpriseError ? (
+        <Card>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+            企业列表加载失败：{enterpriseError}
+          </div>
+        </Card>
+      ) : !currentEnterpriseId ? (
+        <Card>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">请先选择企业。</div>
+        </Card>
+      ) : loading ? (
+        <Card>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">正在加载企业文档列表...</div>
+        </Card>
+      ) : error ? (
+        <Card>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+            文档列表加载失败：{error}
+          </div>
+        </Card>
+      ) : (
+        <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <Card>
+            <p className="text-xs uppercase tracking-[0.24em] text-steel">Documents</p>
+            {documents && documents.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {documents.map((document) => (
+                  <div key={document.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="font-medium text-white">{document.document_name}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">
+                          {document.document_type} | {PARSE_STATUS_LABELS[document.parse_status] ?? document.parse_status}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => loadExtracts(document)} disabled={busy}>
+                          查看抽取
+                        </Button>
+                        <Button
+                          onClick={() => parse(document)}
+                          disabled={busy || document.parse_status === "parsing"}
+                        >
+                          {document.parse_status === "parsed" ? "重新解析" : "解析"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+                当前企业暂无文档，可上传 PDF 或文本文件。
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <p className="text-xs uppercase tracking-[0.24em] text-steel">Extract Results</p>
+            {activeDocument ? (
+              <p className="mt-2 text-sm text-haze/70">当前文档：{activeDocument.document_name}</p>
+            ) : null}
+            {extracts.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {extracts.map((extract) => (
+                  <div key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="font-medium text-white">{extract.title}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">{extract.extract_type}</p>
+                    <p className="mt-3 text-haze/80">{extract.content}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+                暂无抽取结果，可先选择文档查看或执行解析。
+              </div>
+            )}
+          </Card>
         </div>
-      </Card>
+      )}
     </div>
   );
 }
-

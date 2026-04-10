@@ -7,10 +7,7 @@
     "event_date": "2024-11-15",
     "source": "mock",
     "summary": "海外经销合作方就结算条款提起诉讼，涉及回款安排和违约责任争议。",
-    "payload": {
-      "amount_million": 280,
-      "jurisdiction": "境外"
-    }
+    "payload": { "amount_million": 280, "jurisdiction": "境外" }
   },
   {
     "ticker": "600031.SH",
@@ -20,9 +17,7 @@
     "event_date": "2024-08-20",
     "source": "mock",
     "summary": "子公司在废气排放管理方面存在整改事项，被监管部门处罚并责令限期整改。",
-    "payload": {
-      "amount_million": 1.2
-    }
+    "payload": { "amount_million": 1.2 }
   },
   {
     "ticker": "600031.SH",
@@ -32,9 +27,7 @@
     "event_date": "2024-06-03",
     "source": "mock",
     "summary": "关键财务岗位一年内多次变动，可能增加财务报告编制和内控执行压力。",
-    "payload": {
-      "position": "财务负责人"
-    }
+    "payload": { "position": "财务负责人" }
   },
   {
     "ticker": "600031.SH",
@@ -44,9 +37,7 @@
     "event_date": "2024-12-10",
     "source": "mock",
     "summary": "公司存在多家供应链协同关联企业，关联采购和设备租赁往来较多。",
-    "payload": {
-      "related_entities": 14
-    }
+    "payload": { "related_entities": 14 }
   },
   {
     "ticker": "600031.SH",
@@ -56,9 +47,66 @@
     "event_date": "2024-12-26",
     "source": "mock",
     "summary": "多家财经媒体报道工程机械行业需求修复低于预期，头部厂商库存和价格竞争承压。",
-    "payload": {
-      "sentiment": "negative"
-    }
+    "payload": { "sentiment": "negative" }
+  },
+  {
+    "ticker": "601689.SH",
+    "event_type": "negative_news",
+    "severity": "MEDIUM",
+    "title": "新能源车型切换导致客户拉货节奏放缓",
+    "event_date": "2024-10-21",
+    "source": "mock",
+    "summary": "多家机构提示客户平台切换期拉货放缓，汽车零部件供应商成品库存上升。",
+    "payload": { "sentiment": "negative" }
+  },
+  {
+    "ticker": "600309.SH",
+    "event_type": "penalty",
+    "severity": "HIGH",
+    "title": "生产基地环保事项被处罚",
+    "event_date": "2024-09-14",
+    "source": "mock",
+    "summary": "因废水排放监测异常，生产基地被地方监管部门处罚并责令整改。",
+    "payload": { "amount_million": 3.8 }
+  },
+  {
+    "ticker": "600309.SH",
+    "event_type": "litigation",
+    "severity": "MEDIUM",
+    "title": "与供应商存在合同执行争议",
+    "event_date": "2024-12-05",
+    "source": "mock",
+    "summary": "部分原料采购合同就交付和价格调整条款出现争议，已进入诉讼程序。",
+    "payload": { "amount_million": 96 }
+  },
+  {
+    "ticker": "600309.SH",
+    "event_type": "negative_news",
+    "severity": "MEDIUM",
+    "title": "媒体持续关注化工安全与环保合规",
+    "event_date": "2024-12-27",
+    "source": "mock",
+    "summary": "媒体连续跟踪报道化工行业安全生产与环保执法趋严，对披露和合规管理提出更高要求。",
+    "payload": { "sentiment": "negative" }
+  },
+  {
+    "ticker": "002475.SZ",
+    "event_type": "related_party",
+    "severity": "MEDIUM",
+    "title": "供应链协同关联企业数量较多",
+    "event_date": "2024-11-08",
+    "source": "mock",
+    "summary": "公司存在多家关联加工与物流服务企业，关联采购和委外加工链条较长。",
+    "payload": { "related_entities": 18 }
+  },
+  {
+    "ticker": "002475.SZ",
+    "event_type": "executive_change",
+    "severity": "MEDIUM",
+    "title": "关键财务与采购管理岗位发生调整",
+    "event_date": "2024-07-18",
+    "source": "mock",
+    "summary": "年内关键财务和采购岗位先后调整，内控执行连续性需重点关注。",
+    "payload": { "positions": ["财务总监", "采购负责人"] }
   }
 ]
-

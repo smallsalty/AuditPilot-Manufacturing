@@ -6,6 +6,10 @@ export type EnterpriseSummary = {
   report_year: number;
 };
 
+export type AnalysisStatus = "not_started" | "running" | "completed" | "failed";
+
+export type EnterpriseSearchItem = EnterpriseSummary;
+
 export type DashboardPayload = {
   enterprise: EnterpriseSummary;
   score: {
@@ -14,6 +18,9 @@ export type DashboardPayload = {
     operational: number;
     compliance: number;
   };
+  analysis_status: AnalysisStatus;
+  last_run_at?: string | null;
+  last_error?: string | null;
   radar: { name: string; value: number }[];
   trend: { report_period: string; risk_score: number }[];
   top_risks: {
@@ -82,11 +89,23 @@ export type RiskResultPayload = {
 
 export type AuditFocusPayload = {
   enterprise_id: number;
+  analysis_status: AnalysisStatus;
+  last_run_at?: string | null;
+  last_error?: string | null;
   focus_accounts: string[];
   focus_processes: string[];
   recommended_procedures: string[];
   evidence_types: string[];
   recommendations: string[];
+};
+
+export type DocumentListItem = {
+  id: number;
+  document_name: string;
+  document_type: string;
+  parse_status: "uploaded" | "parsing" | "parsed" | "failed" | string;
+  source: string;
+  created_at?: string | null;
 };
 
 export type ChatAnswerPayload = {
@@ -99,3 +118,11 @@ export type ChatAnswerPayload = {
   suggested_actions: string[];
 };
 
+export type EnterpriseContextState = {
+  currentEnterpriseId: number | null;
+  currentEnterprise: EnterpriseSummary | null;
+  enterpriseOptions: EnterpriseSearchItem[];
+  searchKeyword: string;
+  enterpriseLoading: boolean;
+  enterpriseError?: string | null;
+};

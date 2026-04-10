@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.repositories.risk_repository import RiskRepository
+from app.services.risk_analysis_service import RiskAnalysisService
 
 
 class DashboardService:
@@ -15,9 +16,11 @@ class DashboardService:
     }
 
     def build_dashboard(self, db: Session, enterprise_id: int) -> dict:
-        enterprise = EnterpriseRepository(db).get_by_id(enterprise_id)
+        enterprise_repo = EnterpriseRepository(db)
+        enterprise = enterprise_repo.get_by_id(enterprise_id)
         if enterprise is None:
             raise ValueError("企业不存在")
+        analysis_state = RiskAnalysisService().get_analysis_state(db, enterprise_id)
         results = RiskRepository(db).list_results(enterprise_id)
         score_buckets = defaultdict(list)
         for result in results:
@@ -42,6 +45,9 @@ class DashboardService:
                 "operational": operational,
                 "compliance": compliance,
             },
+            "analysis_status": analysis_state["analysis_status"],
+            "last_run_at": analysis_state["last_run_at"],
+            "last_error": analysis_state["last_error"],
             "radar": [
                 {"name": "财务风险", "value": financial},
                 {"name": "经营风险", "value": operational},
@@ -61,4 +67,3 @@ class DashboardService:
                 for result in results[:5]
             ],
         }
-

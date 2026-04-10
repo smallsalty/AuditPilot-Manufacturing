@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime
 
 import numpy as np
 from sklearn.ensemble import IsolationForest
@@ -47,11 +48,36 @@ class RiskAnalysisService:
         text = str(value).strip()
         return [text] if text else []
 
+    def get_analysis_state(self, db: Session, enterprise_id: int) -> dict:
+        run = EnterpriseRepository(db).get_latest_analysis_run(enterprise_id)
+        if run is None:
+            return {
+                "analysis_status": "not_started",
+                "last_run_at": None,
+                "last_error": None,
+            }
+        metadata = run.metadata_json or {}
+        last_run_at = run.updated_at or run.created_at
+        return {
+            "analysis_status": run.status,
+            "last_run_at": last_run_at.isoformat() if isinstance(last_run_at, datetime) else None,
+            "last_error": metadata.get("last_error"),
+        }
+
     def run(self, db: Session, enterprise_id: int) -> dict:
         enterprise_repo = EnterpriseRepository(db)
         enterprise = enterprise_repo.get_by_id(enterprise_id)
         if enterprise is None:
             raise ValueError("企业不存在")
+
+        latest_run = enterprise_repo.get_latest_analysis_run(enterprise_id)
+        if latest_run and latest_run.status == "running":
+            return {
+                "run_id": latest_run.id,
+                "status": "running",
+                "summary": latest_run.summary or "风险分析任务正在执行，请稍后刷新结果。",
+                "results": self.get_results(db, enterprise_id),
+            }
 
         financials = enterprise_repo.get_financials(enterprise_id)
         events = enterprise_repo.get_external_events(enterprise_id)
@@ -71,107 +97,118 @@ class RiskAnalysisService:
         db.add(run)
         db.commit()
         db.refresh(run)
+        try:
+            features = self.feature_engineering_service.build_features(financials, events, benchmarks)
 
-        features = self.feature_engineering_service.build_features(financials, events, benchmarks)
+            risk_repo = RiskRepository(db)
+            risk_repo.clear_enterprise_results(enterprise_id)
+            db.execute(delete(RiskAlertRecord).where(RiskAlertRecord.enterprise_id == enterprise_id))
 
-        risk_repo = RiskRepository(db)
-        risk_repo.clear_enterprise_results(enterprise_id)
-        db.execute(delete(RiskAlertRecord).where(RiskAlertRecord.enterprise_id == enterprise_id))
+            rules = list(db.scalars(select(AuditRule).where(AuditRule.enabled.is_(True))).all())
 
-        rules = list(db.scalars(select(AuditRule).where(AuditRule.enabled.is_(True))).all())
+            for rule in rules:
+                hit = self.rule_evaluator.evaluate(rule, features)
+                if hit is None:
+                    continue
 
-        for rule in rules:
-            hit = self.rule_evaluator.evaluate(rule, features)
-            if hit is None:
-                continue
+                payload = {
+                    "risk_name": rule.name,
+                    "risk_category": rule.risk_category,
+                    "reasons": hit.reasons,
+                    "evidence_chain": hit.evidence_chain,
+                }
 
-            payload = {
-                "risk_name": rule.name,
-                "risk_category": rule.risk_category,
-                "reasons": hit.reasons,
-                "evidence_chain": hit.evidence_chain,
+                explanation = self.explainer.explain_risk(enterprise.name, payload)
+
+                audit_focus = self._normalize_to_list(explanation.get("audit_focus"))
+                procedures = self._normalize_to_list(explanation.get("procedures"))
+
+                result = RiskIdentificationResult(
+                    enterprise_id=enterprise_id,
+                    run_id=run.id,
+                    rule_id=rule.id,
+                    risk_name=rule.name,
+                    risk_category=rule.risk_category,
+                    risk_level=rule.risk_level,
+                    risk_score=hit.score,
+                    source_type="rule",
+                    reasons=hit.reasons,
+                    evidence_chain=hit.evidence_chain,
+                    feature_snapshot=features,
+                    llm_summary=explanation.get("summary", ""),
+                    llm_explanation=explanation.get("explanation", ""),
+                )
+                db.add(result)
+                db.flush()
+
+                db.add(
+                    AuditRecommendation(
+                        enterprise_id=enterprise_id,
+                        run_id=run.id,
+                        risk_result_id=result.id,
+                        priority=rule.risk_level.lower(),
+                        focus_accounts=sorted(set((rule.focus_accounts or []) + audit_focus)),
+                        focus_processes=rule.focus_processes,
+                        recommended_procedures=sorted(
+                            set((rule.recommended_procedures or []) + procedures)
+                        ),
+                        evidence_types=rule.evidence_types,
+                        recommendation_text=f"{rule.name}：建议优先关注{'、'.join(rule.focus_accounts or [])}。",
+                    )
+                )
+
+                db.add(
+                    RiskAlertRecord(
+                        enterprise_id=enterprise_id,
+                        run_id=run.id,
+                        alert_type=rule.risk_category,
+                        severity=rule.risk_level,
+                        title=rule.name,
+                        content=explanation.get("summary", ""),
+                        payload={"reasons": hit.reasons},
+                    )
+                )
+
+            anomaly = self._run_anomaly_detection(enterprise_id, run.id, features, financials)
+            if anomaly:
+                db.add(anomaly)
+                db.flush()
+                db.add(
+                    AuditRecommendation(
+                        enterprise_id=enterprise_id,
+                        run_id=run.id,
+                        risk_result_id=anomaly.id,
+                        priority="medium",
+                        focus_accounts=["营业收入", "应收账款", "存货"],
+                        focus_processes=["经营分析", "月末结账"],
+                        recommended_procedures=["实施趋势分析", "复核异常波动原因", "结合行业数据执行敏感性分析"],
+                        evidence_types=["财务分析底稿", "行业景气度数据", "管理层访谈纪要"],
+                        recommendation_text="模型检测到数值波动异常，建议结合行业与经营背景复核。",
+                    )
+                )
+
+            run.status = "completed"
+            run.metadata_json = {"last_error": None}
+            results = self.get_results(db, enterprise_id)
+            run.summary = f"共识别 {len(results)} 项风险。"
+            db.commit()
+
+            return {
+                "run_id": run.id,
+                "status": run.status,
+                "summary": run.summary,
+                "results": results,
             }
-
-            explanation = self.explainer.explain_risk(enterprise.name, payload)
-
-            audit_focus = self._normalize_to_list(explanation.get("audit_focus"))
-            procedures = self._normalize_to_list(explanation.get("procedures"))
-
-            result = RiskIdentificationResult(
-                enterprise_id=enterprise_id,
-                run_id=run.id,
-                rule_id=rule.id,
-                risk_name=rule.name,
-                risk_category=rule.risk_category,
-                risk_level=rule.risk_level,
-                risk_score=hit.score,
-                source_type="rule",
-                reasons=hit.reasons,
-                evidence_chain=hit.evidence_chain,
-                feature_snapshot=features,
-                llm_summary=explanation.get("summary", ""),
-                llm_explanation=explanation.get("explanation", ""),
-            )
-            db.add(result)
-            db.flush()
-
-            db.add(
-                AuditRecommendation(
-                    enterprise_id=enterprise_id,
-                    run_id=run.id,
-                    risk_result_id=result.id,
-                    priority=rule.risk_level.lower(),
-                    focus_accounts=sorted(set((rule.focus_accounts or []) + audit_focus)),
-                    focus_processes=rule.focus_processes,
-                    recommended_procedures=sorted(
-                        set((rule.recommended_procedures or []) + procedures)
-                    ),
-                    evidence_types=rule.evidence_types,
-                    recommendation_text=f"{rule.name}：建议优先关注{'、'.join(rule.focus_accounts or [])}。",
-                )
-            )
-
-            db.add(
-                RiskAlertRecord(
-                    enterprise_id=enterprise_id,
-                    run_id=run.id,
-                    alert_type=rule.risk_category,
-                    severity=rule.risk_level,
-                    title=rule.name,
-                    content=explanation.get("summary", ""),
-                    payload={"reasons": hit.reasons},
-                )
-            )
-
-        anomaly = self._run_anomaly_detection(enterprise_id, run.id, features, financials)
-        if anomaly:
-            db.add(anomaly)
-            db.flush()
-            db.add(
-                AuditRecommendation(
-                    enterprise_id=enterprise_id,
-                    run_id=run.id,
-                    risk_result_id=anomaly.id,
-                    priority="medium",
-                    focus_accounts=["营业收入", "应收账款", "存货"],
-                    focus_processes=["经营分析", "月末结账"],
-                    recommended_procedures=["实施趋势分析", "复核异常波动原因", "结合行业数据执行敏感性分析"],
-                    evidence_types=["财务分析底稿", "行业景气度数据", "管理层访谈纪要"],
-                    recommendation_text="模型检测到数值波动异常，建议结合行业与经营背景复核。",
-                )
-            )
-
-        run.status = "completed"
-        results = self.get_results(db, enterprise_id)
-        run.summary = f"共识别 {len(results)} 项风险。"
-        db.commit()
-
-        return {
-            "run_id": run.id,
-            "status": run.status,
-            "summary": run.summary,
-            "results": results,
-        }
+        except Exception as exc:
+            db.rollback()
+            run = db.get(AnalysisRun, run.id)
+            if run is None:
+                raise
+            run.status = "failed"
+            run.summary = "风险分析执行失败。"
+            run.metadata_json = {"last_error": str(exc)}
+            db.commit()
+            raise
 
     def get_results(self, db: Session, enterprise_id: int) -> list[dict]:
         results = RiskRepository(db).list_results(enterprise_id)
