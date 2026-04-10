@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
+import { Button } from "@/components/ui/button";
 
 export function EnterpriseSwitcher() {
   const {
@@ -18,6 +19,18 @@ export function EnterpriseSwitcher() {
   } = useEnterpriseContext();
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  const reloadEnterprises = async () => {
+    setSearching(true);
+    setSearchError(null);
+    try {
+      await refreshEnterpriseOptions(searchKeyword, { force: true });
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "企业检索失败");
+    } finally {
+      setSearching(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(async () => {
@@ -53,6 +66,12 @@ export function EnterpriseSwitcher() {
           placeholder="搜索企业名称或股票代码"
           className="w-full rounded-2xl border border-white/10 bg-black/10 py-3 pl-10 pr-4 text-sm text-white outline-none transition focus:border-amber-400/50"
         />
+      </div>
+      <div className="mt-3">
+        <Button variant="outline" onClick={reloadEnterprises} disabled={enterpriseLoading || searching} className="w-full">
+          <RefreshCw className="mr-2 h-4 w-4" />
+          刷新企业列表
+        </Button>
       </div>
       {enterpriseOptions.length > 0 ? (
         <select

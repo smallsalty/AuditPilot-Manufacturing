@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { RiskResultPayload } from "@auditpilot/shared-types";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { RiskTable } from "@/components/risk-table";
@@ -17,11 +18,25 @@ export default function RisksPage() {
   const { data: risks, loading: risksLoading, error: risksError, refresh: refreshRisks } =
     useRiskResultsResource(currentEnterpriseId);
   const [running, setRunning] = useState(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
+  const [displayRisks, setDisplayRisks] = useState<RiskResultPayload[]>([]);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("请先选择企业并运行风险分析。");
+
+  useEffect(() => {
+    setDisplayRisks(risks ?? []);
+  }, [currentEnterpriseId, risks]);
 
   useEffect(() => {
     if (!currentEnterprise) {
       setActionMessage("请先选择企业。");
+      return;
+    }
+    if (running) {
+      return;
+    }
+    if (backgroundSyncing) {
+      setActionMessage("风险分析已完成，正在同步最新总览和风险结果...");
       return;
     }
     const status = dashboard?.analysis_status ?? "not_started";
@@ -36,22 +51,35 @@ export default function RisksPage() {
     } else {
       setActionMessage("尚未运行分析。");
     }
-  }, [currentEnterprise, dashboard]);
+  }, [backgroundSyncing, currentEnterprise, dashboard, running]);
 
   const runAnalysis = async () => {
     if (!currentEnterpriseId || running) return;
     setRunning(true);
+    setBackgroundSyncing(false);
+    setSyncError(null);
     setActionMessage("正在导入财务、风险事件和宏观数据...");
     try {
       await api.ingestFinancial(currentEnterpriseId);
       await api.ingestRiskEvents(currentEnterpriseId);
       await api.ingestMacro(currentEnterprise?.industry_tag ?? "工程机械");
       const result = await api.runRiskAnalysis(currentEnterpriseId);
-      invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "riskResults", "auditFocus"]);
+      setDisplayRisks(result.results);
       setCachedResource("riskResults", currentEnterpriseId, result.results);
-      await refreshDashboard();
-      await refreshRisks();
+      invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus"]);
       setActionMessage(result.run.summary);
+      setBackgroundSyncing(true);
+      void Promise.allSettled([refreshDashboard(), refreshRisks()]).then((results) => {
+        const rejected = results.find((item) => item.status === "rejected") as PromiseRejectedResult | undefined;
+        if (rejected) {
+          const message =
+            rejected.reason instanceof Error ? rejected.reason.message : "后台同步失败，可手动刷新页面重试。";
+          setSyncError(message);
+        } else {
+          setSyncError(null);
+        }
+        setBackgroundSyncing(false);
+      });
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "风险分析运行失败");
     } finally {
@@ -60,13 +88,15 @@ export default function RisksPage() {
   };
 
   const analysisStatus = dashboard?.analysis_status ?? "not_started";
-  const riskList = risks ?? [];
+  const riskList = displayRisks;
   const showEmpty =
     !enterpriseError &&
     !dashboardLoading &&
     !risksLoading &&
     analysisStatus === "completed" &&
     riskList.length === 0;
+  const showInitialLoading = riskList.length === 0 && (dashboardLoading || risksLoading);
+  const showResults = riskList.length > 0;
 
   const pageTitle = useMemo(() => {
     if (!currentEnterprise) return "风险清单与证据链";
@@ -88,6 +118,22 @@ export default function RisksPage() {
         </div>
       </Card>
 
+      {backgroundSyncing ? (
+        <Card>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+            后台正在同步最新总览和风险结果，当前表格已先展示本次分析返回的数据。
+          </div>
+        </Card>
+      ) : null}
+
+      {syncError ? (
+        <Card>
+          <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+            后台同步失败：{syncError}
+          </div>
+        </Card>
+      ) : null}
+
       {enterpriseError ? (
         <Card>
           <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
@@ -100,13 +146,13 @@ export default function RisksPage() {
             当前没有可用企业，请先执行 seed 或导入企业数据。
           </div>
         </Card>
-      ) : dashboardLoading || risksLoading ? (
+      ) : showInitialLoading ? (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
             正在加载风险清单...
           </div>
         </Card>
-      ) : dashboardError ? (
+      ) : dashboardError && !showResults ? (
         <Card>
           <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
             总览数据加载失败：{dashboardError}
@@ -124,7 +170,7 @@ export default function RisksPage() {
             风险分析失败：{dashboard?.last_error ?? "请重试风险分析任务。"}
           </div>
         </Card>
-      ) : risksError ? (
+      ) : risksError && !showResults ? (
         <Card>
           <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
             风险结果加载失败：{risksError}

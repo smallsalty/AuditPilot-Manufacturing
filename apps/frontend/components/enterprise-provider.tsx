@@ -30,7 +30,7 @@ type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents";
 type EnterpriseContextValue = EnterpriseContextState & {
   selectEnterprise: (enterpriseId: number) => void;
   setSearchKeyword: (value: string) => void;
-  refreshEnterpriseOptions: (query?: string) => Promise<EnterpriseSearchItem[]>;
+  refreshEnterpriseOptions: (query?: string, options?: { force?: boolean }) => Promise<EnterpriseSearchItem[]>;
   getCachedResource: <T>(kind: ResourceKind, enterpriseId: number) => T | null;
   setCachedResource: <T>(kind: ResourceKind, enterpriseId: number, value: T) => void;
   invalidateEnterpriseResources: (enterpriseId: number, kinds?: ResourceKind[]) => void;
@@ -96,10 +96,10 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   );
 
   const refreshEnterpriseOptions = useCallback(
-    async (query = "") => {
+    async (query = "", options?: { force?: boolean }) => {
       const normalized = query.trim().toLowerCase();
       const cached = searchCacheRef.current.get(normalized);
-      if (cached && Date.now() - cached.fetchedAt < SEARCH_CACHE_TTL) {
+      if (!options?.force && cached && Date.now() - cached.fetchedAt < SEARCH_CACHE_TTL) {
         setEnterpriseOptions(cached.items);
         return cached.items;
       }
@@ -121,7 +121,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
       setEnterpriseLoading(true);
       setEnterpriseError(null);
       try {
-        const items = await refreshEnterpriseOptions("");
+        const items = await refreshEnterpriseOptions("", { force: true });
         if (!active) return;
         if (items.length === 0) {
           setCurrentEnterpriseId(null);
