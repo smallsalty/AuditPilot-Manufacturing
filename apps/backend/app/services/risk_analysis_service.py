@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from datetime import datetime
 
@@ -48,6 +49,34 @@ class RiskAnalysisService:
         text = str(value).strip()
         return [text] if text else []
 
+    def _serialize_llm_explanation(self, value) -> str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, str):
+            return value
+
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except Exception:
+            return str(value)
+
+    def _deserialize_llm_explanation(self, value):
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            return value
+
+        text = value.strip()
+        if not text:
+            return ""
+
+        try:
+            return json.loads(text)
+        except Exception:
+            return value
+
     def get_analysis_state(self, db: Session, enterprise_id: int) -> dict:
         run = EnterpriseRepository(db).get_latest_analysis_run(enterprise_id)
         if run is None:
@@ -97,6 +126,7 @@ class RiskAnalysisService:
         db.add(run)
         db.commit()
         db.refresh(run)
+
         try:
             features = self.feature_engineering_service.build_features(financials, events, benchmarks)
 
@@ -122,6 +152,9 @@ class RiskAnalysisService:
 
                 audit_focus = self._normalize_to_list(explanation.get("audit_focus"))
                 procedures = self._normalize_to_list(explanation.get("procedures"))
+                explanation_text = self._serialize_llm_explanation(
+                    explanation.get("explanation", "")
+                )
 
                 result = RiskIdentificationResult(
                     enterprise_id=enterprise_id,
@@ -136,7 +169,7 @@ class RiskAnalysisService:
                     evidence_chain=hit.evidence_chain,
                     feature_snapshot=features,
                     llm_summary=explanation.get("summary", ""),
-                    llm_explanation=explanation.get("explanation", ""),
+                    llm_explanation=explanation_text,
                 )
                 db.add(result)
                 db.flush()
@@ -181,7 +214,11 @@ class RiskAnalysisService:
                         priority="medium",
                         focus_accounts=["营业收入", "应收账款", "存货"],
                         focus_processes=["经营分析", "月末结账"],
-                        recommended_procedures=["实施趋势分析", "复核异常波动原因", "结合行业数据执行敏感性分析"],
+                        recommended_procedures=[
+                            "实施趋势分析",
+                            "复核异常波动原因",
+                            "结合行业数据执行敏感性分析",
+                        ],
                         evidence_types=["财务分析底稿", "行业景气度数据", "管理层访谈纪要"],
                         recommendation_text="模型检测到数值波动异常，建议结合行业与经营背景复核。",
                     )
@@ -233,7 +270,9 @@ class RiskAnalysisService:
                     "reasons": result.reasons,
                     "evidence_chain": result.evidence_chain,
                     "llm_summary": result.llm_summary,
-                    "llm_explanation": result.llm_explanation,
+                    "llm_explanation": self._deserialize_llm_explanation(
+                        result.llm_explanation
+                    ),
                     "focus_accounts": sorted(
                         {
                             item
