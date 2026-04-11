@@ -31,5 +31,7 @@ def sync_company(
         )
         background_tasks.add_task(_process_parse_queue_in_background, payload.company_id)
         return result
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

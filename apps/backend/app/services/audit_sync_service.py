@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import DocumentMeta, EnterpriseProfile, ExternalEvent
-from app.providers import CninfoProvider, TushareFastProvider
+from app.providers import AkshareFastProvider, CninfoProvider
 from app.repositories.enterprise_repository import EnterpriseRepository
 
 
@@ -20,10 +20,12 @@ class AuditSyncService:
     SYNC_FETCHED = "fetched"
     SYNC_STORED = "stored"
     SYNC_PARSE_QUEUED = "parse_queued"
+    SYNC_PARSE_FAILED = "parse_failed"
+    DISABLED_SOURCES = {"tushare_fast"}
 
     def __init__(self) -> None:
         self.providers = {
-            "tushare_fast": TushareFastProvider(),
+            "akshare_fast": AkshareFastProvider(),
             "cninfo": CninfoProvider(),
         }
 
@@ -39,32 +41,51 @@ class AuditSyncService:
         if enterprise is None:
             raise ValueError("Enterprise not found")
 
-        effective_sources = [source for source in (sources or ["tushare_fast", "cninfo"]) if source in self.providers]
-        if not effective_sources:
-            raise ValueError("No supported sync sources selected")
+        requested_sources = sources or ["akshare_fast", "cninfo"]
+        disabled = [source for source in requested_sources if source in self.DISABLED_SOURCES]
+        if disabled:
+            raise RuntimeError(f"Unsupported source for phase 1: {', '.join(disabled)}")
+
+        unsupported = [source for source in requested_sources if source not in self.providers]
+        if unsupported:
+            raise ValueError(f"Unsupported sync source: {', '.join(unsupported)}")
 
         effective_date_to = date_to or date.today()
         effective_date_from = date_from or (effective_date_to - timedelta(days=settings.sync_lookback_days))
 
-        profile_updated = False
-        documents_stored = 0
-        events_stored = 0
+        company_profile_updated = False
+        documents_found = 0
+        documents_inserted = 0
+        events_found = 0
+        events_inserted = 0
         parse_queued = 0
+        warnings: list[str] = []
+        errors: list[str] = []
 
         enterprise.sync_status = self.SYNC_PENDING
         db.flush()
 
-        for source_name in effective_sources:
+        for source_name in requested_sources:
             provider = self.providers[source_name]
-            profile_payload = provider.fetch_company_profile(enterprise.ticker)
-            if profile_payload:
-                self._apply_profile(enterprise, profile_payload, provider.priority, provider.is_official_source)
-                profile_updated = True
+            try:
+                profile_payload = provider.fetch_company_profile(enterprise.ticker)
+                if profile_payload:
+                    self._apply_profile(enterprise, profile_payload, provider.priority, provider.is_official_source)
+                    company_profile_updated = True
+            except Exception as exc:
+                warnings.append(f"{source_name} profile sync failed: {exc}")
+                continue
 
-            announcements = provider.fetch_announcements(enterprise.ticker, effective_date_from, effective_date_to)
+            try:
+                announcements = provider.fetch_announcements(enterprise.ticker, effective_date_from, effective_date_to)
+            except Exception as exc:
+                errors.append(f"{source_name} announcement sync failed: {exc}")
+                continue
+
             for item in announcements:
                 category = item.get("category") or "other"
                 if category == "document":
+                    documents_found += 1
                     document, created = self._upsert_document(
                         db=db,
                         enterprise=enterprise,
@@ -74,10 +95,11 @@ class AuditSyncService:
                         payload=item,
                     )
                     if created:
-                        documents_stored += 1
+                        documents_inserted += 1
                     if document.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
                 elif category == "penalty":
+                    events_found += 1
                     event, created = self._upsert_event(
                         db=db,
                         enterprise=enterprise,
@@ -87,24 +109,26 @@ class AuditSyncService:
                         payload=item,
                     )
                     if created:
-                        events_stored += 1
+                        events_inserted += 1
                     if event.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
 
-        enterprise.sync_status = self.SYNC_STORED
+        enterprise.sync_status = self.SYNC_STORED if not errors else self.SYNC_FETCHED
         enterprise.latest_sync_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(enterprise)
 
         return {
-            "company_id": enterprise.id,
-            "company_name": enterprise.name,
-            "sources": effective_sources,
-            "profile_updated": profile_updated,
-            "documents_stored": documents_stored,
-            "events_stored": events_stored,
+            "enterprise_id": enterprise.id,
+            "sources": requested_sources,
+            "company_profile_updated": company_profile_updated,
+            "documents_found": documents_found,
+            "documents_inserted": documents_inserted,
+            "events_found": events_found,
+            "events_inserted": events_inserted,
             "parse_queued": parse_queued,
-            "message": f"Stored {documents_stored} documents and {events_stored} events.",
+            "warnings": warnings,
+            "errors": errors,
         }
 
     def _apply_profile(
@@ -124,6 +148,9 @@ class AuditSyncService:
             enterprise.province = payload["province"]
         if payload.get("listed_date"):
             enterprise.listed_date = date.fromisoformat(payload["listed_date"])
+        aliases = payload.get("company_name_aliases")
+        if aliases:
+            enterprise.company_name_aliases = aliases
         enterprise.source_url = payload.get("source_url") or enterprise.source_url
         enterprise.source_priority = max(enterprise.source_priority or 0, priority)
         enterprise.is_official_source = official or enterprise.is_official_source
@@ -182,13 +209,20 @@ class AuditSyncService:
             "source_provider": provider_name,
         }
         file_url = payload.get("document_url")
+        document.file_url = file_url
+        document.file_name = self._infer_file_name(document.document_name, file_url)
+        document.mime_type = self._infer_mime_type(file_url)
         if file_url:
-            file_path, file_hash = self._download_file(file_url, enterprise.id, document.document_name)
+            file_path, file_hash, file_size, download_status = self._download_file(file_url, enterprise.id, document.file_name or document.document_name)
             if file_path:
                 document.file_path = str(file_path)
             if file_hash:
                 document.file_hash = file_hash
-        document.sync_status = self.SYNC_PARSE_QUEUED
+            document.file_size = file_size
+            document.download_status = download_status
+        else:
+            document.download_status = "missing"
+        document.sync_status = self.SYNC_PARSE_QUEUED if document.file_path or document.content_text else self.SYNC_FETCHED
         if created:
             db.add(document)
         db.flush()
@@ -298,21 +332,25 @@ class AuditSyncService:
         )
         return db.scalar(stmt)
 
-    def _download_file(self, url: str, enterprise_id: int, title: str) -> tuple[Path | None, str | None]:
-        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in title)[:80] or "document"
-        suffix = ".pdf" if url.lower().endswith(".pdf") else ".bin"
+    def _download_file(
+        self,
+        url: str,
+        enterprise_id: int,
+        file_name: str,
+    ) -> tuple[Path | None, str | None, int | None, str]:
+        safe_name = self._sanitize_file_name(file_name)
         target_dir = settings.uploads_dir / "synced" / str(enterprise_id)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{safe_name}{suffix}"
+        target_path = target_dir / safe_name
         try:
             with httpx.Client(timeout=30.0, follow_redirects=True) as client:
                 response = client.get(url)
                 response.raise_for_status()
                 content = response.content
             target_path.write_bytes(content)
-            return target_path, hashlib.sha256(content).hexdigest()
+            return target_path, hashlib.sha256(content).hexdigest(), len(content), "downloaded"
         except Exception:
-            return None, None
+            return None, None, None, "failed"
 
     @staticmethod
     def _content_hash(title: Any, announcement_date: str, content: str) -> str:
@@ -343,3 +381,22 @@ class AuditSyncService:
         if any(keyword in title for keyword in ("监管", "警示函", "问询")):
             return "medium"
         return "low"
+
+    @staticmethod
+    def _infer_file_name(title: str, file_url: str | None) -> str:
+        if file_url:
+            suffix = Path(file_url.split("?")[0]).suffix
+            if suffix:
+                return f"{title}{suffix}"
+        return f"{title}.pdf"
+
+    @staticmethod
+    def _infer_mime_type(file_url: str | None) -> str:
+        if file_url and file_url.lower().endswith(".pdf"):
+            return "application/pdf"
+        return "application/octet-stream"
+
+    @staticmethod
+    def _sanitize_file_name(file_name: str) -> str:
+        sanitized = "".join(char if char.isalnum() or char in ("-", "_", ".", " ") else "_" for char in file_name).strip()
+        return sanitized[:180] or "document.pdf"

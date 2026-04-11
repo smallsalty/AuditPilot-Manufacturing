@@ -26,9 +26,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_MODEL", "GLM_MODEL"),
     )
     akshare_enable: bool = Field(default=True, alias="AKSHARE_ENABLE")
-    tushare_enable: bool = Field(default=False, alias="TUSHARE_ENABLE")
-    tushare_token: str = Field(default="", alias="TUSHARE_TOKEN")
-    tushare_base_url: str = Field(default="http://api.tushare.pro", alias="TUSHARE_BASE_URL")
     cninfo_enable: bool = Field(default=True, alias="CNINFO_ENABLE")
     cninfo_query_url: str = Field(
         default="https://www.cninfo.com.cn/new/hisAnnouncement/query",

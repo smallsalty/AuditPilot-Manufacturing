@@ -35,6 +35,7 @@ export default function EnterpriseDetailPage({ params }: { params: { id: string 
   const [state, setState] = useState<PageState>(initialState);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncSummary, setSyncSummary] = useState<SyncCompanyPayload | null>(null);
 
   useEffect(() => {
     if (Number.isFinite(enterpriseId)) {
@@ -84,9 +85,13 @@ export default function EnterpriseDetailPage({ params }: { params: { id: string 
     setSyncMessage(null);
     try {
       const result: SyncCompanyPayload = await api.syncCompany(enterpriseId);
-      setSyncMessage(result.message);
+      setSyncSummary(result);
+      setSyncMessage(
+        `Profile updated: ${result.company_profile_updated ? "yes" : "no"}, documents ${result.documents_inserted}/${result.documents_found}, events ${result.events_inserted}/${result.events_found}, parse queued ${result.parse_queued}.`,
+      );
       await load();
     } catch (error) {
+      setSyncSummary(null);
       setSyncMessage(error instanceof Error ? error.message : "Sync failed.");
     } finally {
       setSyncing(false);
@@ -110,6 +115,20 @@ export default function EnterpriseDetailPage({ params }: { params: { id: string 
                 : "Profile, reports, regulatory signals, and sync status."}
             </p>
             {syncMessage ? <p className="mt-3 text-sm text-amber-200">{syncMessage}</p> : null}
+            {syncSummary && (syncSummary.warnings.length > 0 || syncSummary.errors.length > 0) ? (
+              <div className="mt-3 space-y-2 text-sm">
+                {syncSummary.warnings.map((item) => (
+                  <p key={item} className="text-amber-100">
+                    Warning: {item}
+                  </p>
+                ))}
+                {syncSummary.errors.map((item) => (
+                  <p key={item} className="text-red-200">
+                    Error: {item}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </div>
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => void load()} disabled={state.loading || syncing}>

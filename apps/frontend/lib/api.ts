@@ -65,7 +65,7 @@ export const api = {
   getRiskSummary: (enterpriseId: number) => request<RiskSummaryPayload>(`/companies/${enterpriseId}/risk-summary`),
   getEnterpriseDocuments: (enterpriseId: number) =>
     request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`),
-  syncCompany: (enterpriseId: number, sources: string[] = ["tushare_fast", "cninfo"]) =>
+  syncCompany: (enterpriseId: number, sources: string[] = ["akshare_fast", "cninfo"]) =>
     request<SyncCompanyPayload>(`/sync/company`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

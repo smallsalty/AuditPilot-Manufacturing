@@ -26,7 +26,11 @@ class DocumentService:
         document = DocumentMeta(
             enterprise_id=enterprise_id,
             document_name=filename,
+            file_name=filename,
             file_path=str(file_path),
+            mime_type="application/pdf" if filename.lower().endswith(".pdf") else "text/plain",
+            file_size=len(file_bytes),
+            download_status="uploaded",
             parse_status="uploaded",
             source="upload",
         )
@@ -128,7 +132,7 @@ class DocumentService:
             document = db.get(DocumentMeta, document.id)
             if document is not None:
                 document.parse_status = "failed"
-                document.sync_status = "failed"
+                document.sync_status = "parse_failed"
                 db.commit()
             raise
 

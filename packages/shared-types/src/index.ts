@@ -177,12 +177,14 @@ export type RiskSummaryPayload = {
 };
 
 export type SyncCompanyPayload = {
-  company_id: number;
-  company_name: string;
+  enterprise_id: number;
   sources: string[];
-  profile_updated: boolean;
-  documents_stored: number;
-  events_stored: number;
+  company_profile_updated: boolean;
+  documents_found: number;
+  documents_inserted: number;
+  events_found: number;
+  events_inserted: number;
   parse_queued: number;
-  message: string;
+  warnings: string[];
+  errors: string[];
 };
