@@ -19,6 +19,7 @@ const NAV_ITEMS = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { currentEnterprise, currentEnterpriseId, enterpriseLoading } = useEnterpriseContext();
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(217,119,6,0.22),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.15),_transparent_28%),linear-gradient(180deg,_#09111f_0%,_#0f172a_55%,_#111827_100%)] text-white">
       <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-5 py-6 lg:px-8">
@@ -32,6 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <h1 className="text-xl font-semibold text-white">Manufacturing</h1>
             </div>
           </div>
+
           <nav className="space-y-2">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -51,30 +53,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
+
           <div className="mt-6">
             <EnterpriseSwitcher />
           </div>
+
           <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
             <p className="mb-2 text-xs uppercase tracking-[0.24em] text-steel">Current Enterprise</p>
             {enterpriseLoading ? (
-              <p>正在初始化企业上下文...</p>
+              <p>Initializing enterprise context...</p>
             ) : currentEnterprise ? (
               <>
                 <p className="font-medium text-white">{currentEnterprise.name}</p>
                 <p className="mt-1 text-haze/75">
                   {currentEnterprise.ticker} | {currentEnterprise.industry_tag}
                 </p>
-                <p className="mt-2 text-xs text-steel">企业 ID：{currentEnterpriseId}</p>
+                <p className="mt-2 text-xs text-steel">Enterprise ID: {currentEnterpriseId}</p>
+                <Link
+                  href={`/enterprises/${currentEnterpriseId}`}
+                  className="mt-3 inline-flex text-xs text-amber-300 transition hover:text-amber-200"
+                >
+                  View audit overview
+                </Link>
               </>
             ) : (
-              <p>暂无可用企业，请先导入或 seed 数据。</p>
+              <p>No enterprise is available. Seed or sync data first.</p>
             )}
           </div>
+
           <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
             <p className="mb-2 text-xs uppercase tracking-[0.24em] text-steel">Demo Flow</p>
-            <p>导入数据、运行分析、查看重点、继续追问，形成完整审计前期风险识别闭环。</p>
+            <p>Sync source data, run risk analysis, inspect audit focus, and continue with AI Q&A.</p>
           </div>
         </aside>
+
         <main className="flex-1">{children}</main>
       </div>
     </div>

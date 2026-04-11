@@ -26,6 +26,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_MODEL", "GLM_MODEL"),
     )
     akshare_enable: bool = Field(default=True, alias="AKSHARE_ENABLE")
+    tushare_enable: bool = Field(default=False, alias="TUSHARE_ENABLE")
+    tushare_token: str = Field(default="", alias="TUSHARE_TOKEN")
+    tushare_base_url: str = Field(default="http://api.tushare.pro", alias="TUSHARE_BASE_URL")
+    cninfo_enable: bool = Field(default=True, alias="CNINFO_ENABLE")
+    cninfo_query_url: str = Field(
+        default="https://www.cninfo.com.cn/new/hisAnnouncement/query",
+        alias="CNINFO_QUERY_URL",
+    )
+    cninfo_static_base_url: str = Field(default="https://static.cninfo.com.cn", alias="CNINFO_STATIC_BASE_URL")
+    sync_lookback_days: int = Field(default=7, alias="SYNC_LOOKBACK_DAYS")
     embedding_model_name: str = Field(default="hashing-zh-demo", alias="EMBEDDING_MODEL_NAME")
     backend_cors_origins_raw: str = Field(default="http://localhost:3000", alias="BACKEND_CORS_ORIGINS")
 

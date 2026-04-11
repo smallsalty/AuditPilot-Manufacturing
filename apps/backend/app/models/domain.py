@@ -1,7 +1,7 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -23,6 +23,16 @@ class EnterpriseProfile(TimestampMixin, Base):
     employee_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     portrait: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    parser_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ingestion_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_official_source: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_object_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    credit_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    company_name_aliases: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    latest_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     financial_indicators: Mapped[list["FinancialIndicator"]] = relationship(back_populates="enterprise")
     external_events: Mapped[list["ExternalEvent"]] = relationship(back_populates="enterprise")
@@ -60,6 +70,17 @@ class ExternalEvent(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="mock")
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    parser_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ingestion_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_official_source: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_object_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    announcement_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    regulator: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     enterprise: Mapped["EnterpriseProfile"] = relationship(back_populates="external_events")
 
@@ -76,6 +97,19 @@ class DocumentMeta(TimestampMixin, Base):
     parse_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    parser_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ingestion_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_official_source: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_object_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    announcement_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    report_period_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     enterprise: Mapped["EnterpriseProfile"] = relationship(back_populates="documents")
     extracts: Mapped[list["DocumentExtractResult"]] = relationship(back_populates="document")
@@ -231,4 +265,3 @@ class AnalysisRun(TimestampMixin, Base):
     trigger_source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-

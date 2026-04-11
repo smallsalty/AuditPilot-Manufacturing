@@ -126,3 +126,63 @@ export type EnterpriseContextState = {
   enterpriseLoading: boolean;
   enterpriseError?: string | null;
 };
+
+export type AuditProfilePayload = {
+  company: {
+    id: number;
+    name: string;
+    ticker: string;
+    industry_tag: string;
+    exchange: string;
+    report_year: number;
+    province?: string | null;
+    city?: string | null;
+    listed_date?: string | null;
+    description?: string | null;
+  };
+  sync_status: string;
+  source_priority: number;
+  is_official_source: boolean;
+  latest_sync_at?: string | null;
+  document_count: number;
+  penalty_count: number;
+  latest_document_date?: string | null;
+  latest_penalty_date?: string | null;
+};
+
+export type AuditTimelineItem = {
+  id: string;
+  item_type: "document" | "event" | string;
+  title: string;
+  date?: string | null;
+  source: string;
+  status: string;
+  summary: string;
+  source_url?: string | null;
+  document_type?: string | null;
+  event_type?: string | null;
+  severity?: string | null;
+  is_official_source?: boolean;
+};
+
+export type RiskSummaryPayload = {
+  document_count: number;
+  penalty_count: number;
+  official_document_count: number;
+  high_severity_penalty_count: number;
+  sync_status: string;
+  highlights: string[];
+  document_breakdown: Record<string, number>;
+  severity_breakdown: Record<string, number>;
+};
+
+export type SyncCompanyPayload = {
+  company_id: number;
+  company_name: string;
+  sources: string[];
+  profile_updated: boolean;
+  documents_stored: number;
+  events_stored: number;
+  parse_queued: number;
+  message: string;
+};

@@ -1,13 +1,17 @@
 import type {
   AnalysisStatus,
   AuditFocusPayload,
+  AuditProfilePayload,
+  AuditTimelineItem,
   ChatAnswerPayload,
   DashboardPayload,
   DocumentListItem,
   EnterpriseDetail,
   EnterpriseSearchItem,
   EnterpriseSummary,
+  RiskSummaryPayload,
   RiskResultPayload,
+  SyncCompanyPayload,
 } from "@auditpilot/shared-types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -56,8 +60,17 @@ export const api = {
     request<EnterpriseSearchItem[]>(`/enterprises${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),
   getEnterprise: (enterpriseId: number) => request<EnterpriseDetail>(`/enterprises/${enterpriseId}`),
   getDashboard: (enterpriseId: number) => request<DashboardPayload>(`/enterprises/${enterpriseId}/dashboard`),
+  getAuditProfile: (enterpriseId: number) => request<AuditProfilePayload>(`/companies/${enterpriseId}/audit-profile`),
+  getTimeline: (enterpriseId: number) => request<AuditTimelineItem[]>(`/companies/${enterpriseId}/timeline`),
+  getRiskSummary: (enterpriseId: number) => request<RiskSummaryPayload>(`/companies/${enterpriseId}/risk-summary`),
   getEnterpriseDocuments: (enterpriseId: number) =>
     request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`),
+  syncCompany: (enterpriseId: number, sources: string[] = ["tushare_fast", "cninfo"]) =>
+    request<SyncCompanyPayload>(`/sync/company`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company_id: enterpriseId, sources }),
+    }),
   runRiskAnalysis: (enterpriseId: number) => request<RiskRunResponse>(`/risk-analysis/${enterpriseId}/run`, { method: "POST" }),
   getRiskResults: (enterpriseId: number) => request<RiskResultPayload[]>(`/risk-analysis/${enterpriseId}/results`),
   getAuditFocus: (enterpriseId: number) => request<AuditFocusPayload>(`/audit-focus/${enterpriseId}`),
