@@ -180,6 +180,7 @@ export type SyncCompanyPayload = {
   enterprise_id: number;
   sources: string[];
   company_profile_updated: boolean;
+  announcements_fetched: number;
   documents_found: number;
   documents_inserted: number;
   events_found: number;

@@ -51,9 +51,10 @@ class AuditSyncService:
             raise ValueError(f"Unsupported sync source: {', '.join(unsupported)}")
 
         effective_date_to = date_to or date.today()
-        effective_date_from = date_from or (effective_date_to - timedelta(days=settings.sync_lookback_days))
+        effective_date_from = date_from or self._default_date_from(db, enterprise, effective_date_to)
 
         company_profile_updated = False
+        announcements_fetched = 0
         documents_found = 0
         documents_inserted = 0
         events_found = 0
@@ -67,6 +68,8 @@ class AuditSyncService:
 
         for source_name in requested_sources:
             provider = self.providers[source_name]
+            source_documents_found = 0
+            source_events_found = 0
             try:
                 profile_payload = provider.fetch_company_profile(enterprise.ticker)
                 if profile_payload:
@@ -81,11 +84,18 @@ class AuditSyncService:
             except Exception as exc:
                 errors.append(f"{source_name} announcement sync failed: {exc}")
                 continue
+            announcements_fetched += len(announcements)
+            if not announcements:
+                warnings.append(
+                    f"{source_name} returned no target announcements for {enterprise.ticker} in "
+                    f"{effective_date_from.isoformat()}~{effective_date_to.isoformat()}."
+                )
 
             for item in announcements:
                 category = item.get("category") or "other"
                 if category == "document":
                     documents_found += 1
+                    source_documents_found += 1
                     document, created = self._upsert_document(
                         db=db,
                         enterprise=enterprise,
@@ -100,6 +110,7 @@ class AuditSyncService:
                         parse_queued += 1
                 elif category == "penalty":
                     events_found += 1
+                    source_events_found += 1
                     event, created = self._upsert_event(
                         db=db,
                         enterprise=enterprise,
@@ -112,6 +123,11 @@ class AuditSyncService:
                         events_inserted += 1
                     if event.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
+            if announcements and source_documents_found == 0 and source_events_found == 0:
+                warnings.append(
+                    f"{source_name} fetched {len(announcements)} announcements for {enterprise.ticker}, "
+                    "but none matched document or penalty classification."
+                )
 
         enterprise.sync_status = self.SYNC_STORED if not errors else self.SYNC_FETCHED
         enterprise.latest_sync_at = datetime.now(timezone.utc)
@@ -122,6 +138,7 @@ class AuditSyncService:
             "enterprise_id": enterprise.id,
             "sources": requested_sources,
             "company_profile_updated": company_profile_updated,
+            "announcements_fetched": announcements_fetched,
             "documents_found": documents_found,
             "documents_inserted": documents_inserted,
             "events_found": events_found,
@@ -130,6 +147,24 @@ class AuditSyncService:
             "warnings": warnings,
             "errors": errors,
         }
+
+    def _default_date_from(
+        self,
+        db: Session,
+        enterprise: EnterpriseProfile,
+        effective_date_to: date,
+    ) -> date:
+        existing_document = db.scalar(
+            select(DocumentMeta.id).where(DocumentMeta.enterprise_id == enterprise.id).limit(1)
+        )
+        existing_event = db.scalar(
+            select(ExternalEvent.id).where(ExternalEvent.enterprise_id == enterprise.id).limit(1)
+        )
+        if existing_document or existing_event:
+            lookback_days = settings.sync_lookback_days
+        else:
+            lookback_days = settings.sync_initial_lookback_days
+        return effective_date_to - timedelta(days=lookback_days)
 
     def _apply_profile(
         self,

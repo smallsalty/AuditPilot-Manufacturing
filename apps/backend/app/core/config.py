@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     )
     cninfo_static_base_url: str = Field(default="https://static.cninfo.com.cn", alias="CNINFO_STATIC_BASE_URL")
     sync_lookback_days: int = Field(default=7, alias="SYNC_LOOKBACK_DAYS")
+    sync_initial_lookback_days: int = Field(default=365, alias="SYNC_INITIAL_LOOKBACK_DAYS")
     embedding_model_name: str = Field(default="hashing-zh-demo", alias="EMBEDDING_MODEL_NAME")
     backend_cors_origins_raw: str = Field(default="http://localhost:3000", alias="BACKEND_CORS_ORIGINS")
 

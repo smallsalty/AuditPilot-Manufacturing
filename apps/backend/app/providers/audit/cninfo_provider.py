@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -13,6 +14,7 @@ class CninfoProvider(BaseAuditProvider):
     provider_name = "cninfo"
     priority = 100
     is_official_source = True
+    stock_list_url = "https://www.cninfo.com.cn/new/data/szse_stock.json"
 
     DOCUMENT_KEYWORDS = ("年度报告", "年报", "审计报告", "内控审计", "审阅报告")
     PENALTY_KEYWORDS = ("处罚", "监管", "警示函", "问询函", "监管函", "纪律处分", "立案")
@@ -43,13 +45,18 @@ class CninfoProvider(BaseAuditProvider):
     def fetch_announcements(self, ticker: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
         if not self.enabled:
             return []
+
+        stock_param = self._build_stock_param(ticker)
+        if not stock_param:
+            raise ValueError(f"Unable to resolve cninfo stock mapping for {ticker}")
+
         payload = {
             "pageNum": 1,
             "pageSize": 50,
             "column": "sse" if ticker.upper().endswith(".SH") else "szse",
             "tabName": "fulltext",
             "plate": "",
-            "stock": self._build_stock_param(ticker),
+            "stock": stock_param,
             "searchkey": "",
             "category": "",
             "seDate": f"{date_from.isoformat()}~{date_to.isoformat()}",
@@ -59,7 +66,9 @@ class CninfoProvider(BaseAuditProvider):
             response = client.post(self.query_url, data=payload)
             response.raise_for_status()
             data = response.json()
+
         rows = data.get("announcements") or []
+        total_record_num = int(data.get("totalRecordNum") or 0)
         announcements: list[dict[str, Any]] = []
         for row in rows:
             title = str(row.get("announcementTitle") or row.get("announcementTitleCn") or "").strip()
@@ -82,14 +91,21 @@ class CninfoProvider(BaseAuditProvider):
                     "event_type": "regulatory_penalty" if category == "penalty" else None,
                     "summary": title,
                     "regulator": "cninfo",
+                    "diagnostics": {
+                        "stock": stock_param,
+                        "seDate": payload["seDate"],
+                        "totalRecordNum": total_record_num,
+                    },
                 }
             )
         return announcements
 
-    def _build_stock_param(self, ticker: str) -> str:
-        code, suffix = ticker.split(".", 1)
-        exchange_prefix = "gssh" if suffix.upper() == "SH" else "szse"
-        return f"{code},{exchange_prefix}{code}"
+    def _build_stock_param(self, ticker: str) -> str | None:
+        code = ticker.split(".", 1)[0].strip()
+        org_id = self._load_stock_mapping().get(code)
+        if not org_id:
+            return None
+        return f"{code},{org_id}"
 
     def _build_document_url(self, adjunct_url: Any) -> str | None:
         value = str(adjunct_url or "").strip()
@@ -113,3 +129,26 @@ class CninfoProvider(BaseAuditProvider):
         if any(keyword in title for keyword in self.DOCUMENT_KEYWORDS):
             return "document"
         return "other"
+
+    @classmethod
+    @lru_cache(maxsize=1)
+    def _load_stock_mapping(cls) -> dict[str, str]:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+            ),
+            "Referer": "https://www.cninfo.com.cn/",
+        }
+        with httpx.Client(timeout=20.0, headers=headers) as client:
+            response = client.get(cls.stock_list_url)
+            response.raise_for_status()
+            payload = response.json()
+        rows = payload.get("stockList") or []
+        mapping: dict[str, str] = {}
+        for row in rows:
+            code = str(row.get("code") or "").strip()
+            org_id = str(row.get("orgId") or "").strip()
+            if code and org_id:
+                mapping[code] = org_id
+        return mapping

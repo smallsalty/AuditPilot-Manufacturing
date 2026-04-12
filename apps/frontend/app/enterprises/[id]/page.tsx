@@ -87,7 +87,7 @@ export default function EnterpriseDetailPage({ params }: { params: { id: string 
       const result: SyncCompanyPayload = await api.syncCompany(enterpriseId);
       setSyncSummary(result);
       setSyncMessage(
-        `Profile updated: ${result.company_profile_updated ? "yes" : "no"}, documents ${result.documents_inserted}/${result.documents_found}, events ${result.events_inserted}/${result.events_found}, parse queued ${result.parse_queued}.`,
+        `Profile updated: ${result.company_profile_updated ? "yes" : "no"}, announcements ${result.announcements_fetched}, documents ${result.documents_inserted}/${result.documents_found}, events ${result.events_inserted}/${result.events_found}, parse queued ${result.parse_queued}.`,
       );
       await load();
     } catch (error) {
