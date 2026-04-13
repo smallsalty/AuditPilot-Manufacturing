@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import AnalysisRun, DocumentMeta, EnterpriseProfile, ExternalEvent, FinancialIndicator
@@ -43,6 +43,8 @@ class EnterpriseRepository:
                     or_(
                         func.replace(func.lower(EnterpriseProfile.name), " ", "").contains(normalized),
                         func.replace(func.lower(EnterpriseProfile.ticker), " ", "").contains(normalized),
+                        func.replace(func.lower(func.coalesce(EnterpriseProfile.description, "")), " ", "").contains(normalized),
+                        func.lower(func.coalesce(EnterpriseProfile.company_name_aliases.cast(String), "")).contains(normalized),
                     )
                 )
         stmt = stmt.order_by(EnterpriseProfile.id)

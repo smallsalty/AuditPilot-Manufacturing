@@ -6,7 +6,7 @@ import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { useDashboardResource, useDocumentsResource, useReadinessResource } from "@/lib/enterprise-resources";
+import { useDocumentsResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -17,9 +17,9 @@ type ChatMessage = {
 };
 
 const SUGGESTED_QUESTIONS = [
-  "这家公司最值得关注的三个风险是什么？",
-  "为什么系统判定存货风险较高？",
-  "建议优先执行哪些审计程序？",
+  "这家公司当前最值得关注的三项审计风险是什么？",
+  "文档里哪些披露最需要进一步复核？",
+  "下一步应优先执行哪些审计程序？",
 ];
 
 const BASIS_LEVEL_LABELS: Record<string, string> = {
@@ -31,7 +31,6 @@ const BASIS_LEVEL_LABELS: Record<string, string> = {
 export default function ChatPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError } = useEnterpriseContext();
   const { data: readiness, loading: readinessLoading, error: readinessError } = useReadinessResource(currentEnterpriseId);
-  const { data: dashboard, loading: dashboardLoading } = useDashboardResource(currentEnterpriseId);
   const { data: documents, loading: documentsLoading } = useDocumentsResource(currentEnterpriseId);
 
   const [question, setQuestion] = useState("");
@@ -52,7 +51,7 @@ export default function ChatPage() {
     if (!currentEnterpriseId || !currentEnterprise) {
       return { kind: "empty", message: "请先选择企业。" };
     }
-    if (readinessLoading || dashboardLoading || documentsLoading) {
+    if (readinessLoading || documentsLoading) {
       return { kind: "loading", message: "正在初始化问答上下文..." };
     }
     if (readinessError) {
@@ -61,40 +60,14 @@ export default function ChatPage() {
     if (!readiness?.profile_ready) {
       return { kind: "empty", message: "当前企业主数据尚未就绪，请先同步源数据。" };
     }
-    if (readiness.risk_analysis_status === "running") {
-      return { kind: "waiting", message: "风险分析正在执行中，完成后即可基于结果问答。" };
+    if ((documents?.length ?? 0) === 0 && !readiness.qa_ready) {
+      return { kind: "empty", message: "当前企业还没有可用于问答的文档或风险依据。" };
     }
-    if (readiness.risk_analysis_status === "failed") {
-      return { kind: "error", message: dashboard?.last_error ?? "最近一次风险分析失败，请先重新运行分析。" };
-    }
-    if (readiness.risk_analysis_status !== "completed") {
-      return { kind: "empty", message: "当前企业尚未完成风险分析，请先运行风险分析。" };
-    }
-    if ((documents?.length ?? 0) === 0) {
-      return {
-        kind: "structured_only",
-        message: "当前仅可基于结构化风险结果问答。若需要官方文档证据，请先同步巨潮或上传文档。",
-      };
-    }
-    return {
-      kind: "ready",
-      message: "问答将优先引用官方文档、监管公告和结构化风险结果。",
-    };
-  }, [
-    currentEnterprise,
-    currentEnterpriseId,
-    dashboard?.last_error,
-    dashboardLoading,
-    documents,
-    documentsLoading,
-    enterpriseError,
-    readiness,
-    readinessError,
-    readinessLoading,
-  ]);
+    return { kind: "ready", message: "问答将优先引用官方文档抽取、文档风险和结构化风险结果。" };
+  }, [currentEnterprise, currentEnterpriseId, documents, documentsLoading, enterpriseError, readiness, readinessError, readinessLoading]);
 
   const send = async (preset?: string) => {
-    if (!currentEnterpriseId || loading || (pageState.kind !== "ready" && pageState.kind !== "structured_only")) {
+    if (!currentEnterpriseId || loading || pageState.kind !== "ready") {
       return;
     }
     const currentQuestion = (preset ?? question).trim();
@@ -137,7 +110,7 @@ export default function ChatPage() {
             企业代码：{currentEnterprise.ticker} | 官方文档 {readiness?.official_doc_count ?? 0} 份
           </p>
         ) : null}
-        {(pageState.kind === "ready" || pageState.kind === "structured_only") && (
+        {pageState.kind === "ready" && (
           <div className="mt-5 flex flex-wrap gap-3">
             {SUGGESTED_QUESTIONS.map((item) => (
               <button
@@ -152,7 +125,7 @@ export default function ChatPage() {
         )}
       </Card>
 
-      {pageState.kind === "loading" || pageState.kind === "empty" || pageState.kind === "waiting" ? (
+      {pageState.kind === "loading" || pageState.kind === "empty" ? (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">{pageState.message}</div>
         </Card>
@@ -226,7 +199,7 @@ export default function ChatPage() {
               placeholder="请输入问题，例如：为什么判定收入确认风险较高？"
               className="flex-1 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-amber-400/50"
             />
-            <Button onClick={() => void send()} disabled={loading || pageState.kind === "error"} className="h-fit lg:self-end">
+            <Button onClick={() => void send()} disabled={loading || pageState.kind !== "ready"} className="h-fit lg:self-end">
               {loading ? "生成中..." : "发送问题"}
             </Button>
           </div>

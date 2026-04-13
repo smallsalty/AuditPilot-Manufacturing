@@ -21,77 +21,49 @@ export default function RisksPage() {
     useRiskResultsResource(currentEnterpriseId);
 
   const [running, setRunning] = useState(false);
-  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [displayRisks, setDisplayRisks] = useState<RiskResultPayload[]>([]);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState("请先选择企业并准备官方数据。");
+  const [actionMessage, setActionMessage] = useState("请选择企业并准备官方文档。");
 
   useEffect(() => {
     setDisplayRisks(risks ?? []);
   }, [currentEnterpriseId, risks]);
 
   useEffect(() => {
-    if (!currentEnterprise) {
+    if (!currentEnterpriseId) {
       setActionMessage("请先选择企业。");
       return;
     }
     if (running) {
-      setActionMessage("正在执行风险分析...");
+      setActionMessage("正在执行风险分析并合并文档证据...");
       return;
     }
-    if (backgroundSyncing) {
-      setActionMessage("风险分析已完成，正在同步最新概览和结果。");
+    if (risksLoading || readinessLoading) {
+      setActionMessage("正在加载风险清单...");
       return;
     }
-    if (!readiness) {
-      setActionMessage("正在检查企业数据就绪状态...");
+    if (displayRisks.length > 0) {
+      setActionMessage(`当前已生成 ${displayRisks.length} 条风险项，优先展示文档证据和规则来源。`);
       return;
     }
-    if (!readiness.risk_analysis_ready) {
+    if (readiness && !readiness.risk_analysis_ready) {
       setActionMessage(readiness.risk_analysis_message);
       return;
     }
-    const status = dashboard?.analysis_status ?? readiness.risk_analysis_status ?? "not_started";
-    if (status === "running") {
-      setActionMessage("风险分析任务正在执行中，请稍后刷新。");
-    } else if (status === "failed") {
-      setActionMessage(dashboard?.last_error ?? "上一轮风险分析执行失败。");
-    } else if (status === "completed") {
-      setActionMessage(
-        dashboard?.last_run_at ? `最近分析时间：${new Date(dashboard.last_run_at).toLocaleString()}` : "分析已完成。",
-      );
-    } else {
-      setActionMessage(readiness.risk_analysis_message);
-    }
-  }, [backgroundSyncing, currentEnterprise, dashboard, readiness, running]);
+    setActionMessage("当前尚无风险项，可先运行风险分析或解析更多文档。");
+  }, [currentEnterpriseId, displayRisks.length, readiness, readinessLoading, risksLoading, running]);
 
   const runAnalysis = async () => {
     if (!currentEnterpriseId || running || !readiness?.risk_analysis_ready) {
       return;
     }
     setRunning(true);
-    setBackgroundSyncing(false);
-    setSyncError(null);
-    setActionMessage("正在同步 AkShare 财务数据...");
     try {
       await api.ingestFinancial(currentEnterpriseId);
       const result = await api.runRiskAnalysis(currentEnterpriseId);
       setDisplayRisks(result.results);
       setCachedResource("riskResults", currentEnterpriseId, result.results);
       invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "readiness"]);
-      setActionMessage(result.run.summary);
-      setBackgroundSyncing(true);
-      void Promise.allSettled([refreshDashboard(), refreshRisks(), refreshReadiness()]).then((results) => {
-        const rejected = results.find((item) => item.status === "rejected") as PromiseRejectedResult | undefined;
-        if (rejected) {
-          const message =
-            rejected.reason instanceof Error ? rejected.reason.message : "后台同步失败，可手动刷新页面重试。";
-          setSyncError(message);
-        } else {
-          setSyncError(null);
-        }
-        setBackgroundSyncing(false);
-      });
+      await Promise.allSettled([refreshDashboard(), refreshRisks(), refreshReadiness()]);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "风险分析运行失败。");
     } finally {
@@ -99,16 +71,7 @@ export default function RisksPage() {
     }
   };
 
-  const analysisStatus = dashboard?.analysis_status ?? readiness?.risk_analysis_status ?? "not_started";
-  const riskList = displayRisks;
-  const showEmpty =
-    !enterpriseError &&
-    !dashboardLoading &&
-    !risksLoading &&
-    analysisStatus === "completed" &&
-    riskList.length === 0;
-  const showInitialLoading = riskList.length === 0 && (dashboardLoading || risksLoading || readinessLoading);
-  const showResults = riskList.length > 0;
+  const showResults = displayRisks.length > 0;
 
   const pageTitle = useMemo(() => {
     if (!currentEnterprise) return "风险清单与证据";
@@ -126,81 +89,45 @@ export default function RisksPage() {
           </div>
           <Button
             onClick={runAnalysis}
-            disabled={running || analysisStatus === "running" || !currentEnterpriseId || !readiness?.risk_analysis_ready}
+            disabled={running || dashboard?.analysis_status === "running" || !currentEnterpriseId || !readiness?.risk_analysis_ready}
           >
-            {running || analysisStatus === "running" ? "分析中..." : "运行风险分析"}
+            {running || dashboard?.analysis_status === "running" ? "分析中..." : "运行风险分析"}
           </Button>
         </div>
       </Card>
 
-      {backgroundSyncing ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-            后台正在同步最新概览和风险结果，当前表格优先展示本次分析返回的数据。
-          </div>
-        </Card>
-      ) : null}
-
-      {syncError ? (
-        <Card>
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-            后台同步失败：{syncError}
-          </div>
-        </Card>
-      ) : null}
-
       {enterpriseError ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            企业列表加载失败：{enterpriseError}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">企业列表加载失败：{enterpriseError}</div>
         </Card>
       ) : !currentEnterpriseId ? (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">当前没有可用企业。</div>
         </Card>
-      ) : readinessError && !showResults ? (
+      ) : readinessError ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            企业状态加载失败：{readinessError}
-          </div>
-        </Card>
-      ) : showInitialLoading ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">正在加载风险清单...</div>
-        </Card>
-      ) : readiness && !readiness.risk_analysis_ready ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            {readiness.risk_analysis_message}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">企业状态加载失败：{readinessError}</div>
         </Card>
       ) : dashboardError && !showResults ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            概览数据加载失败：{dashboardError}
-          </div>
-        </Card>
-      ) : analysisStatus === "failed" ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            风险分析失败：{dashboard?.last_error ?? "请重新运行风险分析任务。"}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">概览数据加载失败：{dashboardError}</div>
         </Card>
       ) : risksError && !showResults ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            风险结果加载失败：{risksError}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">风险结果加载失败：{risksError}</div>
         </Card>
-      ) : showEmpty ? (
+      ) : dashboardLoading || risksLoading ? (
+        <Card>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">正在加载风险清单...</div>
+        </Card>
+      ) : showResults ? (
+        <RiskTable risks={displayRisks} />
+      ) : (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            当前企业已完成分析，但未生成可展示的风险条目。
+            当前企业尚无可展示风险项。只要完成文档抽取，风险页就会优先展示文档驱动的候选风险。
           </div>
         </Card>
-      ) : (
-        <RiskTable risks={riskList} />
       )}
     </div>
   );

@@ -105,7 +105,9 @@ export type RiskResultPayload = {
   risk_level: string;
   risk_score: number;
   source_type: string;
+  source_mode?: "document_rule" | "risk_analysis" | "hybrid" | string;
   reasons: string[];
+  summary?: string | null;
   evidence_chain: {
     evidence_id: string;
     evidence_type: EvidenceType;
@@ -117,6 +119,19 @@ export type RiskResultPayload = {
     content: string;
     report_period?: string | null;
   }[];
+  evidence?: {
+    evidence_id: string;
+    evidence_type: EvidenceType;
+    source?: string | null;
+    source_label?: string | null;
+    published_at?: string | null;
+    title: string;
+    snippet: string;
+    content: string;
+    report_period?: string | null;
+  }[];
+  source_rules?: string[];
+  source_documents?: { document_id: number; document_name: string }[];
   llm_summary?: string | null;
   llm_explanation?: string | Record<string, unknown> | null;
   focus_accounts: string[];
@@ -139,6 +154,17 @@ export type AuditFocusPayload = {
     text: string;
     sources: string[];
   }[];
+  items?: {
+    id: string;
+    title: string;
+    summary: string;
+    sources: string[];
+    evidence_preview?: string[];
+    expanded_sections?: {
+      title: string;
+      items: string[];
+    }[];
+  }[];
 };
 
 export type DocumentListItem = {
@@ -147,7 +173,24 @@ export type DocumentListItem = {
   document_type: string;
   parse_status: "uploaded" | "parsing" | "parsed" | "failed" | string;
   source: string;
+  supports_deep_dive?: boolean;
+  extract_status?: "ready" | "failed" | "pending" | string;
   created_at?: string | null;
+};
+
+export type DocumentExtractItem = {
+  id: number;
+  extract_type: string;
+  title: string;
+  problem_summary: string;
+  applied_rules: string[];
+  evidence_excerpt: string;
+  page_number?: number | null;
+  keywords?: string[] | null;
+  detail_level: "general" | "financial_deep_dive" | string;
+  financial_topics?: string[] | null;
+  note_refs?: string[] | null;
+  risk_points?: string[] | null;
 };
 
 export type ChatAnswerPayload = {

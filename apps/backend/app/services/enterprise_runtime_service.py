@@ -115,5 +115,5 @@ class EnterpriseRuntimeService:
             "last_sync_at": last_sync_at.isoformat() if last_sync_at else None,
             "last_sync_source": "cninfo" if official_doc_count or official_event_count else "akshare_fast",
             "risk_analysis_status": analysis_state["analysis_status"],
-            "qa_ready": analysis_state["analysis_status"] == "completed" and (official_doc_count > 0 or len(risk_results) > 0),
+            "qa_ready": official_doc_count > 0 or official_event_count > 0 or len(risk_results) > 0,
         }

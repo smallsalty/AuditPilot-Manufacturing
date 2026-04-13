@@ -104,6 +104,8 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
             "document_type": document.document_type,
             "parse_status": document.parse_status,
             "source": document.source,
+            "supports_deep_dive": document.document_type in {"annual_report", "interim_report", "quarter_report", "audit_report"},
+            "extract_status": "ready" if document.parse_status == "parsed" else ("failed" if document.parse_status == "failed" else "pending"),
             "created_at": document.created_at.isoformat() if document.created_at else None,
         }
         for document in documents

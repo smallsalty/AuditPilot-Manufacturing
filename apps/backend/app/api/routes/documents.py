@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -47,15 +48,39 @@ def get_document_extracts(document_id: int, db: Session = Depends(get_db)) -> di
     return {
         "document_id": document_id,
         "extracts": [
-            {
-                "id": extract.id,
-                "extract_type": extract.extract_type,
-                "title": extract.title,
-                "content": extract.content,
-                "page_number": extract.page_number,
-                "keywords": extract.keywords,
-            }
+            _serialize_extract(extract)
             for extract in extracts
         ],
     }
 
+
+def _serialize_extract(extract) -> dict:
+    try:
+        payload = json.loads(extract.content)
+        if not isinstance(payload, dict):
+            raise ValueError("invalid extract payload")
+    except Exception:
+        payload = {
+            "problem_summary": extract.content,
+            "applied_rules": [],
+            "evidence_excerpt": extract.content,
+            "detail_level": "general",
+            "financial_topics": [],
+            "note_refs": [],
+            "risk_points": [],
+        }
+
+    return {
+        "id": extract.id,
+        "extract_type": extract.extract_type,
+        "title": payload.get("title") or extract.title,
+        "problem_summary": payload.get("problem_summary") or extract.content,
+        "applied_rules": payload.get("applied_rules") or [],
+        "evidence_excerpt": payload.get("evidence_excerpt") or extract.content,
+        "page_number": payload.get("page_number", extract.page_number),
+        "keywords": payload.get("keywords") or extract.keywords,
+        "detail_level": payload.get("detail_level") or "general",
+        "financial_topics": payload.get("financial_topics") or [],
+        "note_refs": payload.get("note_refs") or [],
+        "risk_points": payload.get("risk_points") or [],
+    }

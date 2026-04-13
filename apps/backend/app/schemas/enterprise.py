@@ -38,6 +38,9 @@ class EnterpriseReadinessPayload(BaseModel):
     sync_status: str
     official_doc_count: int
     official_event_count: int
+    risk_analysis_ready: bool
+    risk_analysis_reason: str
+    risk_analysis_message: str
     last_sync_at: str | None = None
     last_sync_source: str | None = None
     risk_analysis_status: str

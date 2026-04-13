@@ -45,12 +45,10 @@ function parseUrlEnterpriseId(pathname: string, searchParams: URLSearchParams): 
   if (searchValue && Number.isFinite(Number(searchValue))) {
     return Number(searchValue);
   }
-
   const match = pathname.match(/\/enterprises\/(\d+)/);
   if (match) {
     return Number(match[1]);
   }
-
   return null;
 }
 
@@ -61,7 +59,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   const searchParamsKey = searchParams.toString();
 
   const [enterpriseOptions, setEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
-  const [allEnterpriseOptions, setAllEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
+  const [defaultEnterpriseOptions, setDefaultEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
   const [currentEnterpriseId, setCurrentEnterpriseId] = useState<number | null>(null);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [enterpriseLoading, setEnterpriseLoading] = useState(true);
@@ -69,6 +67,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
 
   const searchCacheRef = useRef<Map<string, { items: EnterpriseSearchItem[]; fetchedAt: number }>>(new Map());
   const autoSyncTriggeredRef = useRef<Set<number>>(new Set());
+  const initializedRef = useRef(false);
   const resourceCacheRef = useRef<{
     dashboard: Map<number, DashboardPayload>;
     riskResults: Map<number, RiskResultPayload[]>;
@@ -83,26 +82,28 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     readiness: new Map(),
   });
 
-  const urlEnterpriseId = useMemo(() => {
-    return parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey));
-  }, [pathname, searchParamsKey]);
+  const urlEnterpriseId = useMemo(() => parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey)), [pathname, searchParamsKey]);
 
   const refreshEnterpriseOptions = useCallback(async (query = "", options?: { force?: boolean }) => {
     const normalized = query.trim().toLowerCase();
     const cached = searchCacheRef.current.get(normalized);
     if (!options?.force && cached && Date.now() - cached.fetchedAt < SEARCH_CACHE_TTL) {
-      setEnterpriseOptions(cached.items);
-      if (!normalized) {
-        setAllEnterpriseOptions(cached.items);
+      if (normalized) {
+        setEnterpriseOptions(cached.items);
+      } else {
+        setDefaultEnterpriseOptions(cached.items);
+        setEnterpriseOptions(cached.items);
       }
       return cached.items;
     }
 
     const items = await api.listEnterprises(query);
     searchCacheRef.current.set(normalized, { items, fetchedAt: Date.now() });
-    setEnterpriseOptions(items);
-    if (!normalized) {
-      setAllEnterpriseOptions(items);
+    if (normalized) {
+      setEnterpriseOptions(items);
+    } else {
+      setDefaultEnterpriseOptions(items);
+      setEnterpriseOptions(items);
     }
     return items;
   }, []);
@@ -115,9 +116,11 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
       }
       if (pathname.startsWith("/enterprises/")) {
         router.replace(`/enterprises/${enterpriseId}`);
+      } else if (searchParams.get("enterpriseId") !== String(enterpriseId)) {
+        router.replace(`${pathname}?enterpriseId=${enterpriseId}`);
       }
     },
-    [pathname, router],
+    [pathname, router, searchParams],
   );
 
   const bootstrapEnterprise = useCallback(
@@ -144,13 +147,9 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     async function initialize() {
       setEnterpriseLoading(true);
       setEnterpriseError(null);
-
       try {
         const items = await refreshEnterpriseOptions("", { force: true });
-        if (cancelled) {
-          return;
-        }
-
+        if (cancelled) return;
         if (items.length === 0) {
           setCurrentEnterpriseId(null);
           return;
@@ -168,12 +167,11 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         if (typeof window !== "undefined" && nextEnterpriseId) {
           window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(nextEnterpriseId));
         }
+        initializedRef.current = true;
       } catch (error) {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
+        setDefaultEnterpriseOptions([]);
         setEnterpriseOptions([]);
-        setAllEnterpriseOptions([]);
         setCurrentEnterpriseId(null);
         setEnterpriseError(error instanceof Error ? error.message : "企业列表加载失败。");
       } finally {
@@ -190,31 +188,27 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   }, [refreshEnterpriseOptions, urlEnterpriseId]);
 
   useEffect(() => {
-    if (!urlEnterpriseId || currentEnterpriseId === urlEnterpriseId) {
+    if (!initializedRef.current || !urlEnterpriseId || currentEnterpriseId === urlEnterpriseId) {
       return;
     }
-    const exists = enterpriseOptions.some((item) => item.id === urlEnterpriseId);
+    const exists = defaultEnterpriseOptions.some((item) => item.id === urlEnterpriseId) || enterpriseOptions.some((item) => item.id === urlEnterpriseId);
     if (exists) {
       setCurrentEnterpriseId(urlEnterpriseId);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(urlEnterpriseId));
       }
     }
-  }, [currentEnterpriseId, enterpriseOptions, urlEnterpriseId]);
+  }, [currentEnterpriseId, defaultEnterpriseOptions, enterpriseOptions, urlEnterpriseId]);
 
   useEffect(() => {
     let active = true;
-
     async function maybeAutoSync() {
-      if (!currentEnterpriseId || autoSyncTriggeredRef.current.has(currentEnterpriseId)) {
+      if (!currentEnterpriseId || !initializedRef.current || autoSyncTriggeredRef.current.has(currentEnterpriseId)) {
         return;
       }
-
       try {
         const readiness = await api.getReadiness(currentEnterpriseId);
-        if (!active) {
-          return;
-        }
+        if (!active) return;
         resourceCacheRef.current.readiness.set(currentEnterpriseId, readiness);
         if (readiness.profile_ready && readiness.official_doc_count === 0 && readiness.sync_status !== "syncing") {
           autoSyncTriggeredRef.current.add(currentEnterpriseId);
@@ -228,10 +222,9 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch {
-        // Keep pages usable; page-level resources will show their own state.
+        // page-level resources surface errors
       }
     }
-
     void maybeAutoSync();
     return () => {
       active = false;
@@ -240,10 +233,10 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
 
   const currentEnterprise = useMemo(
     () =>
-      allEnterpriseOptions.find((item) => item.id === currentEnterpriseId) ??
+      defaultEnterpriseOptions.find((item) => item.id === currentEnterpriseId) ??
       enterpriseOptions.find((item) => item.id === currentEnterpriseId) ??
       null,
-    [allEnterpriseOptions, currentEnterpriseId, enterpriseOptions],
+    [currentEnterpriseId, defaultEnterpriseOptions, enterpriseOptions],
   );
 
   const getCachedResource = useCallback(<T,>(kind: ResourceKind, enterpriseId: number): T | null => {
@@ -265,7 +258,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     () => ({
       currentEnterpriseId,
       currentEnterprise,
-      enterpriseOptions,
+      enterpriseOptions: searchKeyword.trim() ? enterpriseOptions : defaultEnterpriseOptions,
       searchKeyword,
       enterpriseLoading,
       enterpriseError,
@@ -281,6 +274,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
       bootstrapEnterprise,
       currentEnterprise,
       currentEnterpriseId,
+      defaultEnterpriseOptions,
       enterpriseError,
       enterpriseLoading,
       enterpriseOptions,

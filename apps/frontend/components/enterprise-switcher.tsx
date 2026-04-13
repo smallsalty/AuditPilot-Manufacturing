@@ -27,7 +27,7 @@ export function EnterpriseSwitcher() {
     setSearching(true);
     setSearchError(null);
     try {
-      await refreshEnterpriseOptions(searchKeyword, { force: true });
+      await refreshEnterpriseOptions(searchKeyword.trim(), { force: true });
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
     } finally {
@@ -40,7 +40,6 @@ export function EnterpriseSwitcher() {
     if (!query) {
       return;
     }
-
     setBootstrapping(true);
     setSearchError(null);
     try {
@@ -84,9 +83,9 @@ export function EnterpriseSwitcher() {
     if (searchError) return searchError;
     if (enterpriseLoading) return "正在加载企业列表...";
     if (searching) return "正在搜索企业...";
-    if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
+    if (enterpriseOptions.length === 0 && searchKeyword.trim()) return "未找到匹配企业，可直接引入官方企业。";
     return "支持按企业名称或股票代码搜索。";
-  }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching]);
+  }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching, searchKeyword]);
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/5 p-4">

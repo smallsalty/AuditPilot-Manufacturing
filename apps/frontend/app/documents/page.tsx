@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { DocumentListItem } from "@auditpilot/shared-types";
+import type { DocumentExtractItem, DocumentListItem } from "@auditpilot/shared-types";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { useDocumentsResource, useReadinessResource } from "@/lib/enterprise-resources";
-
-type ExtractItem = { id: number; title: string; extract_type: string; content: string };
 
 const PARSE_STATUS_LABELS: Record<string, string> = {
   uploaded: "已上传",
@@ -24,9 +22,9 @@ export default function DocumentsPage() {
   const { data: documents, loading, error, refresh } = useDocumentsResource(currentEnterpriseId);
   const [file, setFile] = useState<File | null>(null);
   const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
-  const [extracts, setExtracts] = useState<ExtractItem[]>([]);
+  const [extracts, setExtracts] = useState<DocumentExtractItem[]>([]);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("支持上传 PDF 或文本文件，并与当前企业的官方文档一并展示。");
+  const [message, setMessage] = useState("支持上传 PDF 或文本文件，抽取结果将展示问题概述、遵循规则和财报深析。");
 
   useEffect(() => {
     setActiveDocumentId(null);
@@ -61,12 +59,12 @@ export default function DocumentsPage() {
     setBusy(true);
     try {
       await api.parseDocument(document.id);
-      const response = (await api.getDocumentExtracts(document.id)) as { extracts: ExtractItem[] };
+      const response = await api.getDocumentExtracts(document.id);
       invalidateEnterpriseResources(currentEnterpriseId ?? 0, ["documents"]);
       await refresh();
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
-      setMessage(`已抽取 ${response.extracts.length} 条文档片段。`);
+      setMessage(`已生成 ${response.extracts.length} 条结构化抽取结果。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文档解析失败。");
     } finally {
@@ -77,7 +75,7 @@ export default function DocumentsPage() {
   const loadExtracts = async (document: DocumentListItem) => {
     setBusy(true);
     try {
-      const response = (await api.getDocumentExtracts(document.id)) as { extracts: ExtractItem[] };
+      const response = await api.getDocumentExtracts(document.id);
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
       setMessage(`已加载 ${document.document_name} 的抽取结果。`);
@@ -114,9 +112,7 @@ export default function DocumentsPage() {
 
       {enterpriseError ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            企业列表加载失败：{enterpriseError}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">企业列表加载失败：{enterpriseError}</div>
         </Card>
       ) : !currentEnterpriseId ? (
         <Card>
@@ -128,9 +124,7 @@ export default function DocumentsPage() {
         </Card>
       ) : error ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            文档列表加载失败：{error}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">文档列表加载失败：{error}</div>
         </Card>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
@@ -144,8 +138,10 @@ export default function DocumentsPage() {
                       <div>
                         <p className="font-medium text-white">{document.document_name}</p>
                         <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">
-                          {document.document_type} | {PARSE_STATUS_LABELS[document.parse_status] ?? document.parse_status} |{" "}
-                          {document.source}
+                          {document.document_type} | {PARSE_STATUS_LABELS[document.parse_status] ?? document.parse_status} | {document.source}
+                        </p>
+                        <p className="mt-2 text-xs text-haze/65">
+                          {document.supports_deep_dive ? "支持财报深析" : "通用结构化抽取"} | 抽取状态：{document.extract_status ?? "pending"}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -168,16 +164,56 @@ export default function DocumentsPage() {
           </Card>
 
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">抽取结果</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-steel">查看抽取</p>
             {activeDocument ? <p className="mt-2 text-sm text-haze/70">当前文档：{activeDocument.document_name}</p> : null}
             {extracts.length > 0 ? (
               <div className="mt-4 space-y-3">
-                {extracts.map((extract) => (
-                  <div key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="font-medium text-white">{extract.title}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">{extract.extract_type}</p>
-                    <p className="mt-3 text-haze/80">{extract.content}</p>
-                  </div>
+                {extracts.map((extract, index) => (
+                  <details key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <summary className="list-none cursor-pointer">
+                      <div className="flex items-start gap-3">
+                        <span className="pt-0.5 text-sm font-semibold text-amber-300">{index + 1}.</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-white">{extract.title}</p>
+                          <p className="mt-2 text-sm text-haze/80">{extract.problem_summary}</p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/65">
+                            <span>{extract.extract_type}</span>
+                            <span>{extract.detail_level === "financial_deep_dive" ? "财报深析" : "通用抽取"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </summary>
+                    <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                      <section>
+                        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">遵循规则</p>
+                        {extract.applied_rules.length ? (
+                          <ol className="space-y-2">
+                            {extract.applied_rules.map((rule) => (
+                              <li key={rule} className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
+                                {rule}
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/70">当前未命中明确规则。</div>
+                        )}
+                      </section>
+                      <section>
+                        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">证据摘要</p>
+                        <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">{extract.evidence_excerpt}</div>
+                      </section>
+                      {extract.detail_level === "financial_deep_dive" ? (
+                        <section>
+                          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">财报深析</p>
+                          <div className="space-y-2 text-sm text-haze/80">
+                            {extract.financial_topics?.length ? <p>关注科目：{extract.financial_topics.join("、")}</p> : null}
+                            {extract.note_refs?.length ? <p>附注引用：{extract.note_refs.join("、")}</p> : null}
+                            {extract.risk_points?.length ? <p>风险点：{extract.risk_points.join("；")}</p> : null}
+                          </div>
+                        </section>
+                      ) : null}
+                    </div>
+                  </details>
                 ))}
               </div>
             ) : (

@@ -5,6 +5,7 @@ import type {
   AuditTimelineItem,
   ChatAnswerPayload,
   DashboardPayload,
+  DocumentExtractItem,
   DocumentListItem,
   EnterpriseBootstrapPayload,
   EnterpriseDetail,
@@ -93,7 +94,7 @@ export const api = {
     request(`/documents/${documentId}/parse`, {
       method: "POST",
     }),
-  getDocumentExtracts: (documentId: number) => request(`/documents/${documentId}/extracts`),
+  getDocumentExtracts: (documentId: number) => request<{ document_id: number; extracts: DocumentExtractItem[] }>(`/documents/${documentId}/extracts`),
   uploadDocument: async (enterpriseId: number, file: File) => {
     const formData = new FormData();
     formData.append("enterprise_id", String(enterpriseId));

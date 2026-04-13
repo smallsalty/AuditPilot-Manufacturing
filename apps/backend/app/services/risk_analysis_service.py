@@ -20,6 +20,7 @@ from app.models import (
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.repositories.risk_repository import RiskRepository
 from app.rule_engine.evaluator import RuleEvaluator
+from app.services.document_risk_service import DocumentRiskService
 from app.services.feature_engineering_service import FeatureEngineeringService
 
 
@@ -31,6 +32,7 @@ class RiskAnalysisService:
         self.feature_engineering_service = FeatureEngineeringService()
         self.rule_evaluator = RuleEvaluator()
         self.explainer = RiskExplanationService()
+        self.document_risk_service = DocumentRiskService()
 
     @staticmethod
     def get_analysis_readiness(enterprise, financials: list, events: list, documents: list) -> dict:
@@ -282,42 +284,31 @@ class RiskAnalysisService:
             raise
 
     def get_results(self, db: Session, enterprise_id: int) -> list[dict]:
-        results = RiskRepository(db).list_results(enterprise_id)
-        recommendations = RiskRepository(db).list_recommendations(enterprise_id)
-
-        rec_map = defaultdict(list)
-        for recommendation in recommendations:
-            if recommendation.risk_result_id:
-                rec_map[recommendation.risk_result_id].append(recommendation)
-
-        payload = []
-        for result in results:
-            recs = rec_map.get(result.id, [])
-            payload.append(
-                {
-                    "id": result.id,
-                    "risk_name": result.risk_name,
-                    "risk_category": result.risk_category,
-                    "risk_level": result.risk_level,
-                    "risk_score": result.risk_score,
-                    "source_type": result.source_type,
-                    "reasons": result.reasons,
-                    "evidence_chain": self._normalize_evidence_chain(result.evidence_chain),
-                    "llm_summary": result.llm_summary,
-                    "llm_explanation": self._deserialize_llm_explanation(result.llm_explanation),
-                    "focus_accounts": sorted({item for rec in recs for item in (rec.focus_accounts or [])}),
-                    "focus_processes": sorted({item for rec in recs for item in (rec.focus_processes or [])}),
-                    "recommended_procedures": sorted(
-                        {item for rec in recs for item in (rec.recommended_procedures or [])}
-                    ),
-                    "evidence_types": sorted({item for rec in recs for item in (rec.evidence_types or [])}),
-                }
-            )
+        payload = self.document_risk_service.list_risks(db, enterprise_id)
+        for item in payload:
+            item["evidence_chain"] = self._normalize_evidence_chain(item.get("evidence_chain") or item.get("evidence") or [])
+            item["evidence"] = item["evidence_chain"]
+            item["llm_explanation"] = self._deserialize_llm_explanation(item.get("llm_explanation"))
         return payload
 
     def _normalize_evidence_chain(self, evidence_chain: list[dict]) -> list[dict]:
         normalized = []
         for index, evidence in enumerate(evidence_chain or [], start=1):
+            if evidence.get("evidence_id") and evidence.get("evidence_type") and evidence.get("title"):
+                normalized.append(
+                    {
+                        "evidence_id": evidence.get("evidence_id") or f"E{index}",
+                        "evidence_type": evidence.get("evidence_type"),
+                        "source": evidence.get("source"),
+                        "source_label": evidence.get("source_label"),
+                        "published_at": evidence.get("published_at"),
+                        "title": evidence.get("title"),
+                        "snippet": evidence.get("snippet") or evidence.get("content") or "",
+                        "content": evidence.get("content") or evidence.get("snippet") or "",
+                        "report_period": evidence.get("report_period"),
+                    }
+                )
+                continue
             source = str(evidence.get("source") or "")
             evidence_type = self._map_evidence_type(evidence.get("type"), source)
             normalized.append(
