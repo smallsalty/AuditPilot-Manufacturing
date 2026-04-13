@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.repositories.enterprise_repository import EnterpriseRepository
+from app.schemas.enterprise import EnterpriseBootstrapRequest
 from app.services.dashboard_service import DashboardService
+from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 
 
 router = APIRouter()
@@ -11,10 +13,10 @@ router = APIRouter()
 
 @router.get("/enterprises")
 def list_enterprises(
-    q: str | None = Query(default=None, description="按企业名称或股票代码模糊检索"),
+    q: str | None = Query(default=None, description="按企业名称或股票代码模糊搜索"),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    enterprises = EnterpriseRepository(db).list_enterprises(query=q)
+    enterprises = EnterpriseRepository(db).list_enterprises(query=q, official_only=True)
     return [
         {
             "id": enterprise.id,
@@ -25,6 +27,14 @@ def list_enterprises(
         }
         for enterprise in enterprises
     ]
+
+
+@router.post("/enterprises/bootstrap")
+def bootstrap_enterprise(payload: EnterpriseBootstrapRequest, db: Session = Depends(get_db)) -> dict:
+    try:
+        return EnterpriseRuntimeService().bootstrap(db, ticker=payload.ticker, name=payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/enterprises/{enterprise_id}")
@@ -56,7 +66,7 @@ def get_enterprise(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
                 "value": item.value,
                 "source": item.source,
             }
-            for item in repo.get_financials(enterprise_id)
+            for item in repo.get_financials(enterprise_id, official_only=True)
         ],
         "external_events": [
             {
@@ -67,7 +77,7 @@ def get_enterprise(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
                 "event_date": event.event_date,
                 "summary": event.summary,
             }
-            for event in repo.get_external_events(enterprise_id)
+            for event in repo.get_external_events(enterprise_id, official_only=True)
         ],
     }
 
@@ -86,7 +96,7 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
     enterprise = repo.get_by_id(enterprise_id)
     if enterprise is None:
         raise HTTPException(status_code=404, detail="企业不存在")
-    documents = repo.get_documents(enterprise_id)
+    documents = repo.get_documents(enterprise_id, official_only=True)
     return [
         {
             "id": document.id,

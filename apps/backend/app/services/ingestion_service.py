@@ -28,9 +28,11 @@ class IngestionService:
         provider = self.financial_providers["mock"] if force_seed_fallback else self.financial_providers.get(provider_name)
         if provider is None:
             raise ValueError(f"未知财务 provider: {provider_name}")
+
         rows = provider.fetch_financials(enterprise.ticker, include_quarterly=include_quarterly)
         if not rows:
-            rows = self.financial_providers["mock"].fetch_financials(enterprise.ticker, include_quarterly=include_quarterly)
+            raise ValueError("当前企业尚未获取到可用的官方财务数据，请先同步或检查 AkShare 数据源。")
+
         db.execute(delete(FinancialIndicator).where(FinancialIndicator.enterprise_id == enterprise.id))
         for row in rows:
             db.add(

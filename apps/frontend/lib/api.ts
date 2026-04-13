@@ -6,11 +6,12 @@ import type {
   ChatAnswerPayload,
   DashboardPayload,
   DocumentListItem,
+  EnterpriseBootstrapPayload,
   EnterpriseDetail,
+  EnterpriseReadinessPayload,
   EnterpriseSearchItem,
-  EnterpriseSummary,
-  RiskSummaryPayload,
   RiskResultPayload,
+  RiskSummaryPayload,
   SyncCompanyPayload,
 } from "@auditpilot/shared-types";
 
@@ -19,7 +20,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8
 async function readErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
   if (!text) {
-    return `请求失败（${response.status}）`;
+    return `请求失败，状态码 ${response.status}。`;
   }
   try {
     const payload = JSON.parse(text) as { detail?: string };
@@ -44,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error("后端 API 不可访问，请检查 NEXT_PUBLIC_API_BASE_URL、后端服务和网络连接。");
+      throw new Error("后端 API 不可访问，请检查 NEXT_PUBLIC_API_BASE_URL、后端服务状态和网络连通性。");
     }
     throw error;
   }
@@ -58,20 +59,27 @@ export type RiskRunResponse = {
 export const api = {
   listEnterprises: (query?: string) =>
     request<EnterpriseSearchItem[]>(`/enterprises${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),
+  bootstrapEnterprise: (payload: { ticker?: string; name?: string }) =>
+    request<EnterpriseBootstrapPayload>(`/enterprises/bootstrap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   getEnterprise: (enterpriseId: number) => request<EnterpriseDetail>(`/enterprises/${enterpriseId}`),
   getDashboard: (enterpriseId: number) => request<DashboardPayload>(`/enterprises/${enterpriseId}/dashboard`),
   getAuditProfile: (enterpriseId: number) => request<AuditProfilePayload>(`/companies/${enterpriseId}/audit-profile`),
   getTimeline: (enterpriseId: number) => request<AuditTimelineItem[]>(`/companies/${enterpriseId}/timeline`),
   getRiskSummary: (enterpriseId: number) => request<RiskSummaryPayload>(`/companies/${enterpriseId}/risk-summary`),
-  getEnterpriseDocuments: (enterpriseId: number) =>
-    request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`),
+  getReadiness: (enterpriseId: number) => request<EnterpriseReadinessPayload>(`/companies/${enterpriseId}/readiness`),
+  getEnterpriseDocuments: (enterpriseId: number) => request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`),
   syncCompany: (enterpriseId: number, sources: string[] = ["akshare_fast", "cninfo"]) =>
     request<SyncCompanyPayload>(`/sync/company`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ company_id: enterpriseId, sources }),
     }),
-  runRiskAnalysis: (enterpriseId: number) => request<RiskRunResponse>(`/risk-analysis/${enterpriseId}/run`, { method: "POST" }),
+  runRiskAnalysis: (enterpriseId: number) =>
+    request<RiskRunResponse>(`/risk-analysis/${enterpriseId}/run`, { method: "POST" }),
   getRiskResults: (enterpriseId: number) => request<RiskResultPayload[]>(`/risk-analysis/${enterpriseId}/results`),
   getAuditFocus: (enterpriseId: number) => request<AuditFocusPayload>(`/audit-focus/${enterpriseId}`),
   getReport: (enterpriseId: number, format = "json") => request(`/reports/${enterpriseId}?format=${format}`),
@@ -80,18 +88,6 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enterprise_id: enterpriseId, provider: "akshare", include_quarterly: true }),
-    }),
-  ingestRiskEvents: (enterpriseId: number) =>
-    request(`/ingestion/risk-events`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enterprise_id: enterpriseId, provider: "mock" }),
-    }),
-  ingestMacro: (industryTag = "工程机械") =>
-    request(`/ingestion/macro`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ industry_tag: industryTag }),
     }),
   parseDocument: (documentId: number) =>
     request(`/documents/${documentId}/parse`, {

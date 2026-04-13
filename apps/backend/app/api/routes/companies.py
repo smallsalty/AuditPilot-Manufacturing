@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.services.audit_overview_service import AuditOverviewService
+from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 
 
 router = APIRouter()
@@ -28,5 +29,13 @@ def get_company_timeline(company_id: int, db: Session = Depends(get_db)) -> list
 def get_risk_summary(company_id: int, db: Session = Depends(get_db)) -> dict:
     try:
         return AuditOverviewService().build_risk_summary(db, company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/readiness")
+def get_company_readiness(company_id: int, db: Session = Depends(get_db)) -> dict:
+    try:
+        return EnterpriseRuntimeService().build_readiness(db, company_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

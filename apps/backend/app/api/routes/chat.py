@@ -16,4 +16,3 @@ def chat(enterprise_id: int, payload: ChatRequest, db: Session = Depends(get_db)
     if enterprise is None:
         raise HTTPException(status_code=404, detail="企业不存在")
     return AuditQAServer().answer(db, enterprise, payload.question)
-

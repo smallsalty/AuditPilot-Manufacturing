@@ -13,6 +13,6 @@ class ChatCitation(BaseModel):
 
 class ChatAnswerPayload(BaseModel):
     answer: str
+    basis_level: str
     citations: list[ChatCitation]
     suggested_actions: list[str]
-

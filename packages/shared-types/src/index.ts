@@ -10,6 +10,26 @@ export type AnalysisStatus = "not_started" | "running" | "completed" | "failed";
 
 export type EnterpriseSearchItem = EnterpriseSummary;
 
+export type EnterpriseBootstrapPayload = {
+  enterprise_id: number;
+  created: boolean;
+  name: string;
+  ticker: string;
+  industry_tag: string;
+};
+
+export type EnterpriseReadinessPayload = {
+  enterprise_id: number;
+  profile_ready: boolean;
+  sync_status: "never_synced" | "syncing" | "synced" | "failed" | string;
+  official_doc_count: number;
+  official_event_count: number;
+  last_sync_at?: string | null;
+  last_sync_source?: string | null;
+  risk_analysis_status: AnalysisStatus | string;
+  qa_ready: boolean;
+};
+
 export type DashboardPayload = {
   enterprise: EnterpriseSummary;
   score: {
@@ -64,6 +84,17 @@ export type EnterpriseDetail = {
   }[];
 };
 
+export type EvidenceType =
+  | "announcement"
+  | "annual_report"
+  | "penalty"
+  | "inquiry_letter"
+  | "financial_indicator"
+  | "industry_signal"
+  | "uploaded_document"
+  | "derived_risk_result"
+  | string;
+
 export type RiskResultPayload = {
   id: number;
   risk_name: string;
@@ -73,14 +104,18 @@ export type RiskResultPayload = {
   source_type: string;
   reasons: string[];
   evidence_chain: {
-    type: string;
-    title: string;
-    content: string;
+    evidence_id: string;
+    evidence_type: EvidenceType;
     source?: string | null;
+    source_label?: string | null;
+    published_at?: string | null;
+    title: string;
+    snippet: string;
+    content: string;
     report_period?: string | null;
   }[];
   llm_summary?: string | null;
-  llm_explanation?: string | null;
+  llm_explanation?: string | Record<string, unknown> | null;
   focus_accounts: string[];
   focus_processes: string[];
   recommended_procedures: string[];
@@ -97,6 +132,10 @@ export type AuditFocusPayload = {
   recommended_procedures: string[];
   evidence_types: string[];
   recommendations: string[];
+  recommendation_items?: {
+    text: string;
+    sources: string[];
+  }[];
 };
 
 export type DocumentListItem = {
@@ -110,6 +149,7 @@ export type DocumentListItem = {
 
 export type ChatAnswerPayload = {
   answer: string;
+  basis_level: "official_document" | "structured_result" | "insufficient_context" | string;
   citations: {
     title: string;
     content: string;
@@ -148,6 +188,12 @@ export type AuditProfilePayload = {
   penalty_count: number;
   latest_document_date?: string | null;
   latest_penalty_date?: string | null;
+  data_sources?: {
+    profile: string;
+    documents: string;
+    events: string;
+    risk_analysis_status: string;
+  };
 };
 
 export type AuditTimelineItem = {

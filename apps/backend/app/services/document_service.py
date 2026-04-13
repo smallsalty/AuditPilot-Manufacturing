@@ -10,7 +10,7 @@ from app.utils.embeddings import HashingEmbeddingService
 
 class DocumentService:
     KEYWORD_GROUPS = {
-        "mda": ["管理层讨论", "经营情况", "展望"],
+        "mda": ["管理层讨论与分析", "经营情况", "未来展望"],
         "risk_warning": ["风险", "客户集中", "原材料", "产能", "下游需求"],
         "accounting_policy": ["会计政策", "会计变更", "收入确认"],
         "major_events": ["重大事项", "诉讼", "处罚", "关联交易"],
@@ -42,7 +42,7 @@ class DocumentService:
     def parse_document(self, db: Session, document_id: int) -> DocumentMeta:
         document = db.get(DocumentMeta, document_id)
         if document is None:
-            raise ValueError("Document not found")
+            raise ValueError("文档不存在。")
         return self._parse_document_record(db, document)
 
     def process_parse_queue(self, db: Session, enterprise_id: int | None = None) -> dict[str, int]:
@@ -69,7 +69,7 @@ class DocumentService:
 
     def _parse_document_record(self, db: Session, document: DocumentMeta) -> DocumentMeta:
         if not document.file_path and not document.content_text:
-            raise ValueError("Document file path and content_text are both missing")
+            raise ValueError("文档缺少文件路径和正文内容。")
         document.parse_status = "parsing"
         db.commit()
         try:
@@ -79,9 +79,11 @@ class DocumentService:
             document.parser_version = document.parser_version or "document-service:v1"
             if document.sync_status == "parse_queued":
                 document.sync_status = "stored"
+
             db.execute(delete(DocumentExtractResult).where(DocumentExtractResult.document_id == document.id))
             paragraphs = [item.strip() for item in text.split("\n") if item.strip()]
             knowledge_rows: list[tuple[str, str, list[str]]] = []
+
             for index, paragraph in enumerate(paragraphs[:120], start=1):
                 lower_content = paragraph.lower()
                 matched_types = []
@@ -90,6 +92,7 @@ class DocumentService:
                         matched_types.append(extract_type)
                 if not matched_types and index <= 5:
                     matched_types.append("mda")
+
                 for extract_type in matched_types:
                     keywords = self.KEYWORD_GROUPS.get(extract_type, [])
                     embedding = self.embedding_service.encode([paragraph])[0]
@@ -105,6 +108,7 @@ class DocumentService:
                         )
                     )
                     knowledge_rows.append((extract_type, paragraph, keywords))
+
             db.commit()
             db.execute(
                 delete(KnowledgeChunk).where(

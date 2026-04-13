@@ -4,9 +4,9 @@ import { useMemo } from "react";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Card } from "@/components/ui/card";
-import { useAuditFocusResource, useDashboardResource } from "@/lib/enterprise-resources";
+import { useAuditFocusResource, useReadinessResource } from "@/lib/enterprise-resources";
 
-function FocusBlock({ title, items }: { title: string; items: string[] }) {
+function ChipGroup({ title, items, emptyText }: { title: string; items: string[]; emptyText: string }) {
   return (
     <Card>
       <p className="text-xs uppercase tracking-[0.24em] text-steel">{title}</p>
@@ -19,7 +19,7 @@ function FocusBlock({ title, items }: { title: string; items: string[] }) {
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">暂无数据</div>
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">{emptyText}</div>
       )}
     </Card>
   );
@@ -27,92 +27,115 @@ function FocusBlock({ title, items }: { title: string; items: string[] }) {
 
 export default function AuditFocusPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError } = useEnterpriseContext();
-  const { data: dashboard, loading: dashboardLoading, error: dashboardError } = useDashboardResource(currentEnterpriseId);
+  const { data: readiness, loading: readinessLoading, error: readinessError } = useReadinessResource(currentEnterpriseId);
   const { data: focus, loading: focusLoading, error: focusError } = useAuditFocusResource(currentEnterpriseId);
 
-  const title = useMemo(() => {
-    if (!currentEnterprise) return "审计重点提示";
-    return `${currentEnterprise.name} 审计重点提示`;
-  }, [currentEnterprise]);
-
-  const analysisStatus = focus?.analysis_status ?? dashboard?.analysis_status ?? "not_started";
+  const pageState = useMemo(() => {
+    if (enterpriseError) {
+      return { kind: "error", message: `企业列表加载失败：${enterpriseError}` };
+    }
+    if (!currentEnterpriseId || !currentEnterprise) {
+      return { kind: "empty", message: "请先选择企业。" };
+    }
+    if (readinessLoading || focusLoading) {
+      return { kind: "loading", message: "正在加载审计重点..." };
+    }
+    if (readinessError) {
+      return { kind: "error", message: `状态加载失败：${readinessError}` };
+    }
+    if (focusError) {
+      return { kind: "error", message: `审计重点加载失败：${focusError}` };
+    }
+    if (readiness?.risk_analysis_status === "running") {
+      return { kind: "waiting", message: "风险分析正在执行中，完成后将自动生成审计重点。" };
+    }
+    if (readiness?.risk_analysis_status === "failed") {
+      return { kind: "error", message: focus?.last_error ?? "最近一次风险分析失败，请先重新运行分析。" };
+    }
+    if (readiness?.risk_analysis_status !== "completed") {
+      return { kind: "empty", message: "当前企业尚未完成风险分析，请先运行风险分析。" };
+    }
+    return { kind: "ready", message: "以下建议基于当前企业的规则命中、财务异常和官方公告证据生成。" };
+  }, [
+    currentEnterprise,
+    currentEnterpriseId,
+    enterpriseError,
+    focus?.last_error,
+    focusError,
+    focusLoading,
+    readiness,
+    readinessError,
+    readinessLoading,
+  ]);
 
   return (
     <div className="space-y-6 pb-10">
       <Card>
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">Audit Focus</p>
-        <h2 className="mt-3 text-3xl font-semibold text-white">{title}</h2>
-        <p className="mt-2 text-haze/75">系统会把命中的风险自动映射到重点科目、流程、建议程序与应补充获取的证据类型。</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-steel">审计重点</p>
+        <h2 className="mt-3 text-3xl font-semibold text-white">
+          {currentEnterprise ? `${currentEnterprise.name} 审计重点提示` : "审计重点提示"}
+        </h2>
+        <p className="mt-2 text-haze/75">{pageState.message}</p>
       </Card>
 
-      {enterpriseError ? (
+      {pageState.kind === "loading" || pageState.kind === "empty" || pageState.kind === "waiting" ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            企业列表加载失败：{enterpriseError}
-          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">{pageState.message}</div>
         </Card>
-      ) : !currentEnterpriseId ? (
+      ) : pageState.kind === "error" ? (
         <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">请先选择企业。</div>
-        </Card>
-      ) : dashboardLoading || focusLoading ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">正在加载审计重点...</div>
-        </Card>
-      ) : dashboardError ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            总览数据加载失败：{dashboardError}
-          </div>
-        </Card>
-      ) : analysisStatus === "not_started" ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            当前企业尚未运行风险分析，请先执行分析任务。
-          </div>
-        </Card>
-      ) : analysisStatus === "running" ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            风险分析正在执行中，审计重点将在完成后自动生成。
-          </div>
-        </Card>
-      ) : analysisStatus === "failed" ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            风险分析失败：{focus?.last_error ?? dashboard?.last_error ?? "请重试风险分析。"}
-          </div>
-        </Card>
-      ) : focusError ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            审计重点加载失败：{focusError}
-          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">{pageState.message}</div>
         </Card>
       ) : (
         <>
-          <div className="grid gap-5 xl:grid-cols-2">
-            <FocusBlock title="重点科目" items={focus?.focus_accounts ?? []} />
-            <FocusBlock title="重点流程" items={focus?.focus_processes ?? []} />
-            <FocusBlock title="建议审计程序" items={focus?.recommended_procedures ?? []} />
-            <FocusBlock title="建议证据类型" items={focus?.evidence_types ?? []} />
-          </div>
-          <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">Narrative Recommendations</p>
-            {focus?.recommendations?.length ? (
-              <div className="mt-4 space-y-3">
-                {focus.recommendations.map((item) => (
-                  <div key={item} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-haze/80">
-                    {item}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                当前企业暂无可展示的审计重点建议。
-              </div>
-            )}
-          </Card>
+          <section className="grid gap-5 lg:grid-cols-3">
+            <ChipGroup title="重点科目" items={focus?.focus_accounts ?? []} emptyText="暂无重点科目。" />
+            <ChipGroup title="重点流程" items={focus?.focus_processes ?? []} emptyText="暂无重点流程。" />
+            <ChipGroup title="建议程序" items={focus?.recommended_procedures ?? []} emptyText="暂无建议程序。" />
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+            <Card>
+              <p className="text-xs uppercase tracking-[0.24em] text-steel">建议证据</p>
+              {focus?.evidence_types?.length ? (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {focus.evidence_types.map((item) => (
+                    <span key={item} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-haze/85">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">暂无建议证据。</div>
+              )}
+            </Card>
+
+            <Card>
+              <p className="text-xs uppercase tracking-[0.24em] text-steel">重点建议摘要</p>
+              {focus?.recommendation_items?.length ? (
+                <div className="mt-4 space-y-3">
+                  {focus.recommendation_items.map((item, index) => (
+                    <div key={`${item.text}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <p className="text-sm text-white">{item.text}</p>
+                      {item.sources.length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {item.sources.map((source) => (
+                            <span key={source} className="rounded-full bg-black/15 px-3 py-1 text-xs text-haze/75">
+                              {source}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+                  当前企业暂无可展示的审计重点建议。
+                </div>
+              )}
+            </Card>
+          </section>
         </>
       )}
     </div>

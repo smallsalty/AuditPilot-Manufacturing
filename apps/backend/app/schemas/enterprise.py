@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import PeriodMetric, TimelineItem
 
@@ -11,6 +11,37 @@ class EnterpriseSummary(BaseModel):
     ticker: str
     industry_tag: str
     report_year: int
+
+
+class EnterpriseBootstrapRequest(BaseModel):
+    ticker: str | None = None
+    name: str | None = None
+
+    @model_validator(mode="after")
+    def validate_identifier(self):
+        if not (self.ticker or self.name):
+            raise ValueError("ticker 或 name 至少需要提供一个。")
+        return self
+
+
+class EnterpriseBootstrapResponse(BaseModel):
+    enterprise_id: int
+    created: bool
+    name: str
+    ticker: str
+    industry_tag: str
+
+
+class EnterpriseReadinessPayload(BaseModel):
+    enterprise_id: int
+    profile_ready: bool
+    sync_status: str
+    official_doc_count: int
+    official_event_count: int
+    last_sync_at: str | None = None
+    last_sync_source: str | None = None
+    risk_analysis_status: str
+    qa_ready: bool
 
 
 class EnterpriseDetail(BaseModel):
@@ -62,4 +93,6 @@ class DashboardPayload(BaseModel):
     radar: list[RadarPoint]
     trend: list[TrendPoint]
     top_risks: list[TopRiskCard]
-
+    analysis_status: str = Field(default="not_started")
+    last_run_at: str | None = None
+    last_error: str | None = None

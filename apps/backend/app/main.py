@@ -9,7 +9,7 @@ from app.core.db import create_all
 app = FastAPI(
     title="AuditPilot Manufacturing API",
     version="0.1.0",
-    description="制造业上市公司智能风险识别与审计重点提示系统",
+    description="制造业上市公司智能风险识别与审计重点提示系统后端服务。",
 )
 
 app.add_middleware(

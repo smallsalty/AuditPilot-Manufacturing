@@ -22,9 +22,9 @@ class CninfoProvider(BaseAuditProvider):
         "年度报告",
         "年报",
         "审计报告",
-        "内控审计",
-        "内控审计报告",
-        "审阅报告",
+        "内部控制审计",
+        "内部控制审计报告",
+        "专项审核报告",
     )
     PENALTY_KEYWORDS = (
         "处罚",
@@ -67,7 +67,7 @@ class CninfoProvider(BaseAuditProvider):
 
         stock_param = self._build_stock_param(ticker)
         if not stock_param:
-            raise ValueError(f"Unable to resolve cninfo stock mapping for {ticker}")
+            raise ValueError(f"无法解析 {ticker} 对应的巨潮证券编码。")
 
         payload = {
             "pageNum": 1,

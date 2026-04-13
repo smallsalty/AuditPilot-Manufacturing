@@ -21,7 +21,8 @@ def run_risk_analysis(enterprise_id: int, db: Session = Depends(get_db)) -> dict
             "results": result["results"],
         }
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        status = 404 if str(exc) == "企业不存在。" else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.get("/{enterprise_id}/results")

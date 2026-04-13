@@ -1,12 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { AuditFocusPayload, DashboardPayload, DocumentListItem, RiskResultPayload } from "@auditpilot/shared-types";
+import type {
+  AuditFocusPayload,
+  DashboardPayload,
+  DocumentListItem,
+  EnterpriseReadinessPayload,
+  RiskResultPayload,
+} from "@auditpilot/shared-types";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { api } from "@/lib/api";
 
-type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents";
+type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness";
 
 type ResourceState<T> = {
   data: T | null;
@@ -77,4 +83,8 @@ export function useAuditFocusResource(enterpriseId: number | null) {
 
 export function useDocumentsResource(enterpriseId: number | null) {
   return useCachedEnterpriseResource<DocumentListItem[]>("documents", enterpriseId, api.getEnterpriseDocuments);
+}
+
+export function useReadinessResource(enterpriseId: number | null) {
+  return useCachedEnterpriseResource<EnterpriseReadinessPayload>("readiness", enterpriseId, api.getReadiness);
 }

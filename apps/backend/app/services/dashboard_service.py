@@ -19,18 +19,21 @@ class DashboardService:
         enterprise_repo = EnterpriseRepository(db)
         enterprise = enterprise_repo.get_by_id(enterprise_id)
         if enterprise is None:
-            raise ValueError("企业不存在")
+            raise ValueError("企业不存在。")
+
         analysis_state = RiskAnalysisService().get_analysis_state(db, enterprise_id)
         results = RiskRepository(db).list_results(enterprise_id)
         score_buckets = defaultdict(list)
         for result in results:
             bucket = self.CATEGORY_MAP.get(result.risk_category, "operational")
             score_buckets[bucket].append(result.risk_score)
+
         financial = round(sum(score_buckets["financial"]) / max(1, len(score_buckets["financial"])), 1)
         operational = round(sum(score_buckets["operational"]) / max(1, len(score_buckets["operational"])), 1)
         compliance = round(sum(score_buckets["compliance"]) / max(1, len(score_buckets["compliance"])), 1)
         total = round((financial + operational + compliance) / 3 if results else 0, 1)
         trend = [{"report_period": f"T{idx}", "risk_score": result.risk_score} for idx, result in enumerate(results[:6], 1)]
+
         return {
             "enterprise": {
                 "id": enterprise.id,

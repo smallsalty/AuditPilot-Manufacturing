@@ -1,4 +1,5 @@
 import json
+import logging
 from collections import defaultdict
 from datetime import datetime
 
@@ -22,6 +23,9 @@ from app.rule_engine.evaluator import RuleEvaluator
 from app.services.feature_engineering_service import FeatureEngineeringService
 
 
+logger = logging.getLogger(__name__)
+
+
 class RiskAnalysisService:
     def __init__(self) -> None:
         self.feature_engineering_service = FeatureEngineeringService()
@@ -31,47 +35,35 @@ class RiskAnalysisService:
     def _normalize_to_list(self, value) -> list[str]:
         if value is None:
             return []
-
         if isinstance(value, list):
             return [str(v).strip() for v in value if str(v).strip()]
-
         if isinstance(value, str):
             value = value.strip()
             if not value:
                 return []
-
             for sep in ["、", "，", ",", ";", "；", "\n"]:
                 if sep in value:
                     return [item.strip() for item in value.split(sep) if item.strip()]
-
             return [value]
-
         text = str(value).strip()
         return [text] if text else []
 
     def _serialize_llm_explanation(self, value) -> str | None:
         if value is None:
             return None
-
         if isinstance(value, str):
             return value
-
         try:
             return json.dumps(value, ensure_ascii=False)
         except Exception:
             return str(value)
 
     def _deserialize_llm_explanation(self, value):
-        if value is None:
-            return None
-
-        if not isinstance(value, str):
+        if value is None or not isinstance(value, str):
             return value
-
         text = value.strip()
         if not text:
             return ""
-
         try:
             return json.loads(text)
         except Exception:
@@ -104,19 +96,23 @@ class RiskAnalysisService:
             return {
                 "run_id": latest_run.id,
                 "status": "running",
-                "summary": latest_run.summary or "风险分析任务正在执行，请稍后刷新结果。",
+                "summary": latest_run.summary or "风险分析任务仍在执行中，请稍后刷新。",
                 "results": self.get_results(db, enterprise_id),
             }
 
-        financials = enterprise_repo.get_financials(enterprise_id)
-        events = enterprise_repo.get_external_events(enterprise_id)
+        financials = enterprise_repo.get_financials(enterprise_id, official_only=True)
+        events = enterprise_repo.get_external_events(enterprise_id, official_only=True)
         benchmarks = list(
             db.scalars(
                 select(IndustryBenchmark).where(
-                    IndustryBenchmark.industry_tag == enterprise.industry_tag
+                    IndustryBenchmark.industry_tag == enterprise.industry_tag,
+                    IndustryBenchmark.source != "mock",
                 )
             ).all()
         )
+
+        if not financials and not events:
+            raise ValueError("当前企业尚无可用于分析的官方数据，请先同步源数据或上传文档。")
 
         run = AnalysisRun(
             enterprise_id=enterprise_id,
@@ -126,6 +122,7 @@ class RiskAnalysisService:
         db.add(run)
         db.commit()
         db.refresh(run)
+        logger.info("risk analysis started enterprise_id=%s run_id=%s", enterprise_id, run.id)
 
         try:
             features = self.feature_engineering_service.build_features(financials, events, benchmarks)
@@ -147,14 +144,10 @@ class RiskAnalysisService:
                     "reasons": hit.reasons,
                     "evidence_chain": hit.evidence_chain,
                 }
-
                 explanation = self.explainer.explain_risk(enterprise.name, payload)
 
                 audit_focus = self._normalize_to_list(explanation.get("audit_focus"))
                 procedures = self._normalize_to_list(explanation.get("procedures"))
-                explanation_text = self._serialize_llm_explanation(
-                    explanation.get("explanation", "")
-                )
 
                 result = RiskIdentificationResult(
                     enterprise_id=enterprise_id,
@@ -169,11 +162,12 @@ class RiskAnalysisService:
                     evidence_chain=hit.evidence_chain,
                     feature_snapshot=features,
                     llm_summary=explanation.get("summary", ""),
-                    llm_explanation=explanation_text,
+                    llm_explanation=self._serialize_llm_explanation(explanation.get("explanation", "")),
                 )
                 db.add(result)
                 db.flush()
 
+                recommendation_sources = self._recommendation_sources(result.source_type, result.evidence_chain)
                 db.add(
                     AuditRecommendation(
                         enterprise_id=enterprise_id,
@@ -182,11 +176,9 @@ class RiskAnalysisService:
                         priority=rule.risk_level.lower(),
                         focus_accounts=sorted(set((rule.focus_accounts or []) + audit_focus)),
                         focus_processes=rule.focus_processes,
-                        recommended_procedures=sorted(
-                            set((rule.recommended_procedures or []) + procedures)
-                        ),
-                        evidence_types=rule.evidence_types,
-                        recommendation_text=f"{rule.name}：建议优先关注{'、'.join(rule.focus_accounts or [])}。",
+                        recommended_procedures=sorted(set((rule.recommended_procedures or []) + procedures)),
+                        evidence_types=sorted(set((rule.evidence_types or []) + recommendation_sources)),
+                        recommendation_text=f"{rule.name}：优先关注 {'、'.join(rule.focus_accounts or []) or '相关科目'}。",
                     )
                 )
 
@@ -212,15 +204,15 @@ class RiskAnalysisService:
                         run_id=run.id,
                         risk_result_id=anomaly.id,
                         priority="medium",
-                        focus_accounts=["营业收入", "应收账款", "存货"],
-                        focus_processes=["经营分析", "月末结账"],
+                        focus_accounts=["主营业务收入", "应收账款", "存货"],
+                        focus_processes=["经营分析", "期末结账"],
                         recommended_procedures=[
                             "实施趋势分析",
                             "复核异常波动原因",
                             "结合行业数据执行敏感性分析",
                         ],
-                        evidence_types=["财务分析底稿", "行业景气度数据", "管理层访谈纪要"],
-                        recommendation_text="模型检测到数值波动异常，建议结合行业与经营背景复核。",
+                        evidence_types=["financial_anomaly", "industry_signal", "management_interview"],
+                        recommendation_text="模型识别到关键指标与历史轨迹明显偏离，建议优先执行趋势复核与管理层访谈。",
                     )
                 )
 
@@ -229,6 +221,7 @@ class RiskAnalysisService:
             results = self.get_results(db, enterprise_id)
             run.summary = f"共识别 {len(results)} 项风险。"
             db.commit()
+            logger.info("risk analysis finished enterprise_id=%s run_id=%s result_count=%s", enterprise_id, run.id, len(results))
 
             return {
                 "run_id": run.id,
@@ -245,6 +238,7 @@ class RiskAnalysisService:
             run.summary = "风险分析执行失败。"
             run.metadata_json = {"last_error": str(exc)}
             db.commit()
+            logger.warning("risk analysis failed enterprise_id=%s run_id=%s error=%s", enterprise_id, run.id, exc)
             raise
 
     def get_results(self, db: Session, enterprise_id: int) -> list[dict]:
@@ -268,43 +262,76 @@ class RiskAnalysisService:
                     "risk_score": result.risk_score,
                     "source_type": result.source_type,
                     "reasons": result.reasons,
-                    "evidence_chain": result.evidence_chain,
+                    "evidence_chain": self._normalize_evidence_chain(result.evidence_chain),
                     "llm_summary": result.llm_summary,
-                    "llm_explanation": self._deserialize_llm_explanation(
-                        result.llm_explanation
-                    ),
-                    "focus_accounts": sorted(
-                        {
-                            item
-                            for rec in recs
-                            for item in (rec.focus_accounts or [])
-                        }
-                    ),
-                    "focus_processes": sorted(
-                        {
-                            item
-                            for rec in recs
-                            for item in (rec.focus_processes or [])
-                        }
-                    ),
+                    "llm_explanation": self._deserialize_llm_explanation(result.llm_explanation),
+                    "focus_accounts": sorted({item for rec in recs for item in (rec.focus_accounts or [])}),
+                    "focus_processes": sorted({item for rec in recs for item in (rec.focus_processes or [])}),
                     "recommended_procedures": sorted(
-                        {
-                            item
-                            for rec in recs
-                            for item in (rec.recommended_procedures or [])
-                        }
+                        {item for rec in recs for item in (rec.recommended_procedures or [])}
                     ),
-                    "evidence_types": sorted(
-                        {
-                            item
-                            for rec in recs
-                            for item in (rec.evidence_types or [])
-                        }
-                    ),
+                    "evidence_types": sorted({item for rec in recs for item in (rec.evidence_types or [])}),
                 }
             )
-
         return payload
+
+    def _normalize_evidence_chain(self, evidence_chain: list[dict]) -> list[dict]:
+        normalized = []
+        for index, evidence in enumerate(evidence_chain or [], start=1):
+            source = str(evidence.get("source") or "")
+            evidence_type = self._map_evidence_type(evidence.get("type"), source)
+            normalized.append(
+                {
+                    "evidence_id": f"E{index}",
+                    "evidence_type": evidence_type,
+                    "source": source or None,
+                    "source_label": self._source_label(source, evidence_type),
+                    "published_at": evidence.get("report_period"),
+                    "title": evidence.get("title") or f"证据 {index}",
+                    "snippet": evidence.get("content") or "",
+                    "content": evidence.get("content") or "",
+                    "report_period": evidence.get("report_period"),
+                }
+            )
+        return normalized
+
+    def _recommendation_sources(self, source_type: str, evidence_chain: list[dict]) -> list[str]:
+        sources = set()
+        if source_type == "rule":
+            sources.add("risk_rule")
+        if source_type == "model":
+            sources.add("financial_anomaly")
+        for evidence in evidence_chain or []:
+            mapped = self._map_evidence_type(evidence.get("type"), str(evidence.get("source") or ""))
+            if mapped == "announcement":
+                sources.add("announcement_event")
+            elif mapped == "penalty":
+                sources.add("penalty_event")
+            elif mapped == "uploaded_document":
+                sources.add("uploaded_document")
+        return sorted(sources)
+
+    def _map_evidence_type(self, raw_type: str | None, source: str) -> str:
+        if source == "cninfo":
+            return "announcement"
+        if source == "upload":
+            return "uploaded_document"
+        if raw_type == "model":
+            return "derived_risk_result"
+        if raw_type == "industry":
+            return "industry_signal"
+        return "financial_indicator"
+
+    def _source_label(self, source: str, evidence_type: str) -> str:
+        if source == "cninfo":
+            return "巨潮资讯"
+        if source == "upload":
+            return "上传文档"
+        if evidence_type == "industry_signal":
+            return "行业信号"
+        if evidence_type == "derived_risk_result":
+            return "模型结果"
+        return "财务指标"
 
     def _run_anomaly_detection(
         self,
@@ -350,12 +377,12 @@ class RiskAnalysisService:
             risk_level="MEDIUM",
             risk_score=68.0,
             source_type="model",
-            reasons=["IsolationForest 判定最新年度财务结构与历史样本差异较大"],
+            reasons=["IsolationForest 识别出最新年度财务结构与历史样本差异较大。"],
             evidence_chain=[
                 {
                     "type": "model",
-                    "title": "IsolationForest",
-                    "content": "模型识别出最新年度财务指标存在异常波动。",
+                    "title": "IsolationForest 异常检测",
+                    "content": "模型识别到最新年度关键财务指标存在异常波动。",
                     "source": "isolation_forest",
                     "report_period": str(int(features.get("latest_year", 0))),
                     "metadata": {"features": matrix[-1]},
@@ -363,5 +390,5 @@ class RiskAnalysisService:
             ],
             feature_snapshot=features,
             llm_summary="模型检测到最新年度关键指标与历史轨迹偏离，建议结合经营背景复核。",
-            llm_explanation="该异常并不等同于错报，但提示需要对收入、存货和现金流的组合变化执行进一步分析。",
+            llm_explanation="该异常并不直接等同于错报，但提示需要对收入、存货和现金流的组合变化执行进一步分析。",
         )

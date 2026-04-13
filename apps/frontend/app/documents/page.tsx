@@ -7,7 +7,7 @@ import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { useDocumentsResource } from "@/lib/enterprise-resources";
+import { useDocumentsResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 type ExtractItem = { id: number; title: string; extract_type: string; content: string };
 
@@ -20,12 +20,13 @@ const PARSE_STATUS_LABELS: Record<string, string> = {
 
 export default function DocumentsPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources } = useEnterpriseContext();
+  const { data: readiness } = useReadinessResource(currentEnterpriseId);
   const { data: documents, loading, error, refresh } = useDocumentsResource(currentEnterpriseId);
   const [file, setFile] = useState<File | null>(null);
   const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
   const [extracts, setExtracts] = useState<ExtractItem[]>([]);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("可以上传 PDF 或文本文件进行解析。");
+  const [message, setMessage] = useState("支持上传 PDF 或文本文件，并与当前企业的官方文档一并展示。");
 
   useEffect(() => {
     setActiveDocumentId(null);
@@ -39,16 +40,18 @@ export default function DocumentsPage() {
   );
 
   const upload = async () => {
-    if (!file || !currentEnterpriseId) return;
+    if (!file || !currentEnterpriseId) {
+      return;
+    }
     setBusy(true);
     try {
       const result = await api.uploadDocument(currentEnterpriseId, file);
-      invalidateEnterpriseResources(currentEnterpriseId, ["documents"]);
+      invalidateEnterpriseResources(currentEnterpriseId, ["documents", "readiness"]);
       await refresh();
       setActiveDocumentId(result.id);
       setMessage(`文档 ${result.document_name} 上传成功。`);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "文档上传失败");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "文档上传失败。");
     } finally {
       setBusy(false);
     }
@@ -63,9 +66,9 @@ export default function DocumentsPage() {
       await refresh();
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
-      setMessage(`已抽取 ${response.extracts.length} 条风险相关段落。`);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "文档解析失败");
+      setMessage(`已抽取 ${response.extracts.length} 条文档片段。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "文档解析失败。");
     } finally {
       setBusy(false);
     }
@@ -78,8 +81,8 @@ export default function DocumentsPage() {
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
       setMessage(`已加载 ${document.document_name} 的抽取结果。`);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "抽取结果加载失败");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "抽取结果加载失败。");
     } finally {
       setBusy(false);
     }
@@ -88,11 +91,14 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-6 pb-10">
       <Card>
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">Document Center</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-steel">文档中心</p>
         <h2 className="mt-3 text-3xl font-semibold text-white">
           {currentEnterprise ? `${currentEnterprise.name} 文档中心` : "文档中心"}
         </h2>
         <p className="mt-2 text-haze/75">{message}</p>
+        {currentEnterprise ? (
+          <p className="mt-3 text-sm text-haze/65">当前企业官方文档：{readiness?.official_doc_count ?? 0} 份</p>
+        ) : null}
         <div className="mt-5 flex flex-col gap-3 lg:flex-row">
           <input
             type="file"
@@ -129,7 +135,7 @@ export default function DocumentsPage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">Documents</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-steel">文档列表</p>
             {documents && documents.length > 0 ? (
               <div className="mt-4 space-y-3">
                 {documents.map((document) => (
@@ -138,17 +144,15 @@ export default function DocumentsPage() {
                       <div>
                         <p className="font-medium text-white">{document.document_name}</p>
                         <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">
-                          {document.document_type} | {PARSE_STATUS_LABELS[document.parse_status] ?? document.parse_status}
+                          {document.document_type} | {PARSE_STATUS_LABELS[document.parse_status] ?? document.parse_status} |{" "}
+                          {document.source}
                         </p>
                       </div>
                       <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => loadExtracts(document)} disabled={busy}>
+                        <Button variant="outline" onClick={() => void loadExtracts(document)} disabled={busy}>
                           查看抽取
                         </Button>
-                        <Button
-                          onClick={() => parse(document)}
-                          disabled={busy || document.parse_status === "parsing"}
-                        >
+                        <Button onClick={() => void parse(document)} disabled={busy || document.parse_status === "parsing"}>
                           {document.parse_status === "parsed" ? "重新解析" : "解析"}
                         </Button>
                       </div>
@@ -158,16 +162,14 @@ export default function DocumentsPage() {
               </div>
             ) : (
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                当前企业暂无文档，可上传 PDF 或文本文件。
+                当前企业暂无文档。可以先同步官方公告，或上传 PDF 与文本文件。
               </div>
             )}
           </Card>
 
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">Extract Results</p>
-            {activeDocument ? (
-              <p className="mt-2 text-sm text-haze/70">当前文档：{activeDocument.document_name}</p>
-            ) : null}
+            <p className="text-xs uppercase tracking-[0.24em] text-steel">抽取结果</p>
+            {activeDocument ? <p className="mt-2 text-sm text-haze/70">当前文档：{activeDocument.document_name}</p> : null}
             {extracts.length > 0 ? (
               <div className="mt-4 space-y-3">
                 {extracts.map((extract) => (
@@ -180,7 +182,7 @@ export default function DocumentsPage() {
               </div>
             ) : (
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                暂无抽取结果，可先选择文档查看或执行解析。
+                暂无抽取结果。请选择文档查看，或先执行解析。
               </div>
             )}
           </Card>

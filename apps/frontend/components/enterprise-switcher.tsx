@@ -16,9 +16,12 @@ export function EnterpriseSwitcher() {
     searchKeyword,
     selectEnterprise,
     setSearchKeyword,
+    bootstrapEnterprise,
   } = useEnterpriseContext();
+
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(false);
 
   const reloadEnterprises = async () => {
     setSearching(true);
@@ -26,9 +29,29 @@ export function EnterpriseSwitcher() {
     try {
       await refreshEnterpriseOptions(searchKeyword, { force: true });
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "企业检索失败");
+      setSearchError(error instanceof Error ? error.message : "企业搜索失败");
     } finally {
       setSearching(false);
+    }
+  };
+
+  const bootstrap = async () => {
+    const query = searchKeyword.trim();
+    if (!query) {
+      return;
+    }
+
+    setBootstrapping(true);
+    setSearchError(null);
+    try {
+      const payload = /^\d{6}(\.(SH|SZ))?$/i.test(query) ? { ticker: query } : { name: query };
+      const enterprise = await bootstrapEnterprise(payload);
+      setSearchKeyword("");
+      selectEnterprise(enterprise.id);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "企业引入失败");
+    } finally {
+      setBootstrapping(false);
     }
   };
 
@@ -39,11 +62,12 @@ export function EnterpriseSwitcher() {
       try {
         await refreshEnterpriseOptions(searchKeyword);
       } catch (error) {
-        setSearchError(error instanceof Error ? error.message : "企业检索失败");
+        setSearchError(error instanceof Error ? error.message : "企业搜索失败");
       } finally {
         setSearching(false);
       }
     }, 250);
+
     return () => window.clearTimeout(timer);
   }, [refreshEnterpriseOptions, searchKeyword]);
 
@@ -51,13 +75,13 @@ export function EnterpriseSwitcher() {
     if (enterpriseError) return enterpriseError;
     if (searchError) return searchError;
     if (enterpriseLoading || searching) return "正在加载企业列表...";
-    if (enterpriseOptions.length === 0) return "未找到匹配企业";
+    if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
     return "支持按企业名称或股票代码搜索";
   }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching]);
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-      <p className="text-xs uppercase tracking-[0.24em] text-steel">Enterprise Context</p>
+      <p className="text-xs uppercase tracking-[0.24em] text-steel">企业上下文</p>
       <div className="relative mt-4">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
         <input
@@ -67,11 +91,16 @@ export function EnterpriseSwitcher() {
           className="w-full rounded-2xl border border-white/10 bg-black/10 py-3 pl-10 pr-4 text-sm text-white outline-none transition focus:border-amber-400/50"
         />
       </div>
-      <div className="mt-3">
-        <Button variant="outline" onClick={reloadEnterprises} disabled={enterpriseLoading || searching} className="w-full">
+      <div className="mt-3 grid gap-3">
+        <Button variant="outline" onClick={reloadEnterprises} disabled={enterpriseLoading || searching}>
           <RefreshCw className="mr-2 h-4 w-4" />
           刷新企业列表
         </Button>
+        {searchKeyword.trim() ? (
+          <Button onClick={bootstrap} disabled={bootstrapping}>
+            {bootstrapping ? "引入中..." : "引入官方企业"}
+          </Button>
+        ) : null}
       </div>
       {enterpriseOptions.length > 0 ? (
         <select
@@ -86,9 +115,7 @@ export function EnterpriseSwitcher() {
           ))}
         </select>
       ) : (
-        <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/75">
-          暂无可选企业
-        </div>
+        <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/75">暂无可选企业</div>
       )}
       <p className="mt-3 text-xs text-haze/65">{helperText}</p>
     </div>

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -15,13 +16,19 @@ from app.providers import AkshareFastProvider, CninfoProvider
 from app.repositories.enterprise_repository import EnterpriseRepository
 
 
+logger = logging.getLogger(__name__)
+
+
 class AuditSyncService:
     SYNC_PENDING = "pending"
     SYNC_FETCHED = "fetched"
     SYNC_STORED = "stored"
+    SYNC_SYNCING = "syncing"
     SYNC_PARSE_QUEUED = "parse_queued"
+    SYNC_PARSED = "parsed"
     SYNC_PARSE_FAILED = "parse_failed"
     DISABLED_SOURCES = {"tushare_fast"}
+    AUTO_SYNC_COOLDOWN_MINUTES = 10
 
     def __init__(self) -> None:
         self.providers = {
@@ -37,18 +44,31 @@ class AuditSyncService:
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> dict[str, Any]:
-        enterprise = EnterpriseRepository(db).get_by_id(company_id)
+        repo = EnterpriseRepository(db)
+        enterprise = repo.get_by_id(company_id)
         if enterprise is None:
-            raise ValueError("Enterprise not found")
+            raise ValueError("企业不存在。")
 
         requested_sources = sources or ["akshare_fast", "cninfo"]
         disabled = [source for source in requested_sources if source in self.DISABLED_SOURCES]
         if disabled:
-            raise RuntimeError(f"Unsupported source for phase 1: {', '.join(disabled)}")
+            raise RuntimeError(f"第一阶段已禁用该数据源：{', '.join(disabled)}")
 
         unsupported = [source for source in requested_sources if source not in self.providers]
         if unsupported:
-            raise ValueError(f"Unsupported sync source: {', '.join(unsupported)}")
+            raise ValueError(f"不支持的数据源：{', '.join(unsupported)}")
+
+        if enterprise.sync_status == self.SYNC_SYNCING:
+            logger.info("sync skipped because enterprise %s is already syncing", company_id)
+            return self._build_skipped_summary(enterprise, requested_sources, "当前企业同步任务仍在执行中，请稍后刷新。")
+
+        if (
+            date_from is None
+            and date_to is None
+            and repo.has_recent_successful_sync(company_id, self.AUTO_SYNC_COOLDOWN_MINUTES)
+        ):
+            logger.info("sync skipped because enterprise %s was synced recently", company_id)
+            return self._build_skipped_summary(enterprise, requested_sources, "最近一次同步已完成，当前无需重复拉取。")
 
         effective_date_to = date_to or date.today()
         effective_date_from = date_from or self._default_date_from(db, enterprise, effective_date_to)
@@ -63,33 +83,51 @@ class AuditSyncService:
         warnings: list[str] = []
         errors: list[str] = []
 
-        enterprise.sync_status = self.SYNC_PENDING
+        enterprise.sync_status = self.SYNC_SYNCING
         db.flush()
+
+        logger.info(
+            "sync started enterprise_id=%s ticker=%s sources=%s date_from=%s date_to=%s",
+            enterprise.id,
+            enterprise.ticker,
+            requested_sources,
+            effective_date_from.isoformat(),
+            effective_date_to.isoformat(),
+        )
 
         for source_name in requested_sources:
             provider = self.providers[source_name]
             source_documents_found = 0
             source_events_found = 0
+
             try:
                 profile_payload = provider.fetch_company_profile(enterprise.ticker)
                 if profile_payload:
                     self._apply_profile(enterprise, profile_payload, provider.priority, provider.is_official_source)
                     company_profile_updated = True
             except Exception as exc:
-                warnings.append(f"{source_name} profile sync failed: {exc}")
+                warnings.append(f"{source_name} 企业资料同步失败：{exc}")
+                logger.warning("profile sync failed enterprise_id=%s source=%s error=%s", enterprise.id, source_name, exc)
                 continue
 
             try:
                 announcements = provider.fetch_announcements(enterprise.ticker, effective_date_from, effective_date_to)
             except Exception as exc:
-                errors.append(f"{source_name} announcement sync failed: {exc}")
+                errors.append(f"{source_name} 公告同步失败：{exc}")
+                logger.warning("announcement sync failed enterprise_id=%s source=%s error=%s", enterprise.id, source_name, exc)
                 continue
 
             announcements_fetched += len(announcements)
+            logger.info(
+                "announcements fetched enterprise_id=%s source=%s count=%s",
+                enterprise.id,
+                source_name,
+                len(announcements),
+            )
+
             if source_name == "cninfo" and not announcements:
                 warnings.append(
-                    f"{source_name} returned no target announcements for {enterprise.ticker} in "
-                    f"{effective_date_from.isoformat()}~{effective_date_to.isoformat()}."
+                    f"{source_name} 在 {effective_date_from.isoformat()}~{effective_date_to.isoformat()} 未返回目标公告。"
                 )
 
             for item in announcements:
@@ -127,14 +165,23 @@ class AuditSyncService:
 
             if source_name == "cninfo" and announcements and source_documents_found == 0 and source_events_found == 0:
                 warnings.append(
-                    f"{source_name} fetched {len(announcements)} announcements for {enterprise.ticker}, "
-                    "but none matched document or penalty classification."
+                    f"{source_name} 已拉取 {len(announcements)} 条公告，但当前窗口内没有命中文档或处罚分类。"
                 )
 
         enterprise.sync_status = self.SYNC_STORED if not errors else self.SYNC_FETCHED
         enterprise.latest_sync_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(enterprise)
+
+        logger.info(
+            "sync finished enterprise_id=%s announcements=%s documents_inserted=%s events_inserted=%s parse_queued=%s errors=%s",
+            enterprise.id,
+            announcements_fetched,
+            documents_inserted,
+            events_inserted,
+            parse_queued,
+            len(errors),
+        )
 
         return {
             "enterprise_id": enterprise.id,
@@ -150,37 +197,40 @@ class AuditSyncService:
             "errors": errors,
         }
 
-    def _default_date_from(
-        self,
-        db: Session,
-        enterprise: EnterpriseProfile,
-        effective_date_to: date,
-    ) -> date:
+    def _build_skipped_summary(self, enterprise: EnterpriseProfile, sources: list[str], message: str) -> dict[str, Any]:
+        return {
+            "enterprise_id": enterprise.id,
+            "sources": sources,
+            "company_profile_updated": False,
+            "announcements_fetched": 0,
+            "documents_found": 0,
+            "documents_inserted": 0,
+            "events_found": 0,
+            "events_inserted": 0,
+            "parse_queued": 0,
+            "warnings": [message],
+            "errors": [],
+        }
+
+    def _default_date_from(self, db: Session, enterprise: EnterpriseProfile, effective_date_to: date) -> date:
         existing_document = db.scalar(
             select(DocumentMeta.id).where(
                 DocumentMeta.enterprise_id == enterprise.id,
-                (DocumentMeta.source == "cninfo") | (DocumentMeta.is_official_source.is_(True)),
+                or_(DocumentMeta.source == "cninfo", DocumentMeta.is_official_source.is_(True)),
             ).limit(1)
         )
         existing_event = db.scalar(
             select(ExternalEvent.id).where(
                 ExternalEvent.enterprise_id == enterprise.id,
-                (ExternalEvent.source == "cninfo") | (ExternalEvent.is_official_source.is_(True)),
+                or_(ExternalEvent.source == "cninfo", ExternalEvent.is_official_source.is_(True)),
             ).limit(1)
         )
-        if existing_document or existing_event:
-            lookback_days = settings.sync_lookback_days
-        else:
-            lookback_days = settings.sync_initial_lookback_days
+        lookback_days = (
+            settings.sync_lookback_days if (existing_document or existing_event) else settings.sync_initial_lookback_days
+        )
         return effective_date_to - timedelta(days=lookback_days)
 
-    def _apply_profile(
-        self,
-        enterprise: EnterpriseProfile,
-        payload: dict[str, Any],
-        priority: int,
-        official: bool,
-    ) -> None:
+    def _apply_profile(self, enterprise: EnterpriseProfile, payload: dict[str, Any], priority: int, official: bool) -> None:
         if payload.get("name"):
             enterprise.name = payload["name"]
         if payload.get("industry_tag"):
@@ -200,7 +250,6 @@ class AuditSyncService:
         enterprise.source_object_id = payload.get("source_object_id") or enterprise.source_object_id
         if payload.get("raw_payload"):
             enterprise.portrait = {**(enterprise.portrait or {}), "sync_profile": payload["raw_payload"]}
-        enterprise.sync_status = self.SYNC_STORED
         enterprise.ingestion_time = datetime.now(timezone.utc)
 
     def _upsert_document(
@@ -229,7 +278,7 @@ class AuditSyncService:
         created = existing is None
         document = existing or DocumentMeta(
             enterprise_id=enterprise.id,
-            document_name=str(payload.get("title") or "Untitled document"),
+            document_name=str(payload.get("title") or "未命名文档"),
         )
         document.document_name = str(payload.get("title") or document.document_name)
         document.document_type = str(payload.get("document_type") or document.document_type or "annual_report")
@@ -303,7 +352,7 @@ class AuditSyncService:
             enterprise_id=enterprise.id,
             event_type="regulatory_penalty",
             severity="medium",
-            title=str(payload.get("title") or "Untitled event"),
+            title=str(payload.get("title") or "未命名事件"),
             summary=str(payload.get("summary") or payload.get("title") or ""),
         )
         event.event_type = str(payload.get("event_type") or "regulatory_penalty")
