@@ -1,8 +1,52 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _candidate_roots() -> list[Path]:
+    cwd = Path.cwd().resolve()
+    current_file = Path(__file__).resolve()
+    candidates = [cwd, *cwd.parents, current_file.parent, *current_file.parents]
+
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
+
+
+def _looks_like_repo_root(path: Path) -> bool:
+    return (
+        (path / ".git").exists()
+        or (path / "apps" / "backend" / "pyproject.toml").exists()
+        or (path / "apps" / "frontend").exists()
+    )
+
+
+def discover_repo_root() -> Path:
+    env_root = os.getenv("AUDITPILOT_REPO_ROOT")
+    if env_root:
+        candidate = Path(env_root).expanduser().resolve()
+        if candidate.exists():
+            return candidate
+
+    for candidate in _candidate_roots():
+        if _looks_like_repo_root(candidate):
+            return candidate
+
+    return Path.cwd().resolve()
+
+
+REPO_ROOT = discover_repo_root()
+ENV_FILE = next(
+    (candidate for candidate in [Path.cwd().resolve() / ".env", REPO_ROOT / ".env"] if candidate.exists()),
+    REPO_ROOT / ".env",
+)
 
 
 class Settings(BaseSettings):
@@ -15,15 +59,15 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="minimax", alias="LLM_PROVIDER")
     llm_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices("LLM_API_KEY", "GLM_API_KEY"),
+        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "LLM_API_KEY", "GLM_API_KEY"),
     )
     llm_base_url: str = Field(
-        default="https://api.minimax.io/v1",
-        validation_alias=AliasChoices("LLM_BASE_URL", "GLM_BASE_URL"),
+        default="https://api.minimaxi.com/anthropic",
+        validation_alias=AliasChoices("ANTHROPIC_BASE_URL", "LLM_BASE_URL", "GLM_BASE_URL"),
     )
     llm_model: str = Field(
-        default="",
-        validation_alias=AliasChoices("LLM_MODEL", "GLM_MODEL"),
+        default="MiniMax-M2.7",
+        validation_alias=AliasChoices("ANTHROPIC_MODEL", "LLM_MODEL", "GLM_MODEL"),
     )
     akshare_enable: bool = Field(default=True, alias="AKSHARE_ENABLE")
     cninfo_enable: bool = Field(default=True, alias="CNINFO_ENABLE")
@@ -38,7 +82,7 @@ class Settings(BaseSettings):
     backend_cors_origins_raw: str = Field(default="http://localhost:3000", alias="BACKEND_CORS_ORIGINS")
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parents[4] / ".env"),
+        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -46,7 +90,7 @@ class Settings(BaseSettings):
 
     @property
     def repo_root(self) -> Path:
-        return Path(__file__).resolve().parents[4]
+        return REPO_ROOT
 
     @property
     def data_root(self) -> Path:
