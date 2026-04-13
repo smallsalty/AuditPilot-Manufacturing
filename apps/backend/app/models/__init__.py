@@ -4,6 +4,7 @@ from app.models.domain import (
     AuditRecommendation,
     AuditRule,
     BusinessTransaction,
+    DocumentEventFeature,
     DocumentExtractResult,
     DocumentMeta,
     EnterpriseProfile,
@@ -12,6 +13,7 @@ from app.models.domain import (
     IndustryBenchmark,
     KnowledgeChunk,
     MacroIndicator,
+    ReviewOverride,
     RiskAlertRecord,
     RiskIdentificationResult,
 )
@@ -22,6 +24,7 @@ __all__ = [
     "AuditRecommendation",
     "AuditRule",
     "BusinessTransaction",
+    "DocumentEventFeature",
     "DocumentExtractResult",
     "DocumentMeta",
     "EnterpriseProfile",
@@ -30,6 +33,7 @@ __all__ = [
     "IndustryBenchmark",
     "KnowledgeChunk",
     "MacroIndicator",
+    "ReviewOverride",
     "RiskAlertRecord",
     "RiskIdentificationResult",
 ]

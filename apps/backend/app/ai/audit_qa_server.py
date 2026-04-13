@@ -67,20 +67,36 @@ class AuditQAServer:
             logger.warning("chat failed enterprise_id=%s error=%s", enterprise.id, exc)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-        citations = [
-            {
-                "title": chunk.title,
-                "content": chunk.content[:180],
-                "source_type": chunk.source_type,
-            }
-            for chunk in chunks
-        ]
+        citations = []
+        for item in document_risks[:3]:
+            for evidence in (item.get("evidence") or [])[:2]:
+                location = []
+                if evidence.get("section_title"):
+                    location.append(str(evidence.get("section_title")))
+                if evidence.get("page_start") or evidence.get("page_end"):
+                    location.append(f"页码 {evidence.get('page_start') or '?'}-{evidence.get('page_end') or evidence.get('page_start') or '?'}")
+                citations.append(
+                    {
+                        "title": " | ".join([part for part in [evidence.get("source_label"), *location] if part]) or item["risk_name"],
+                        "content": str(evidence.get("snippet") or item.get("summary") or "")[:180],
+                        "source_type": "document",
+                    }
+                )
+        if not citations:
+            citations = [
+                {
+                    "title": chunk.title,
+                    "content": chunk.content[:180],
+                    "source_type": chunk.source_type,
+                }
+                for chunk in chunks
+            ]
         if not citations:
             citations = [
                 {
                     "title": item["risk_name"],
                     "content": str(item.get("summary") or "")[:180],
-                    "source_type": str(item.get("source_mode") or "document_rule"),
+                    "source_type": str(item.get("source_mode") or "document_primary"),
                 }
                 for item in document_risks[:3]
             ]

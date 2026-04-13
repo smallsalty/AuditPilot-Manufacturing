@@ -189,6 +189,7 @@ class RiskAnalysisService:
                     enterprise_id=enterprise_id,
                     run_id=run.id,
                     rule_id=rule.id,
+                    rule_code=rule.code,
                     risk_name=rule.name,
                     risk_category=rule.risk_category,
                     risk_level=rule.risk_level,

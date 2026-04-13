@@ -13,7 +13,7 @@ class RetrievalService:
         return self.embedding_service.encode([text])[0]
 
     def retrieve(self, db: Session, query: str, enterprise_id: int | None, top_k: int = 4) -> list[KnowledgeChunk]:
-        stmt = select(KnowledgeChunk)
+        stmt = select(KnowledgeChunk).where(KnowledgeChunk.is_current.is_(True))
         if enterprise_id is not None:
             stmt = stmt.where(
                 (KnowledgeChunk.enterprise_id == enterprise_id) | (KnowledgeChunk.enterprise_id.is_(None))
@@ -28,4 +28,3 @@ class RetrievalService:
             scored.append((score, chunk))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [chunk for score, chunk in scored[:top_k] if score > 0]
-

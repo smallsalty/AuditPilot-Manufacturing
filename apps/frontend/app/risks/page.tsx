@@ -121,7 +121,13 @@ export default function RisksPage() {
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">正在加载风险清单...</div>
         </Card>
       ) : showResults ? (
-        <RiskTable risks={displayRisks} />
+        <RiskTable
+          risks={displayRisks}
+          enterpriseId={currentEnterpriseId}
+          onChanged={async () => {
+            await refreshRisks();
+          }}
+        />
       ) : (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">

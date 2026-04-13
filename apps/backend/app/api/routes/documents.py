@@ -1,11 +1,12 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.models import DocumentEventFeature, DocumentExtractResult, ReviewOverride
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_service import DocumentService
 
@@ -43,44 +44,127 @@ def get_document_extracts(document_id: int, db: Session = Depends(get_db)) -> di
     repository = DocumentRepository(db)
     document = repository.get_document(document_id)
     if document is None:
-        raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=404, detail="文档不存在。")
     extracts = repository.list_extracts(document_id)
-    return {
-        "document_id": document_id,
-        "extracts": [
-            _serialize_extract(extract)
-            for extract in extracts
-        ],
-    }
+    features = repository.list_event_features(document_id)
+    feature_by_extract = {feature.extract_id: feature for feature in features if feature.extract_id}
+    return {"document_id": document_id, "extracts": [_serialize_extract(extract, feature_by_extract.get(extract.id)) for extract in extracts]}
 
 
-def _serialize_extract(extract) -> dict:
+@router.patch("/documents/{document_id}/classification")
+def override_document_classification(
+    document_id: int,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    repository = DocumentRepository(db)
+    document = repository.get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="文档不存在。")
+    classified_type = str(payload.get("classified_type") or "").strip()
+    if not classified_type:
+        raise HTTPException(status_code=400, detail="classified_type 不能为空。")
+    db.add(
+        ReviewOverride(
+            enterprise_id=document.enterprise_id,
+            document_id=document.id,
+            scope="classification",
+            target_key="document_type",
+            override_value={"classified_type": classified_type},
+        )
+    )
+    db.commit()
+    document = DocumentService().parse_document(db, document.id)
+    return {"document_id": document.id, "classified_type": document.classified_type}
+
+
+@router.patch("/documents/{document_id}/extracts/{evidence_span_id}/event-type")
+def override_extract_event_type(
+    document_id: int,
+    evidence_span_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    repository = DocumentRepository(db)
+    document = repository.get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="文档不存在。")
+    event_type = str(payload.get("event_type") or "").strip()
+    if not event_type:
+        raise HTTPException(status_code=400, detail="event_type 不能为空。")
+    extract = next((item for item in repository.list_extracts(document_id) if item.evidence_span_id == evidence_span_id), None)
+    if extract is None:
+        raise HTTPException(status_code=404, detail="抽取项不存在。")
+    extract.event_type = event_type
+    extract.extract_family = "announcement_event"
+    extract.content = json.dumps({**_serialize_extract(extract), "event_type": event_type}, ensure_ascii=False)
+    feature = next((item for item in repository.list_event_features(document_id) if item.extract_id == extract.id), None)
+    if feature is not None:
+        feature.event_type = event_type
+    db.add(
+        ReviewOverride(
+            enterprise_id=document.enterprise_id,
+            document_id=document.id,
+            scope="event_type",
+            target_key=evidence_span_id,
+            override_value={"event_type": event_type},
+        )
+    )
+    db.commit()
+    return {"document_id": document_id, "evidence_span_id": evidence_span_id, "event_type": event_type}
+
+
+def _serialize_extract(extract: DocumentExtractResult, feature: DocumentEventFeature | None = None) -> dict:
+    payload: dict = {}
     try:
         payload = json.loads(extract.content)
         if not isinstance(payload, dict):
-            raise ValueError("invalid extract payload")
+            payload = {}
     except Exception:
-        payload = {
-            "problem_summary": extract.content,
-            "applied_rules": [],
-            "evidence_excerpt": extract.content,
-            "detail_level": "general",
-            "financial_topics": [],
-            "note_refs": [],
-            "risk_points": [],
-        }
-
+        payload = {}
+    event_type = feature.event_type if feature and feature.event_type else extract.event_type
+    opinion_type = feature.opinion_type if feature and feature.opinion_type else extract.opinion_type
     return {
         "id": extract.id,
         "extract_type": extract.extract_type,
-        "title": payload.get("title") or extract.title,
-        "problem_summary": payload.get("problem_summary") or extract.content,
-        "applied_rules": payload.get("applied_rules") or [],
-        "evidence_excerpt": payload.get("evidence_excerpt") or extract.content,
-        "page_number": payload.get("page_number", extract.page_number),
-        "keywords": payload.get("keywords") or extract.keywords,
-        "detail_level": payload.get("detail_level") or "general",
+        "extract_version": extract.extract_version,
+        "extract_family": extract.extract_family or "general",
+        "title": extract.title,
+        "problem_summary": extract.problem_summary or extract.content,
+        "applied_rules": extract.applied_rules or [],
+        "evidence_excerpt": extract.evidence_excerpt or extract.content,
+        "page_number": extract.page_number,
+        "page_start": extract.page_start,
+        "page_end": extract.page_end,
+        "section_title": extract.section_title,
+        "paragraph_hash": extract.paragraph_hash,
+        "evidence_span_id": extract.evidence_span_id,
+        "keywords": extract.keywords,
+        "detail_level": extract.detail_level or "general",
         "financial_topics": payload.get("financial_topics") or [],
         "note_refs": payload.get("note_refs") or [],
         "risk_points": payload.get("risk_points") or [],
+        "fact_tags": extract.fact_tags or [],
+        "metric_name": extract.metric_name,
+        "metric_value": extract.metric_value,
+        "metric_unit": extract.metric_unit,
+        "compare_target": extract.compare_target,
+        "compare_value": extract.compare_value,
+        "period": extract.period,
+        "fiscal_year": extract.fiscal_year,
+        "fiscal_quarter": extract.fiscal_quarter,
+        "event_type": event_type,
+        "event_date": feature.event_date.isoformat() if feature and feature.event_date else (extract.event_date.isoformat() if extract.event_date else None),
+        "subject": feature.subject if feature and feature.subject else extract.subject,
+        "amount": feature.amount if feature and feature.amount is not None else extract.amount,
+        "counterparty": feature.counterparty if feature and feature.counterparty else extract.counterparty,
+        "direction": feature.direction if feature and feature.direction else extract.direction,
+        "severity": feature.severity if feature and feature.severity else extract.severity,
+        "conditions": feature.conditions if feature and feature.conditions else None,
+        "opinion_type": opinion_type,
+        "defect_level": feature.defect_level if feature and feature.defect_level else extract.defect_level,
+        "conclusion": feature.conclusion if feature and feature.conclusion else extract.conclusion,
+        "affected_scope": feature.affected_scope if feature and feature.affected_scope else extract.affected_scope,
+        "auditor_or_board_source": feature.auditor_or_board_source if feature and feature.auditor_or_board_source else extract.auditor_or_board_source,
+        "canonical_risk_key": extract.canonical_risk_key,
     }

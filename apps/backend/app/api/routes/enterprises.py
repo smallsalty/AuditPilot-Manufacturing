@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.schemas.enterprise import EnterpriseBootstrapRequest
 from app.services.dashboard_service import DashboardService
@@ -97,16 +98,25 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
     if enterprise is None:
         raise HTTPException(status_code=404, detail="企业不存在")
     documents = repo.get_documents(enterprise_id, official_only=True)
-    return [
-        {
-            "id": document.id,
-            "document_name": document.document_name,
-            "document_type": document.document_type,
-            "parse_status": document.parse_status,
-            "source": document.source,
-            "supports_deep_dive": document.document_type in {"annual_report", "interim_report", "quarter_report", "audit_report"},
-            "extract_status": "ready" if document.parse_status == "parsed" else ("failed" if document.parse_status == "failed" else "pending"),
-            "created_at": document.created_at.isoformat() if document.created_at else None,
-        }
-        for document in documents
-    ]
+    document_repo = DocumentRepository(db)
+    items = []
+    for document in documents:
+        extracts = document_repo.list_extracts(document.id)
+        features = document_repo.list_event_features(document.id)
+        items.append(
+            {
+                "id": document.id,
+                "document_name": document.document_name,
+                "document_type": document.document_type,
+                "classified_type": document.classified_type or document.document_type,
+                "parse_status": document.parse_status,
+                "source": document.source,
+                "supports_deep_dive": (document.classified_type or document.document_type) in {"annual_report", "annual_summary", "audit_report", "internal_control_report"},
+                "extract_status": "ready" if extracts else ("failed" if document.parse_status == "failed" else "pending"),
+                "extract_family_summary": sorted({item.extract_family or "general" for item in extracts}),
+                "event_coverage": sorted({item.event_type or item.opinion_type for item in features if item.event_type or item.opinion_type}),
+                "latest_extract_version": max([item.extract_version or "" for item in extracts], default=None),
+                "created_at": document.created_at.isoformat() if document.created_at else None,
+            }
+        )
+    return items

@@ -95,6 +95,30 @@ export const api = {
       method: "POST",
     }),
   getDocumentExtracts: (documentId: number) => request<{ document_id: number; extracts: DocumentExtractItem[] }>(`/documents/${documentId}/extracts`),
+  overrideDocumentClassification: (documentId: number, classifiedType: string) =>
+    request<{ document_id: number; classified_type: string }>(`/documents/${documentId}/classification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ classified_type: classifiedType }),
+    }),
+  overrideExtractEventType: (documentId: number, evidenceSpanId: string, eventType: string) =>
+    request<{ document_id: number; evidence_span_id: string; event_type: string }>(
+      `/documents/${documentId}/extracts/${encodeURIComponent(evidenceSpanId)}/event-type`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_type: eventType }),
+      },
+    ),
+  overrideRiskResult: (enterpriseId: number, canonicalRiskKey: string, payload: { ignored?: boolean; merge_to_key?: string | null }) =>
+    request<{ enterprise_id: number; canonical_risk_key: string; override: { ignored?: boolean; merge_to_key?: string | null } }>(
+      `/risk-analysis/${enterpriseId}/overrides/${encodeURIComponent(canonicalRiskKey)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    ),
   uploadDocument: async (enterpriseId: number, file: File) => {
     const formData = new FormData();
     formData.append("enterprise_id", String(enterpriseId));

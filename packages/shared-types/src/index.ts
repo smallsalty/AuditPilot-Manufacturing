@@ -100,12 +100,15 @@ export type EvidenceType =
 
 export type RiskResultPayload = {
   id: number;
+  canonical_risk_key?: string;
   risk_name: string;
   risk_category: string;
   risk_level: string;
   risk_score: number;
   source_type: string;
-  source_mode?: "document_rule" | "risk_analysis" | "hybrid" | string;
+  source_mode?: "document_primary" | "document_plus_rule" | "rule_only" | "document_rule" | "risk_analysis" | "hybrid" | string;
+  evidence_status?: "document_supported" | "document_plus_rule" | "rule_inferred" | string;
+  confidence_level?: string;
   reasons: string[];
   summary?: string | null;
   evidence_chain: {
@@ -132,6 +135,8 @@ export type RiskResultPayload = {
   }[];
   source_rules?: string[];
   source_documents?: { document_id: number; document_name: string }[];
+  source_events?: { event_type?: string; event_date?: string | null; severity?: string | null; subject?: string | null }[];
+  feature_support?: { metric?: string | null; value?: number | string | null; unit?: string | null; period?: string | null }[];
   llm_summary?: string | null;
   llm_explanation?: string | Record<string, unknown> | null;
   focus_accounts: string[];
@@ -171,26 +176,60 @@ export type DocumentListItem = {
   id: number;
   document_name: string;
   document_type: string;
+  classified_type?: string | null;
   parse_status: "uploaded" | "parsing" | "parsed" | "failed" | string;
   source: string;
   supports_deep_dive?: boolean;
   extract_status?: "ready" | "failed" | "pending" | string;
+  extract_family_summary?: string[];
+  event_coverage?: string[];
+  latest_extract_version?: string | null;
   created_at?: string | null;
 };
 
 export type DocumentExtractItem = {
   id: number;
   extract_type: string;
+  extract_version?: string | null;
+  extract_family?: string | null;
   title: string;
   problem_summary: string;
   applied_rules: string[];
   evidence_excerpt: string;
   page_number?: number | null;
+  page_start?: number | null;
+  page_end?: number | null;
+  section_title?: string | null;
+  paragraph_hash?: string | null;
+  evidence_span_id?: string | null;
   keywords?: string[] | null;
   detail_level: "general" | "financial_deep_dive" | string;
   financial_topics?: string[] | null;
   note_refs?: string[] | null;
   risk_points?: string[] | null;
+  fact_tags?: string[] | null;
+  metric_name?: string | null;
+  metric_value?: number | null;
+  metric_unit?: string | null;
+  compare_target?: string | null;
+  compare_value?: number | null;
+  period?: string | null;
+  fiscal_year?: number | null;
+  fiscal_quarter?: number | null;
+  event_type?: string | null;
+  event_date?: string | null;
+  subject?: string | null;
+  amount?: number | null;
+  counterparty?: string | null;
+  direction?: string | null;
+  severity?: string | null;
+  conditions?: string | null;
+  opinion_type?: string | null;
+  defect_level?: string | null;
+  conclusion?: string | null;
+  affected_scope?: string | null;
+  auditor_or_board_source?: string | null;
+  canonical_risk_key?: string | null;
 };
 
 export type ChatAnswerPayload = {

@@ -1,7 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import type { RiskResultPayload } from "@auditpilot/shared-types";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { api } from "@/lib/api";
 
 const EVIDENCE_TYPE_LABELS: Record<string, string> = {
   announcement: "公告",
@@ -14,7 +18,60 @@ const EVIDENCE_TYPE_LABELS: Record<string, string> = {
   derived_risk_result: "派生结果",
 };
 
-export function RiskTable({ risks }: { risks: RiskResultPayload[] }) {
+const EVIDENCE_STATUS_LABELS: Record<string, string> = {
+  document_supported: "文档证据支持",
+  document_plus_rule: "文档+规则共同支持",
+  rule_inferred: "规则推断，待文档验证",
+};
+const CANONICAL_RISK_KEYS = [
+  "revenue_recognition",
+  "receivable_recoverability",
+  "inventory_impairment",
+  "cashflow_quality",
+  "related_party_funds_occupation",
+  "litigation_compliance",
+  "internal_control_effectiveness",
+  "going_concern",
+  "financing_pressure",
+  "governance_instability",
+];
+
+export function RiskTable({
+  risks,
+  enterpriseId,
+  onChanged,
+}: {
+  risks: RiskResultPayload[];
+  enterpriseId: number | null;
+  onChanged?: () => Promise<void> | void;
+}) {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [mergeValues, setMergeValues] = useState<Record<string, string>>({});
+
+  const ignoreRisk = async (risk: RiskResultPayload) => {
+    if (!enterpriseId || !risk.canonical_risk_key) return;
+    setBusyKey(risk.canonical_risk_key);
+    try {
+      await api.overrideRiskResult(enterpriseId, risk.canonical_risk_key, { ignored: true });
+      await onChanged?.();
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const mergeRisk = async (risk: RiskResultPayload) => {
+    if (!enterpriseId || !risk.canonical_risk_key) return;
+    const mergeToKey = mergeValues[risk.canonical_risk_key];
+    if (!mergeToKey || mergeToKey === risk.canonical_risk_key) return;
+    setBusyKey(risk.canonical_risk_key);
+    try {
+      await api.overrideRiskResult(enterpriseId, risk.canonical_risk_key, { merge_to_key: mergeToKey });
+      await onChanged?.();
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {risks.map((risk, index) => (
@@ -30,7 +87,8 @@ export function RiskTable({ risks }: { risks: RiskResultPayload[] }) {
                   </div>
                   <p className="mt-3 text-sm text-haze/80">{risk.summary ?? risk.llm_summary ?? risk.reasons.join("；")}</p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/65">
-                    <span>来源模式：{risk.source_mode ?? risk.source_type}</span>
+                    <span>{EVIDENCE_STATUS_LABELS[risk.evidence_status ?? ""] ?? risk.evidence_status ?? risk.source_mode ?? risk.source_type}</span>
+                    {risk.canonical_risk_key ? <span>{risk.canonical_risk_key}</span> : null}
                     <span>得分：{risk.risk_score.toFixed(1)}</span>
                     <span>证据：{risk.evidence_chain.length}</span>
                   </div>
@@ -40,11 +98,24 @@ export function RiskTable({ risks }: { risks: RiskResultPayload[] }) {
             <div className="mt-5 space-y-5 border-t border-white/10 pt-5 text-sm text-haze/85">
               {risk.source_rules?.length ? (
                 <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">遵循规则</p>
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">规则补充</p>
                   <ol className="space-y-2">
                     {risk.source_rules.map((rule, ruleIndex) => (
                       <li key={rule} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
                         {ruleIndex + 1}. {rule}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
+
+              {risk.source_events?.length ? (
+                <section>
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">事件来源</p>
+                  <ol className="space-y-2">
+                    {risk.source_events.map((event, eventIndex) => (
+                      <li key={`${risk.id}-${eventIndex}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                        {eventIndex + 1}. {[event.event_type, event.subject, event.event_date, event.severity].filter(Boolean).join(" | ")}
                       </li>
                     ))}
                   </ol>
@@ -65,6 +136,9 @@ export function RiskTable({ risks }: { risks: RiskResultPayload[] }) {
                           <span>{EVIDENCE_TYPE_LABELS[evidence.evidence_type] ?? evidence.evidence_type}</span>
                           {evidence.source_label ? <span>{evidence.source_label}</span> : null}
                           {evidence.published_at ? <span>{evidence.published_at}</span> : null}
+                          {"section_title" in evidence && (evidence as Record<string, unknown>).section_title ? (
+                            <span>{String((evidence as Record<string, unknown>).section_title)}</span>
+                          ) : null}
                         </div>
                       </div>
                     ))}
@@ -97,6 +171,47 @@ export function RiskTable({ risks }: { risks: RiskResultPayload[] }) {
                       </li>
                     ))}
                   </ol>
+                </section>
+              ) : null}
+
+              {enterpriseId && risk.canonical_risk_key ? (
+                <section>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-haze/80 disabled:opacity-50"
+                      disabled={busyKey === risk.canonical_risk_key}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void ignoreRisk(risk);
+                      }}
+                    >
+                      {busyKey === risk.canonical_risk_key ? "处理中..." : "忽略该风险"}
+                    </button>
+                    <select
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-haze/80"
+                      value={mergeValues[risk.canonical_risk_key] ?? ""}
+                      onChange={(event) =>
+                        setMergeValues((current) => ({ ...current, [risk.canonical_risk_key as string]: event.target.value }))
+                      }
+                    >
+                      <option value="">合并到标准风险键</option>
+                      {CANONICAL_RISK_KEYS.filter((key) => key !== risk.canonical_risk_key).map((key) => (
+                        <option key={key} value={key}>{key}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-haze/80 disabled:opacity-50"
+                      disabled={busyKey === risk.canonical_risk_key || !mergeValues[risk.canonical_risk_key]}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void mergeRisk(risk);
+                      }}
+                    >
+                      合并风险
+                    </button>
+                  </div>
                 </section>
               ) : null}
             </div>
