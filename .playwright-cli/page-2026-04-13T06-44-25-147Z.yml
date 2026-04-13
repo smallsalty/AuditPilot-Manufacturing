@@ -1,0 +1,51 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - paragraph [ref=e7]: AuditPilot
+        - heading "制造业审计风险工作台" [level=1] [ref=e8]
+      - paragraph [ref=e9]: 基于企业主数据、官方公告、风险规则和证据链，为制造业上市公司提供风险识别与审计重点提示。
+    - generic [ref=e10]:
+      - paragraph [ref=e11]: 企业上下文
+      - generic [ref=e12]:
+        - img
+        - textbox "搜索企业名称或股票代码" [ref=e13]
+      - button "刷新企业列表" [disabled] [ref=e15]:
+        - img [ref=e16]
+        - text: 刷新企业列表
+      - generic [ref=e21]: 暂无可选企业
+      - paragraph [ref=e22]: 正在加载企业列表...
+    - navigation [ref=e23]:
+      - link "总览" [ref=e24] [cursor=pointer]:
+        - /url: /
+        - img [ref=e25]
+        - generic [ref=e30]: 总览
+      - link "风险清单" [ref=e31] [cursor=pointer]:
+        - /url: /risks
+        - img [ref=e32]
+        - generic [ref=e35]: 风险清单
+      - link "审计重点" [ref=e36] [cursor=pointer]:
+        - /url: /audit-focus
+        - img [ref=e37]
+        - generic [ref=e40]: 审计重点
+      - link "文档中心" [ref=e41] [cursor=pointer]:
+        - /url: /documents
+        - img [ref=e42]
+        - generic [ref=e45]: 文档中心
+      - link "AI问答" [ref=e46] [cursor=pointer]:
+        - /url: /chat
+        - img [ref=e47]
+        - generic [ref=e50]: AI问答
+    - generic [ref=e51]:
+      - paragraph [ref=e52]: 数据说明
+      - generic [ref=e53]:
+        - paragraph [ref=e54]: 企业主数据来源：AkShare
+        - paragraph [ref=e55]: 公告与处罚来源：巨潮资讯
+        - paragraph [ref=e56]: 上传文档可参与解析、问答和证据展示。
+  - main [ref=e57]:
+    - generic [ref=e58]:
+      - generic [ref=e59]:
+        - paragraph [ref=e60]: 审计重点
+        - heading "审计重点提示" [level=2] [ref=e61]
+        - paragraph [ref=e62]: 请先选择企业。
+      - generic [ref=e64]: 请先选择企业。

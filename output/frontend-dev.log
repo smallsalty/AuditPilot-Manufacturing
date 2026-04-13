@@ -1,0 +1,34 @@
+
+> auditpilot-frontend@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.5s
+ ○ Compiling / ...
+ ✓ Compiled / in 2.5s (1710 modules)
+ GET / 200 in 2620ms
+ GET / 200 in 58ms
+ GET / 200 in 57ms
+ ○ Compiling /enterprises/[id] ...
+ ✓ Compiled /enterprises/[id] in 1437ms (1133 modules)
+ GET /enterprises/9 200 in 2044ms
+ ✓ Compiled / in 488ms (848 modules)
+ GET / 200 in 877ms
+ ✓ Compiled /enterprises/[id] in 334ms (852 modules)
+ GET /enterprises/9 200 in 645ms
+ ○ Compiling /risks ...
+ ✓ Compiled /risks in 1177ms (1712 modules)
+ GET /risks 200 in 1330ms
+ ○ Compiling /audit-focus ...
+ ✓ Compiled /audit-focus in 986ms (1718 modules)
+ GET /audit-focus 200 in 1152ms
+ ○ Compiling /documents ...
+ ✓ Compiled /documents in 1012ms (1724 modules)
+ GET /documents 200 in 1179ms
+ ○ Compiling /chat ...
+ ✓ Compiled /chat in 755ms (1730 modules)
+ GET /chat 200 in 925ms
