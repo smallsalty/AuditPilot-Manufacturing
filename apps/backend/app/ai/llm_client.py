@@ -3,13 +3,8 @@ import logging
 import re
 from typing import Any
 
-from openai import OpenAI, APITimeoutError, APIConnectionError, InternalServerError
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 
@@ -30,13 +25,11 @@ class LLMClient:
             self.client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                timeout=120.0,  # 全局默认超时，避免业务接口 30 秒就超时
+                timeout=120.0,
             )
 
     @retry(
-        retry=retry_if_exception_type(
-            (APITimeoutError, APIConnectionError, InternalServerError)
-        ),
+        retry=retry_if_exception_type((APITimeoutError, APIConnectionError, InternalServerError)),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=2, max=10),
         reraise=True,
@@ -75,7 +68,15 @@ class LLMClient:
                     return {"raw": content}
 
             return content
-
+        except (APIConnectionError, APITimeoutError) as exc:
+            logger.warning(
+                "LLM request failed for provider=%s model=%s base_url=%s error=%s",
+                self.provider,
+                self.model or "<unset>",
+                self.base_url or "<unset>",
+                exc.__class__.__name__,
+            )
+            raise RuntimeError("模型服务不可连接，请检查 LLM_BASE_URL 和云端网络连通性。") from exc
         except Exception as exc:
             logger.warning(
                 "LLM request failed for provider=%s model=%s: %s",
@@ -89,13 +90,9 @@ class LLMClient:
         if not content:
             return ""
 
-        # 清理 reasoning 模型可能返回的 think 标签
         content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.S | re.I)
-
-        # 去掉首尾空白
         content = content.strip()
 
-        # 有些模型会把 JSON 包在 ```json 代码块里
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.I)
             content = re.sub(r"\s*```$", "", content)
@@ -105,7 +102,7 @@ class LLMClient:
     def _mock_response(self, user_prompt: str, json_mode: bool) -> Any:
         if json_mode:
             return {
-                "summary": f"系统当前处于 {self.provider} Mock 推理模式，基于规则和文档证据生成了解释。",
+                "summary": f"系统当前处于 {self.provider} Mock 推理模式，基于规则和文档依据生成了解释。",
                 "explanation": user_prompt[:300],
                 "audit_focus": ["主营业务收入", "应收账款", "存货"],
                 "procedures": ["执行截止测试", "复核回款情况", "实施存货监盘"],

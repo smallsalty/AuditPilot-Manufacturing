@@ -29,7 +29,7 @@ export function EnterpriseSwitcher() {
     try {
       await refreshEnterpriseOptions(searchKeyword, { force: true });
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+      setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
     } finally {
       setSearching(false);
     }
@@ -49,20 +49,28 @@ export function EnterpriseSwitcher() {
       setSearchKeyword("");
       selectEnterprise(enterprise.id);
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "企业引入失败");
+      setSearchError(error instanceof Error ? error.message : "企业引入失败。");
     } finally {
       setBootstrapping(false);
     }
   };
 
   useEffect(() => {
+    const normalized = searchKeyword.trim();
+    if (!normalized) {
+      setSearching(false);
+      setSearchError(null);
+      void refreshEnterpriseOptions("");
+      return;
+    }
+
     const timer = window.setTimeout(async () => {
       setSearching(true);
       setSearchError(null);
       try {
-        await refreshEnterpriseOptions(searchKeyword);
+        await refreshEnterpriseOptions(normalized);
       } catch (error) {
-        setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+        setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
       } finally {
         setSearching(false);
       }
@@ -74,9 +82,10 @@ export function EnterpriseSwitcher() {
   const helperText = useMemo(() => {
     if (enterpriseError) return enterpriseError;
     if (searchError) return searchError;
-    if (enterpriseLoading || searching) return "正在加载企业列表...";
+    if (enterpriseLoading) return "正在加载企业列表...";
+    if (searching) return "正在搜索企业...";
     if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
-    return "支持按企业名称或股票代码搜索";
+    return "支持按企业名称或股票代码搜索。";
   }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching]);
 
   return (
@@ -115,7 +124,9 @@ export function EnterpriseSwitcher() {
           ))}
         </select>
       ) : (
-        <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/75">暂无可选企业</div>
+        <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/75">
+          暂无可选企业
+        </div>
       )}
       <p className="mt-3 text-xs text-haze/65">{helperText}</p>
     </div>

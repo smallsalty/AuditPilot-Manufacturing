@@ -81,6 +81,10 @@ class EnterpriseRuntimeService:
         official_event_count = repo.count_official_events(company_id)
         analysis_state = RiskAnalysisService().get_analysis_state(db, company_id)
         risk_results = RiskRepository(db).list_results(company_id)
+        financials = repo.get_financials(company_id, official_only=True)
+        events = repo.get_external_events(company_id, official_only=True)
+        documents = repo.get_documents(company_id, official_only=True)
+        analysis_readiness = RiskAnalysisService.get_analysis_readiness(enterprise, financials, events, documents)
         latest_sync_doc = repo.get_latest_sync_document(company_id)
         latest_sync_event = repo.get_latest_sync_event(company_id)
 
@@ -105,6 +109,9 @@ class EnterpriseRuntimeService:
             "sync_status": sync_status,
             "official_doc_count": official_doc_count,
             "official_event_count": official_event_count,
+            "risk_analysis_ready": analysis_readiness["risk_analysis_ready"],
+            "risk_analysis_reason": analysis_readiness["risk_analysis_reason"],
+            "risk_analysis_message": analysis_readiness["risk_analysis_message"],
             "last_sync_at": last_sync_at.isoformat() if last_sync_at else None,
             "last_sync_source": "cninfo" if official_doc_count or official_event_count else "akshare_fast",
             "risk_analysis_status": analysis_state["analysis_status"],

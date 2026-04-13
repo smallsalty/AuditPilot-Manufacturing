@@ -24,6 +24,9 @@ export type EnterpriseReadinessPayload = {
   sync_status: "never_synced" | "syncing" | "synced" | "failed" | string;
   official_doc_count: number;
   official_event_count: number;
+  risk_analysis_ready: boolean;
+  risk_analysis_reason: string;
+  risk_analysis_message: string;
   last_sync_at?: string | null;
   last_sync_source?: string | null;
   risk_analysis_status: AnalysisStatus | string;

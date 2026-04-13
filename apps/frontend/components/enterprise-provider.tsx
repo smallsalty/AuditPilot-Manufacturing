@@ -19,7 +19,7 @@ import type {
   EnterpriseSearchItem,
   RiskResultPayload,
 } from "@auditpilot/shared-types";
-import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { api } from "@/lib/api";
 
@@ -40,33 +40,25 @@ type EnterpriseContextValue = EnterpriseContextState & {
 
 const EnterpriseContext = createContext<EnterpriseContextValue | null>(null);
 
-function parseUrlEnterpriseId(
-  pathname: string,
-  params: Record<string, string | string[] | undefined>,
-  search: URLSearchParams,
-): number | null {
-  const searchValue = search.get("enterpriseId");
+function parseUrlEnterpriseId(pathname: string, searchParams: URLSearchParams): number | null {
+  const searchValue = searchParams.get("enterpriseId");
   if (searchValue && Number.isFinite(Number(searchValue))) {
     return Number(searchValue);
-  }
-
-  const paramValue = params.id;
-  if (typeof paramValue === "string" && Number.isFinite(Number(paramValue))) {
-    return Number(paramValue);
   }
 
   const match = pathname.match(/\/enterprises\/(\d+)/);
   if (match) {
     return Number(match[1]);
   }
+
   return null;
 }
 
 export function EnterpriseProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const params = useParams();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
 
   const [enterpriseOptions, setEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
   const [allEnterpriseOptions, setAllEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
@@ -91,6 +83,30 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     readiness: new Map(),
   });
 
+  const urlEnterpriseId = useMemo(() => {
+    return parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey));
+  }, [pathname, searchParamsKey]);
+
+  const refreshEnterpriseOptions = useCallback(async (query = "", options?: { force?: boolean }) => {
+    const normalized = query.trim().toLowerCase();
+    const cached = searchCacheRef.current.get(normalized);
+    if (!options?.force && cached && Date.now() - cached.fetchedAt < SEARCH_CACHE_TTL) {
+      setEnterpriseOptions(cached.items);
+      if (!normalized) {
+        setAllEnterpriseOptions(cached.items);
+      }
+      return cached.items;
+    }
+
+    const items = await api.listEnterprises(query);
+    searchCacheRef.current.set(normalized, { items, fetchedAt: Date.now() });
+    setEnterpriseOptions(items);
+    if (!normalized) {
+      setAllEnterpriseOptions(items);
+    }
+    return items;
+  }, []);
+
   const selectEnterprise = useCallback(
     (enterpriseId: number) => {
       setCurrentEnterpriseId(enterpriseId);
@@ -103,23 +119,6 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     },
     [pathname, router],
   );
-
-  const refreshEnterpriseOptions = useCallback(async (query = "", options?: { force?: boolean }) => {
-    const normalized = query.trim().toLowerCase();
-    const cached = searchCacheRef.current.get(normalized);
-    if (!options?.force && cached && Date.now() - cached.fetchedAt < SEARCH_CACHE_TTL) {
-      setEnterpriseOptions(cached.items);
-      return cached.items;
-    }
-
-    const items = await api.listEnterprises(query);
-    searchCacheRef.current.set(normalized, { items, fetchedAt: Date.now() });
-    setEnterpriseOptions(items);
-    if (!normalized) {
-      setAllEnterpriseOptions(items);
-    }
-    return items;
-  }, []);
 
   const bootstrapEnterprise = useCallback(
     async (payload: { ticker?: string; name?: string }) => {
@@ -140,24 +139,28 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
+
     async function initialize() {
       setEnterpriseLoading(true);
       setEnterpriseError(null);
+
       try {
         const items = await refreshEnterpriseOptions("", { force: true });
-        if (!active) return;
+        if (cancelled) {
+          return;
+        }
+
         if (items.length === 0) {
           setCurrentEnterpriseId(null);
           return;
         }
 
-        const urlEnterpriseId = parseUrlEnterpriseId(pathname, params, searchParams);
-        const localEnterpriseId =
+        const storedEnterpriseId =
           typeof window !== "undefined" ? Number(window.localStorage.getItem(ENTERPRISE_STORAGE_KEY)) : null;
         const nextEnterpriseId =
           (urlEnterpriseId && items.some((item) => item.id === urlEnterpriseId) && urlEnterpriseId) ||
-          (localEnterpriseId && items.some((item) => item.id === localEnterpriseId) && localEnterpriseId) ||
+          (storedEnterpriseId && items.some((item) => item.id === storedEnterpriseId) && storedEnterpriseId) ||
           items[0]?.id ||
           null;
 
@@ -166,12 +169,15 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
           window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(nextEnterpriseId));
         }
       } catch (error) {
-        if (!active) return;
+        if (cancelled) {
+          return;
+        }
         setEnterpriseOptions([]);
+        setAllEnterpriseOptions([]);
         setCurrentEnterpriseId(null);
         setEnterpriseError(error instanceof Error ? error.message : "企业列表加载失败。");
       } finally {
-        if (active) {
+        if (!cancelled) {
           setEnterpriseLoading(false);
         }
       }
@@ -179,12 +185,11 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
 
     void initialize();
     return () => {
-      active = false;
+      cancelled = true;
     };
-  }, [pathname, params, refreshEnterpriseOptions, searchParams]);
+  }, [refreshEnterpriseOptions, urlEnterpriseId]);
 
   useEffect(() => {
-    const urlEnterpriseId = parseUrlEnterpriseId(pathname, params, searchParams);
     if (!urlEnterpriseId || currentEnterpriseId === urlEnterpriseId) {
       return;
     }
@@ -195,17 +200,21 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(urlEnterpriseId));
       }
     }
-  }, [currentEnterpriseId, enterpriseOptions, pathname, params, searchParams]);
+  }, [currentEnterpriseId, enterpriseOptions, urlEnterpriseId]);
 
   useEffect(() => {
     let active = true;
+
     async function maybeAutoSync() {
       if (!currentEnterpriseId || autoSyncTriggeredRef.current.has(currentEnterpriseId)) {
         return;
       }
+
       try {
         const readiness = await api.getReadiness(currentEnterpriseId);
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         resourceCacheRef.current.readiness.set(currentEnterpriseId, readiness);
         if (readiness.profile_ready && readiness.official_doc_count === 0 && readiness.sync_status !== "syncing") {
           autoSyncTriggeredRef.current.add(currentEnterpriseId);
@@ -219,9 +228,10 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch {
-        // Keep the page usable; individual pages will display their own status.
+        // Keep pages usable; page-level resources will show their own state.
       }
     }
+
     void maybeAutoSync();
     return () => {
       active = false;

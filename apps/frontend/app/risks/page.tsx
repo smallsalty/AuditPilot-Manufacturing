@@ -19,6 +19,7 @@ export default function RisksPage() {
     useDashboardResource(currentEnterpriseId);
   const { data: risks, loading: risksLoading, error: risksError, refresh: refreshRisks } =
     useRiskResultsResource(currentEnterpriseId);
+
   const [running, setRunning] = useState(false);
   const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [displayRisks, setDisplayRisks] = useState<RiskResultPayload[]>([]);
@@ -39,19 +40,15 @@ export default function RisksPage() {
       return;
     }
     if (backgroundSyncing) {
-      setActionMessage("风险分析已完成，正在同步最新总览和结果。");
+      setActionMessage("风险分析已完成，正在同步最新概览和结果。");
       return;
     }
     if (!readiness) {
       setActionMessage("正在检查企业数据就绪状态...");
       return;
     }
-    if (readiness.sync_status === "never_synced") {
-      setActionMessage("当前企业尚未同步官方数据，请先同步源数据。");
-      return;
-    }
-    if (readiness.sync_status === "syncing") {
-      setActionMessage("企业官方数据同步中，请稍后刷新。");
+    if (!readiness.risk_analysis_ready) {
+      setActionMessage(readiness.risk_analysis_message);
       return;
     }
     const status = dashboard?.analysis_status ?? readiness.risk_analysis_status ?? "not_started";
@@ -64,12 +61,12 @@ export default function RisksPage() {
         dashboard?.last_run_at ? `最近分析时间：${new Date(dashboard.last_run_at).toLocaleString()}` : "分析已完成。",
       );
     } else {
-      setActionMessage("当前企业尚未运行风险分析。");
+      setActionMessage(readiness.risk_analysis_message);
     }
   }, [backgroundSyncing, currentEnterprise, dashboard, readiness, running]);
 
   const runAnalysis = async () => {
-    if (!currentEnterpriseId || running) {
+    if (!currentEnterpriseId || running || !readiness?.risk_analysis_ready) {
       return;
     }
     setRunning(true);
@@ -129,13 +126,7 @@ export default function RisksPage() {
           </div>
           <Button
             onClick={runAnalysis}
-            disabled={
-              running ||
-              analysisStatus === "running" ||
-              !currentEnterpriseId ||
-              readiness?.sync_status === "never_synced" ||
-              readiness?.sync_status === "syncing"
-            }
+            disabled={running || analysisStatus === "running" || !currentEnterpriseId || !readiness?.risk_analysis_ready}
           >
             {running || analysisStatus === "running" ? "分析中..." : "运行风险分析"}
           </Button>
@@ -145,7 +136,7 @@ export default function RisksPage() {
       {backgroundSyncing ? (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-            后台正在同步最新总览和风险结果，当前表格已优先显示本次分析返回的数据。
+            后台正在同步最新概览和风险结果，当前表格优先展示本次分析返回的数据。
           </div>
         </Card>
       ) : null}
@@ -178,34 +169,22 @@ export default function RisksPage() {
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">正在加载风险清单...</div>
         </Card>
-      ) : readiness?.sync_status === "never_synced" ? (
+      ) : readiness && !readiness.risk_analysis_ready ? (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            当前企业尚未同步官方数据，请先进入企业概览页同步源数据。
-          </div>
-        </Card>
-      ) : readiness?.sync_status === "syncing" ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            当前企业正在同步官方数据，请稍后刷新。
+            {readiness.risk_analysis_message}
           </div>
         </Card>
       ) : dashboardError && !showResults ? (
         <Card>
           <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            总览数据加载失败：{dashboardError}
-          </div>
-        </Card>
-      ) : analysisStatus === "not_started" ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
-            当前企业尚未运行风险分析，请先执行分析任务。
+            概览数据加载失败：{dashboardError}
           </div>
         </Card>
       ) : analysisStatus === "failed" ? (
         <Card>
           <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">
-            风险分析失败：{dashboard?.last_error ?? "请重试风险分析任务。"}
+            风险分析失败：{dashboard?.last_error ?? "请重新运行风险分析任务。"}
           </div>
         </Card>
       ) : risksError && !showResults ? (

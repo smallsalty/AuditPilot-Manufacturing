@@ -32,6 +32,38 @@ class RiskAnalysisService:
         self.rule_evaluator = RuleEvaluator()
         self.explainer = RiskExplanationService()
 
+    @staticmethod
+    def get_analysis_readiness(enterprise, financials: list, events: list, documents: list) -> dict:
+        if enterprise.sync_status == "syncing":
+            return {
+                "risk_analysis_ready": False,
+                "risk_analysis_reason": "syncing",
+                "risk_analysis_message": "官方数据同步中，请稍后刷新后再运行风险分析。",
+            }
+        if enterprise.sync_status == "failed":
+            return {
+                "risk_analysis_ready": False,
+                "risk_analysis_reason": "failed",
+                "risk_analysis_message": "最近一次官方数据同步失败，请先重新同步后再运行风险分析。",
+            }
+        if not documents and not events:
+            return {
+                "risk_analysis_ready": False,
+                "risk_analysis_reason": "no_official_data",
+                "risk_analysis_message": "当前企业暂无可用于分析的官方数据，请先同步官方公告或上传文档。",
+            }
+        if not financials and not events:
+            return {
+                "risk_analysis_ready": False,
+                "risk_analysis_reason": "official_docs_only",
+                "risk_analysis_message": "当前已同步官方文档，但缺少可用于规则分析的财务或事件结构化数据。",
+            }
+        return {
+            "risk_analysis_ready": True,
+            "risk_analysis_reason": "ready",
+            "risk_analysis_message": "当前企业已满足风险分析运行条件。",
+        }
+
     def _normalize_to_list(self, value) -> list[str]:
         if value is None:
             return []
@@ -41,7 +73,7 @@ class RiskAnalysisService:
             value = value.strip()
             if not value:
                 return []
-            for sep in ["、", "，", ",", ";", "；", "\n"]:
+            for sep in ["。", "，", ",", ";", "\n"]:
                 if sep in value:
                     return [item.strip() for item in value.split(sep) if item.strip()]
             return [value]
@@ -89,7 +121,7 @@ class RiskAnalysisService:
         enterprise_repo = EnterpriseRepository(db)
         enterprise = enterprise_repo.get_by_id(enterprise_id)
         if enterprise is None:
-            raise ValueError("企业不存在")
+            raise ValueError("企业不存在。")
 
         latest_run = enterprise_repo.get_latest_analysis_run(enterprise_id)
         if latest_run and latest_run.status == "running":
@@ -102,6 +134,8 @@ class RiskAnalysisService:
 
         financials = enterprise_repo.get_financials(enterprise_id, official_only=True)
         events = enterprise_repo.get_external_events(enterprise_id, official_only=True)
+        documents = enterprise_repo.get_documents(enterprise_id, official_only=True)
+        readiness = self.get_analysis_readiness(enterprise, financials, events, documents)
         benchmarks = list(
             db.scalars(
                 select(IndustryBenchmark).where(
@@ -111,8 +145,8 @@ class RiskAnalysisService:
             ).all()
         )
 
-        if not financials and not events:
-            raise ValueError("当前企业尚无可用于分析的官方数据，请先同步源数据或上传文档。")
+        if not readiness["risk_analysis_ready"]:
+            raise ValueError(readiness["risk_analysis_message"])
 
         run = AnalysisRun(
             enterprise_id=enterprise_id,
@@ -167,6 +201,7 @@ class RiskAnalysisService:
                 db.add(result)
                 db.flush()
 
+                focus_accounts = sorted(set((rule.focus_accounts or []) + audit_focus))
                 recommendation_sources = self._recommendation_sources(result.source_type, result.evidence_chain)
                 db.add(
                     AuditRecommendation(
@@ -174,11 +209,11 @@ class RiskAnalysisService:
                         run_id=run.id,
                         risk_result_id=result.id,
                         priority=rule.risk_level.lower(),
-                        focus_accounts=sorted(set((rule.focus_accounts or []) + audit_focus)),
+                        focus_accounts=focus_accounts,
                         focus_processes=rule.focus_processes,
                         recommended_procedures=sorted(set((rule.recommended_procedures or []) + procedures)),
                         evidence_types=sorted(set((rule.evidence_types or []) + recommendation_sources)),
-                        recommendation_text=f"{rule.name}：优先关注 {'、'.join(rule.focus_accounts or []) or '相关科目'}。",
+                        recommendation_text=f"{rule.name}：优先关注{'、'.join(focus_accounts or ['相关科目'])}。",
                     )
                 )
 
@@ -219,9 +254,14 @@ class RiskAnalysisService:
             run.status = "completed"
             run.metadata_json = {"last_error": None}
             results = self.get_results(db, enterprise_id)
-            run.summary = f"共识别 {len(results)} 项风险。"
+            run.summary = f"共识别出 {len(results)} 项风险。"
             db.commit()
-            logger.info("risk analysis finished enterprise_id=%s run_id=%s result_count=%s", enterprise_id, run.id, len(results))
+            logger.info(
+                "risk analysis finished enterprise_id=%s run_id=%s result_count=%s",
+                enterprise_id,
+                run.id,
+                len(results),
+            )
 
             return {
                 "run_id": run.id,

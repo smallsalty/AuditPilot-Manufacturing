@@ -1,0 +1,210 @@
+ ⨯ ./components/enterprise-switcher.tsx
+Error: Failed to read source code from D:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx
+
+Caused by:
+    系统找不到指定的文件。 (os error 2)
+
+Import trace for requested module:
+./components/enterprise-switcher.tsx
+./components/app-shell.tsx
+ ⨯ ./components/enterprise-switcher.tsx
+Error: 
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:29:1]
+ [2m29[0m |     try {
+ [2m30[0m |       await refreshEnterpriseOptions(searchKeyword, { force: true });
+ [2m31[0m |     } catch (error) {
+ [2m32[0m | <<<<<<< ours
+    : [31;1m^^^^^^^[0m
+ [2m33[0m |       setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+ [2m34[0m | =======
+ [2m34[0m |       setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:31:1]
+ [2m31[0m |     } catch (error) {
+ [2m32[0m | <<<<<<< ours
+ [2m33[0m |       setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+ [2m34[0m | =======
+    : [31;1m^^^^^^^[0m
+ [2m35[0m |       setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
+ [2m36[0m | >>>>>>> theirs
+ [2m36[0m |     } finally {
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:33:1]
+ [2m33[0m |       setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+ [2m34[0m | =======
+ [2m35[0m |       setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
+ [2m36[0m | >>>>>>> theirs
+    : [31;1m^^^^^^^[0m
+ [2m37[0m |     } finally {
+ [2m38[0m |       setSearching(false);
+ [2m38[0m |     }
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:53:1]
+ [2m53[0m |       setSearchKeyword("");
+ [2m54[0m |       selectEnterprise(enterprise.id);
+ [2m55[0m |     } catch (error) {
+ [2m56[0m | <<<<<<< ours
+    : [31;1m^^^^^^^[0m
+ [2m57[0m |       setSearchError(error instanceof Error ? error.message : "企业引入失败");
+ [2m58[0m | =======
+ [2m58[0m |       setSearchError(error instanceof Error ? error.message : "企业引入失败。");
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:55:1]
+ [2m55[0m |     } catch (error) {
+ [2m56[0m | <<<<<<< ours
+ [2m57[0m |       setSearchError(error instanceof Error ? error.message : "企业引入失败");
+ [2m58[0m | =======
+    : [31;1m^^^^^^^[0m
+ [2m59[0m |       setSearchError(error instanceof Error ? error.message : "企业引入失败。");
+ [2m60[0m | >>>>>>> theirs
+ [2m60[0m |     } finally {
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:57:1]
+ [2m57[0m |       setSearchError(error instanceof Error ? error.message : "企业引入失败");
+ [2m58[0m | =======
+ [2m59[0m |       setSearchError(error instanceof Error ? error.message : "企业引入失败。");
+ [2m60[0m | >>>>>>> theirs
+    : [31;1m^^^^^^^[0m
+ [2m61[0m |     } finally {
+ [2m62[0m |       setBootstrapping(false);
+ [2m62[0m |     }
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:64:1]
+ [2m64[0m |   };
+ [2m65[0m | 
+ [2m66[0m |   useEffect(() => {
+ [2m67[0m | <<<<<<< ours
+    : [31;1m^^^^^^^[0m
+ [2m68[0m | =======
+ [2m69[0m |     if (!searchKeyword.trim()) {
+ [2m69[0m |       setSearching(false);
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:65:1]
+ [2m65[0m | 
+ [2m66[0m |   useEffect(() => {
+ [2m67[0m | <<<<<<< ours
+ [2m68[0m | =======
+    : [31;1m^^^^^^^[0m
+ [2m69[0m |     if (!searchKeyword.trim()) {
+ [2m70[0m |       setSearching(false);
+ [2m70[0m |       setSearchError(null);
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:72:1]
+ [2m72[0m |       return;
+ [2m73[0m |     }
+ [2m74[0m | 
+ [2m75[0m | >>>>>>> theirs
+    : [31;1m^^^^^^^[0m
+ [2m76[0m |     const timer = window.setTimeout(async () => {
+ [2m77[0m |       setSearching(true);
+ [2m77[0m |       setSearchError(null);
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:79:1]
+ [2m79[0m |       try {
+ [2m80[0m |         await refreshEnterpriseOptions(searchKeyword);
+ [2m81[0m |       } catch (error) {
+ [2m82[0m | <<<<<<< ours
+    : [31;1m^^^^^^^[0m
+ [2m83[0m |         setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+ [2m84[0m | =======
+ [2m84[0m |         setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:81:1]
+ [2m81[0m |       } catch (error) {
+ [2m82[0m | <<<<<<< ours
+ [2m83[0m |         setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+ [2m84[0m | =======
+    : [31;1m^^^^^^^[0m
+ [2m85[0m |         setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
+ [2m86[0m | >>>>>>> theirs
+ [2m86[0m |       } finally {
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+    ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:83:1]
+ [2m83[0m |         setSearchError(error instanceof Error ? error.message : "企业搜索失败");
+ [2m84[0m | =======
+ [2m85[0m |         setSearchError(error instanceof Error ? error.message : "企业搜索失败。");
+ [2m86[0m | >>>>>>> theirs
+    : [31;1m^^^^^^^[0m
+ [2m87[0m |       } finally {
+ [2m88[0m |         setSearching(false);
+ [2m88[0m |       }
+    `----
+
+  [31mx[0m Merge conflict marker encountered.
+     ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:95:1]
+ [2m 95[0m |   const helperText = useMemo(() => {
+ [2m 96[0m |     if (enterpriseError) return enterpriseError;
+ [2m 97[0m |     if (searchError) return searchError;
+ [2m 98[0m | <<<<<<< ours
+     : [31;1m^^^^^^^[0m
+ [2m 99[0m |     if (enterpriseLoading || searching) return "正在加载企业列表...";
+ [2m100[0m |     if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
+ [2m100[0m |     return "支持按企业名称或股票代码搜索";
+     `----
+
+  [31mx[0m Merge conflict marker encountered.
+     ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:99:1]
+ [2m 99[0m |     if (enterpriseLoading || searching) return "正在加载企业列表...";
+ [2m100[0m |     if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
+ [2m101[0m |     return "支持按企业名称或股票代码搜索";
+ [2m102[0m | =======
+     : [31;1m^^^^^^^[0m
+ [2m103[0m |     if (enterpriseLoading) return "正在加载企业列表...";
+ [2m104[0m |     if (searching) return "正在搜索企业...";
+ [2m104[0m |     if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
+     `----
+
+  [31mx[0m Merge conflict marker encountered.
+     ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:104:1]
+ [2m104[0m |     if (searching) return "正在搜索企业...";
+ [2m105[0m |     if (enterpriseOptions.length === 0) return "未找到匹配企业，可直接引入官方企业。";
+ [2m106[0m |     return "支持按企业名称或股票代码搜索。";
+ [2m107[0m | >>>>>>> theirs
+     : [31;1m^^^^^^^[0m
+ [2m108[0m |   }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching]);
+ [2m109[0m | 
+ [2m109[0m |   return (
+     `----
+
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mD:\firstmoney\AuditPilot-Manufacturing\apps\frontend\components\enterprise-switcher.tsx[0m:108:1]
+ [2m108[0m |   }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching]);
+ [2m109[0m | 
+ [2m110[0m |   return (
+ [2m111[0m |     <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+     : [31;1m     ^^^[0m
+ [2m112[0m |       <p className="text-xs uppercase tracking-[0.24em] text-steel">企业上下文</p>
+ [2m113[0m |       <div className="relative mt-4">
+ [2m113[0m |         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/enterprise-switcher.tsx
+./components/app-shell.tsx
+^C

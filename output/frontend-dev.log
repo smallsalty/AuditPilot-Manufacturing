@@ -7,28 +7,15 @@
   - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 2.5s
+ ✓ Ready in 5.4s
  ○ Compiling / ...
- ✓ Compiled / in 2.5s (1710 modules)
- GET / 200 in 2620ms
- GET / 200 in 58ms
- GET / 200 in 57ms
- ○ Compiling /enterprises/[id] ...
- ✓ Compiled /enterprises/[id] in 1437ms (1133 modules)
- GET /enterprises/9 200 in 2044ms
- ✓ Compiled / in 488ms (848 modules)
- GET / 200 in 877ms
- ✓ Compiled /enterprises/[id] in 334ms (852 modules)
- GET /enterprises/9 200 in 645ms
- ○ Compiling /risks ...
- ✓ Compiled /risks in 1177ms (1712 modules)
- GET /risks 200 in 1330ms
- ○ Compiling /audit-focus ...
- ✓ Compiled /audit-focus in 986ms (1718 modules)
- GET /audit-focus 200 in 1152ms
- ○ Compiling /documents ...
- ✓ Compiled /documents in 1012ms (1724 modules)
- GET /documents 200 in 1179ms
- ○ Compiling /chat ...
- ✓ Compiled /chat in 755ms (1730 modules)
- GET /chat 200 in 925ms
+ ✓ Compiled / in 17.2s (1710 modules)
+ GET / 200 in 17778ms
+ GET / 200 in 77ms
+ ✓ Compiled in 964ms (1710 modules)
+ GET / 200 in 267ms
+ ✓ Compiled in 657ms (1710 modules)
+ GET / 200 in 141ms
+ ✓ Compiled in 318ms (862 modules)
+ ✓ Compiled in 346ms (862 modules)
+ ✓ Compiled in 163ms (862 modules)

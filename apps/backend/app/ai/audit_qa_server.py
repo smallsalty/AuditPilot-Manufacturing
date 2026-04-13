@@ -1,5 +1,6 @@
 import logging
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.ai.llm_client import LLMClient
@@ -50,7 +51,12 @@ class AuditQAServer:
             f"上下文：\n{context}\n"
             "请返回 JSON。"
         )
-        result = self.llm_client.chat_completion(system_prompt, user_prompt, json_mode=True)
+
+        try:
+            result = self.llm_client.chat_completion(system_prompt, user_prompt, json_mode=True)
+        except RuntimeError as exc:
+            logger.warning("chat failed enterprise_id=%s error=%s", enterprise.id, exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
         citations = [
             {
