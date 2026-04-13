@@ -84,8 +84,9 @@ class AuditSyncService:
             except Exception as exc:
                 errors.append(f"{source_name} announcement sync failed: {exc}")
                 continue
+
             announcements_fetched += len(announcements)
-            if not announcements:
+            if source_name == "cninfo" and not announcements:
                 warnings.append(
                     f"{source_name} returned no target announcements for {enterprise.ticker} in "
                     f"{effective_date_from.isoformat()}~{effective_date_to.isoformat()}."
@@ -123,7 +124,8 @@ class AuditSyncService:
                         events_inserted += 1
                     if event.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
-            if announcements and source_documents_found == 0 and source_events_found == 0:
+
+            if source_name == "cninfo" and announcements and source_documents_found == 0 and source_events_found == 0:
                 warnings.append(
                     f"{source_name} fetched {len(announcements)} announcements for {enterprise.ticker}, "
                     "but none matched document or penalty classification."
@@ -155,10 +157,16 @@ class AuditSyncService:
         effective_date_to: date,
     ) -> date:
         existing_document = db.scalar(
-            select(DocumentMeta.id).where(DocumentMeta.enterprise_id == enterprise.id).limit(1)
+            select(DocumentMeta.id).where(
+                DocumentMeta.enterprise_id == enterprise.id,
+                (DocumentMeta.source == "cninfo") | (DocumentMeta.is_official_source.is_(True)),
+            ).limit(1)
         )
         existing_event = db.scalar(
-            select(ExternalEvent.id).where(ExternalEvent.enterprise_id == enterprise.id).limit(1)
+            select(ExternalEvent.id).where(
+                ExternalEvent.enterprise_id == enterprise.id,
+                (ExternalEvent.source == "cninfo") | (ExternalEvent.is_official_source.is_(True)),
+            ).limit(1)
         )
         if existing_document or existing_event:
             lookback_days = settings.sync_lookback_days
@@ -248,7 +256,11 @@ class AuditSyncService:
         document.file_name = self._infer_file_name(document.document_name, file_url)
         document.mime_type = self._infer_mime_type(file_url)
         if file_url:
-            file_path, file_hash, file_size, download_status = self._download_file(file_url, enterprise.id, document.file_name or document.document_name)
+            file_path, file_hash, file_size, download_status = self._download_file(
+                file_url,
+                enterprise.id,
+                document.file_name or document.document_name,
+            )
             if file_path:
                 document.file_path = str(file_path)
             if file_hash:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from functools import lru_cache
+import time
 from typing import Any
 
 import httpx
@@ -15,9 +16,25 @@ class CninfoProvider(BaseAuditProvider):
     priority = 100
     is_official_source = True
     stock_list_url = "https://www.cninfo.com.cn/new/data/szse_stock.json"
+    max_retries = 3
 
-    DOCUMENT_KEYWORDS = ("年度报告", "年报", "审计报告", "内控审计", "审阅报告")
-    PENALTY_KEYWORDS = ("处罚", "监管", "警示函", "问询函", "监管函", "纪律处分", "立案")
+    DOCUMENT_KEYWORDS = (
+        "年度报告",
+        "年报",
+        "审计报告",
+        "内控审计",
+        "内控审计报告",
+        "审阅报告",
+    )
+    PENALTY_KEYWORDS = (
+        "处罚",
+        "监管",
+        "警示函",
+        "问询函",
+        "监管函",
+        "纪律处分",
+        "立案",
+    )
 
     def __init__(self) -> None:
         self.enabled = settings.cninfo_enable
@@ -28,9 +45,11 @@ class CninfoProvider(BaseAuditProvider):
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
             ),
+            "Accept": "application/json, text/plain, */*",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.cninfo.com.cn/",
         }
+        self.timeout = httpx.Timeout(connect=10.0, read=60.0, write=20.0, pool=20.0)
 
     def fetch_company_profile(self, ticker: str) -> dict[str, Any] | None:
         if not self.enabled:
@@ -62,10 +81,7 @@ class CninfoProvider(BaseAuditProvider):
             "seDate": f"{date_from.isoformat()}~{date_to.isoformat()}",
             "isHLtitle": "true",
         }
-        with httpx.Client(timeout=20.0, headers=self.headers) as client:
-            response = client.post(self.query_url, data=payload)
-            response.raise_for_status()
-            data = response.json()
+        data = self._request_json_with_retry("POST", self.query_url, headers=self.headers, timeout=self.timeout, data=payload)
 
         rows = data.get("announcements") or []
         total_record_num = int(data.get("totalRecordNum") or 0)
@@ -138,12 +154,11 @@ class CninfoProvider(BaseAuditProvider):
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
             ),
+            "Accept": "application/json, text/plain, */*",
             "Referer": "https://www.cninfo.com.cn/",
         }
-        with httpx.Client(timeout=20.0, headers=headers) as client:
-            response = client.get(cls.stock_list_url)
-            response.raise_for_status()
-            payload = response.json()
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=20.0, pool=20.0)
+        payload = cls._request_json_with_retry("GET", cls.stock_list_url, headers=headers, timeout=timeout)
         rows = payload.get("stockList") or []
         mapping: dict[str, str] = {}
         for row in rows:
@@ -152,3 +167,35 @@ class CninfoProvider(BaseAuditProvider):
             if code and org_id:
                 mapping[code] = org_id
         return mapping
+
+    @classmethod
+    def _request_json_with_retry(
+        cls,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(1, cls.max_retries + 1):
+            try:
+                with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+                    response = client.request(method, url, data=data)
+                    response.raise_for_status()
+                    return response.json()
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as exc:
+                retryable = True
+                if isinstance(exc, httpx.HTTPStatusError):
+                    retryable = exc.response.status_code >= 500
+                last_error = exc
+                if attempt >= cls.max_retries or not retryable:
+                    break
+                time.sleep(float(attempt))
+            except Exception as exc:
+                last_error = exc
+                break
+        if last_error is None:
+            raise RuntimeError("cninfo request failed without an explicit error")
+        raise last_error
