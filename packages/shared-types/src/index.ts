@@ -234,7 +234,19 @@ export type SyncCompanyPayload = {
   documents_inserted: number;
   events_found: number;
   events_inserted: number;
+  other_found?: number;
   parse_queued: number;
   warnings: string[];
   errors: string[];
+  diagnostics?: {
+    is_initial_sync: boolean;
+    window_kind: string;
+    date_from: string;
+    date_to: string;
+    classification_counts: {
+      document: number;
+      penalty: number;
+      other: number;
+    };
+  } | null;
 };

@@ -45,11 +45,11 @@ class AkshareFastProvider(BaseAuditProvider):
             info_df = info_df.copy()
             info_df.columns = [str(column).strip() for column in info_df.columns]
             item_column = next(
-                (column for column in info_df.columns if "item" in column.lower() or "项目" in column),
+                (column for column in info_df.columns if "item" in column.lower() or "\u9879\u76ee" in column),
                 None,
             )
             value_column = next(
-                (column for column in info_df.columns if "value" in column.lower() or "值" in column),
+                (column for column in info_df.columns if "value" in column.lower() or "\u503c" in column),
                 None,
             )
             if item_column and value_column:
@@ -64,9 +64,9 @@ class AkshareFastProvider(BaseAuditProvider):
             "name": match["name"],
             "ticker": match["ticker"],
             "exchange": exchange,
-            "province": self._pick(mapping, ["地域", "所在地", "所属地区"]),
-            "industry_tag": self._pick(mapping, ["行业", "所属行业"]) or "制造业",
-            "listed_date": self._normalize_date(self._pick(mapping, ["上市时间", "上市日期"])),
+            "province": self._pick(mapping, ["\u5730\u57df", "\u6240\u5728\u5730", "\u6240\u5c5e\u5730\u533a"]),
+            "industry_tag": self._pick(mapping, ["\u884c\u4e1a", "\u6240\u5c5e\u884c\u4e1a"]) or "\u5236\u9020\u4e1a",
+            "listed_date": self._normalize_date(self._pick(mapping, ["\u4e0a\u5e02\u65f6\u95f4", "\u4e0a\u5e02\u65e5\u671f"])),
             "company_name_aliases": aliases,
             "source_url": "https://akshare.akfamily.xyz/",
             "source_object_id": match["ticker"],
@@ -95,24 +95,20 @@ class AkshareFastProvider(BaseAuditProvider):
 
         code_name_df = code_name_df.copy()
         code_name_df.columns = [str(column).strip() for column in code_name_df.columns]
-        code_col = next((column for column in code_name_df.columns if column.lower() in {"code", "代码"}), None)
-        name_col = next((column for column in code_name_df.columns if column.lower() in {"name", "名称"}), None)
+        code_col = next((column for column in code_name_df.columns if column.lower() in {"code", "\u4ee3\u7801"}), None)
+        name_col = next((column for column in code_name_df.columns if column.lower() in {"name", "\u540d\u79f0"}), None)
         if code_col is None or name_col is None:
             return None
 
-        normalized_query = query.replace(" ", "").upper()
+        normalized_query = self._normalize_query(query)
         code_name_df["_code"] = code_name_df[code_col].astype(str).str.strip()
         code_name_df["_name"] = code_name_df[name_col].astype(str).str.strip()
         code_name_df["_name_norm"] = code_name_df["_name"].str.replace(" ", "", regex=False).str.upper()
 
-        if "." in normalized_query:
-            symbol = normalized_query.split(".")[0]
-        else:
-            symbol = normalized_query
-
+        symbol = self._normalize_code(normalized_query)
         exact_code = code_name_df[code_name_df["_code"] == symbol]
         if exact_code.empty and ticker:
-            exact_code = code_name_df[code_name_df["_code"] == ticker.strip().split(".")[0]]
+            exact_code = code_name_df[code_name_df["_code"] == self._normalize_code(ticker)]
         if exact_code.empty:
             exact_code = code_name_df[code_name_df["_name_norm"] == normalized_query]
         if exact_code.empty:
@@ -127,6 +123,18 @@ class AkshareFastProvider(BaseAuditProvider):
             "ticker": f"{raw_symbol}.SH" if raw_symbol.startswith("6") else f"{raw_symbol}.SZ",
             "name": str(row["_name"]).strip(),
         }
+
+    @staticmethod
+    def _normalize_query(value: str) -> str:
+        return value.replace(" ", "").upper()
+
+    @staticmethod
+    def _normalize_code(value: str) -> str:
+        normalized = value.replace(" ", "").upper()
+        if "." in normalized:
+            normalized = normalized.split(".", 1)[0]
+        normalized = normalized.replace("SH", "").replace("SZ", "")
+        return normalized
 
     @staticmethod
     def _pick(mapping: dict[str, Any], keys: list[str]) -> str | None:

@@ -47,20 +47,24 @@ class AuditSyncService:
         repo = EnterpriseRepository(db)
         enterprise = repo.get_by_id(company_id)
         if enterprise is None:
-            raise ValueError("企业不存在。")
+            raise ValueError("\u4f01\u4e1a\u4e0d\u5b58\u5728\u3002")
 
         requested_sources = sources or ["akshare_fast", "cninfo"]
         disabled = [source for source in requested_sources if source in self.DISABLED_SOURCES]
         if disabled:
-            raise RuntimeError(f"第一阶段已禁用该数据源：{', '.join(disabled)}")
+            raise RuntimeError(f"\u7b2c\u4e00\u9636\u6bb5\u5df2\u7981\u7528\u8be5\u6570\u636e\u6e90\uff1a{', '.join(disabled)}")
 
         unsupported = [source for source in requested_sources if source not in self.providers]
         if unsupported:
-            raise ValueError(f"不支持的数据源：{', '.join(unsupported)}")
+            raise ValueError(f"\u4e0d\u652f\u6301\u7684\u6570\u636e\u6e90\uff1a{', '.join(unsupported)}")
 
         if enterprise.sync_status == self.SYNC_SYNCING:
             logger.info("sync skipped because enterprise %s is already syncing", company_id)
-            return self._build_skipped_summary(enterprise, requested_sources, "当前企业同步任务仍在执行中，请稍后刷新。")
+            return self._build_skipped_summary(
+                enterprise,
+                requested_sources,
+                "\u5f53\u524d\u4f01\u4e1a\u540c\u6b65\u4efb\u52a1\u4ecd\u5728\u6267\u884c\u4e2d\uff0c\u8bf7\u7a0d\u540e\u5237\u65b0\u3002",
+            )
 
         if (
             date_from is None
@@ -68,10 +72,21 @@ class AuditSyncService:
             and repo.has_recent_successful_sync(company_id, self.AUTO_SYNC_COOLDOWN_MINUTES)
         ):
             logger.info("sync skipped because enterprise %s was synced recently", company_id)
-            return self._build_skipped_summary(enterprise, requested_sources, "最近一次同步已完成，当前无需重复拉取。")
+            return self._build_skipped_summary(
+                enterprise,
+                requested_sources,
+                "\u6700\u8fd1\u4e00\u6b21\u540c\u6b65\u5df2\u5b8c\u6210\uff0c\u5f53\u524d\u65e0\u9700\u91cd\u590d\u62c9\u53d6\u3002",
+            )
 
-        effective_date_to = date_to or date.today()
-        effective_date_from = date_from or self._default_date_from(db, enterprise, effective_date_to)
+        raw_date_to = date_to or date.today()
+        is_initial_sync = self._is_initial_sync(db, enterprise)
+        effective_date_to = self._default_date_to(
+            enterprise,
+            raw_date_to,
+            is_initial_sync,
+            explicit_date_to=date_to is not None,
+        )
+        effective_date_from = date_from or self._default_date_from(enterprise, effective_date_to, is_initial_sync)
 
         company_profile_updated = False
         announcements_fetched = 0
@@ -79,6 +94,7 @@ class AuditSyncService:
         documents_inserted = 0
         events_found = 0
         events_inserted = 0
+        other_found = 0
         parse_queued = 0
         warnings: list[str] = []
         errors: list[str] = []
@@ -87,18 +103,20 @@ class AuditSyncService:
         db.flush()
 
         logger.info(
-            "sync started enterprise_id=%s ticker=%s sources=%s date_from=%s date_to=%s",
+            "sync started enterprise_id=%s ticker=%s sources=%s date_from=%s date_to=%s is_initial_sync=%s",
             enterprise.id,
             enterprise.ticker,
             requested_sources,
             effective_date_from.isoformat(),
             effective_date_to.isoformat(),
+            is_initial_sync,
         )
 
         for source_name in requested_sources:
             provider = self.providers[source_name]
             source_documents_found = 0
             source_events_found = 0
+            source_other_found = 0
 
             try:
                 profile_payload = provider.fetch_company_profile(enterprise.ticker)
@@ -106,14 +124,14 @@ class AuditSyncService:
                     self._apply_profile(enterprise, profile_payload, provider.priority, provider.is_official_source)
                     company_profile_updated = True
             except Exception as exc:
-                warnings.append(f"{source_name} 企业资料同步失败：{exc}")
+                warnings.append(f"{source_name} \u4f01\u4e1a\u8d44\u6599\u540c\u6b65\u5931\u8d25\uff1a{exc}")
                 logger.warning("profile sync failed enterprise_id=%s source=%s error=%s", enterprise.id, source_name, exc)
                 continue
 
             try:
                 announcements = provider.fetch_announcements(enterprise.ticker, effective_date_from, effective_date_to)
             except Exception as exc:
-                errors.append(f"{source_name} 公告同步失败：{exc}")
+                errors.append(f"{source_name} \u516c\u544a\u540c\u6b65\u5931\u8d25\uff1a{exc}")
                 logger.warning("announcement sync failed enterprise_id=%s source=%s error=%s", enterprise.id, source_name, exc)
                 continue
 
@@ -127,7 +145,7 @@ class AuditSyncService:
 
             if source_name == "cninfo" and not announcements:
                 warnings.append(
-                    f"{source_name} 在 {effective_date_from.isoformat()}~{effective_date_to.isoformat()} 未返回目标公告。"
+                    f"{source_name} \u5728 {effective_date_from.isoformat()}~{effective_date_to.isoformat()} \u672a\u8fd4\u56de\u76ee\u6807\u516c\u544a\u3002"
                 )
 
             for item in announcements:
@@ -162,25 +180,52 @@ class AuditSyncService:
                         events_inserted += 1
                     if event.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
+                else:
+                    other_found += 1
+                    source_other_found += 1
 
             if source_name == "cninfo" and announcements and source_documents_found == 0 and source_events_found == 0:
                 warnings.append(
-                    f"{source_name} 已拉取 {len(announcements)} 条公告，但当前窗口内没有命中文档或处罚分类。"
+                    f"{source_name} \u5df2\u6293\u53d6 {len(announcements)} \u6761\u516c\u544a\uff0c"
+                    "\u4f46\u5f53\u524d\u5206\u7c7b\u89c4\u5219\u672a\u547d\u4e2d\u8d22\u62a5\u7c7b\u5173\u952e\u8bcd\u3002"
                 )
+
+            logger.info(
+                "source summary enterprise_id=%s source=%s document=%s penalty=%s other=%s",
+                enterprise.id,
+                source_name,
+                source_documents_found,
+                source_events_found,
+                source_other_found,
+            )
 
         enterprise.sync_status = self.SYNC_STORED if not errors else self.SYNC_FETCHED
         enterprise.latest_sync_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(enterprise)
 
+        diagnostics = {
+            "is_initial_sync": is_initial_sync,
+            "window_kind": "audit_year" if is_initial_sync and date_from is None and date_to is None else "incremental",
+            "date_from": effective_date_from.isoformat(),
+            "date_to": effective_date_to.isoformat(),
+            "classification_counts": {
+                "document": documents_found,
+                "penalty": events_found,
+                "other": other_found,
+            },
+        }
+
         logger.info(
-            "sync finished enterprise_id=%s announcements=%s documents_inserted=%s events_inserted=%s parse_queued=%s errors=%s",
+            "sync finished enterprise_id=%s announcements=%s documents_inserted=%s events_inserted=%s other=%s parse_queued=%s errors=%s diagnostics=%s",
             enterprise.id,
             announcements_fetched,
             documents_inserted,
             events_inserted,
+            other_found,
             parse_queued,
             len(errors),
+            diagnostics,
         )
 
         return {
@@ -192,9 +237,11 @@ class AuditSyncService:
             "documents_inserted": documents_inserted,
             "events_found": events_found,
             "events_inserted": events_inserted,
+            "other_found": other_found,
             "parse_queued": parse_queued,
             "warnings": warnings,
             "errors": errors,
+            "diagnostics": diagnostics,
         }
 
     def _build_skipped_summary(self, enterprise: EnterpriseProfile, sources: list[str], message: str) -> dict[str, Any]:
@@ -207,12 +254,35 @@ class AuditSyncService:
             "documents_inserted": 0,
             "events_found": 0,
             "events_inserted": 0,
+            "other_found": 0,
             "parse_queued": 0,
             "warnings": [message],
             "errors": [],
+            "diagnostics": None,
         }
 
-    def _default_date_from(self, db: Session, enterprise: EnterpriseProfile, effective_date_to: date) -> date:
+    def _default_date_from(self, enterprise: EnterpriseProfile, effective_date_to: date, is_initial_sync: bool) -> date:
+        if is_initial_sync:
+            audit_year_start = date(enterprise.report_year, 1, 1)
+            if effective_date_to < audit_year_start:
+                return effective_date_to
+            return audit_year_start
+        return effective_date_to - timedelta(days=settings.sync_lookback_days)
+
+    def _default_date_to(
+        self,
+        enterprise: EnterpriseProfile,
+        effective_date_to: date,
+        is_initial_sync: bool,
+        *,
+        explicit_date_to: bool,
+    ) -> date:
+        if not is_initial_sync or explicit_date_to:
+            return effective_date_to
+        audit_year_end = date(enterprise.report_year, 12, 31)
+        return min(effective_date_to, audit_year_end)
+
+    def _is_initial_sync(self, db: Session, enterprise: EnterpriseProfile) -> bool:
         existing_document = db.scalar(
             select(DocumentMeta.id).where(
                 DocumentMeta.enterprise_id == enterprise.id,
@@ -225,10 +295,7 @@ class AuditSyncService:
                 or_(ExternalEvent.source == "cninfo", ExternalEvent.is_official_source.is_(True)),
             ).limit(1)
         )
-        lookback_days = (
-            settings.sync_lookback_days if (existing_document or existing_event) else settings.sync_initial_lookback_days
-        )
-        return effective_date_to - timedelta(days=lookback_days)
+        return not bool(existing_document or existing_event)
 
     def _apply_profile(self, enterprise: EnterpriseProfile, payload: dict[str, Any], priority: int, official: bool) -> None:
         if payload.get("name"):
@@ -278,7 +345,7 @@ class AuditSyncService:
         created = existing is None
         document = existing or DocumentMeta(
             enterprise_id=enterprise.id,
-            document_name=str(payload.get("title") or "未命名文档"),
+            document_name=str(payload.get("title") or "\u672a\u547d\u540d\u6587\u6863"),
         )
         document.document_name = str(payload.get("title") or document.document_name)
         document.document_type = str(payload.get("document_type") or document.document_type or "annual_report")
@@ -299,6 +366,7 @@ class AuditSyncService:
             **(document.metadata_json or {}),
             "source_payload": payload.get("raw_payload"),
             "source_provider": provider_name,
+            "sync_diagnostics": payload.get("diagnostics"),
         }
         file_url = payload.get("document_url")
         document.file_url = file_url
@@ -352,7 +420,7 @@ class AuditSyncService:
             enterprise_id=enterprise.id,
             event_type="regulatory_penalty",
             severity="medium",
-            title=str(payload.get("title") or "未命名事件"),
+            title=str(payload.get("title") or "\u672a\u547d\u540d\u4e8b\u4ef6"),
             summary=str(payload.get("summary") or payload.get("title") or ""),
         )
         event.event_type = str(payload.get("event_type") or "regulatory_penalty")
@@ -472,9 +540,9 @@ class AuditSyncService:
 
     @staticmethod
     def _guess_severity(title: str) -> str:
-        if any(keyword in title for keyword in ("立案", "处罚", "纪律处分")):
+        if any(keyword in title for keyword in ("\u7acb\u6848", "\u5904\u7f5a", "\u7eaa\u5f8b\u5904\u5206")):
             return "high"
-        if any(keyword in title for keyword in ("监管", "警示函", "问询")):
+        if any(keyword in title for keyword in ("\u76d1\u7ba1", "\u8b66\u793a\u51fd", "\u95ee\u8be2")):
             return "medium"
         return "low"
 
