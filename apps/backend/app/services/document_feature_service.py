@@ -14,9 +14,10 @@ class DocumentFeatureService:
         "litigation": "litigation_compliance",
         "penalty_or_inquiry": "litigation_compliance",
         "guarantee": "financing_pressure",
-        "related_party_transaction": "related_party_funds_occupation",
-        "audit_opinion_issue": "going_concern",
+        "related_party_transaction": "related_party_transaction",
+        "audit_opinion_issue": "audit_opinion_issue",
         "internal_control_issue": "internal_control_effectiveness",
+        "financial_anomaly": "cashflow_quality",
     }
 
     def build_features(self, extracts: list[dict[str, Any]], *, enterprise_id: int, document_id: int) -> list[dict[str, Any]]:
@@ -54,6 +55,8 @@ class DocumentFeatureService:
                             "evidence_span_id": extract.get("evidence_span_id"),
                             "extract_family": extract.get("extract_family"),
                             "fact_tags": extract.get("fact_tags") or [],
+                            "summary": extract.get("summary") or extract.get("problem_summary"),
+                            "parameters": extract.get("parameters") or {},
                         },
                     }
                 )
@@ -75,6 +78,8 @@ class DocumentFeatureService:
                             "compare_target": extract.get("compare_target"),
                             "compare_value": extract.get("compare_value"),
                             "evidence_span_id": extract.get("evidence_span_id"),
+                            "summary": extract.get("summary") or extract.get("problem_summary"),
+                            "parameters": extract.get("parameters") or {},
                         },
                     }
                 )

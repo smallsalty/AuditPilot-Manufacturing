@@ -193,7 +193,9 @@ export type DocumentExtractItem = {
   extract_version?: string | null;
   extract_family?: string | null;
   title: string;
+  summary: string;
   problem_summary: string;
+  parameters?: Record<string, unknown> | null;
   applied_rules: string[];
   evidence_excerpt: string;
   page_number?: number | null;
@@ -217,6 +219,8 @@ export type DocumentExtractItem = {
   fiscal_year?: number | null;
   fiscal_quarter?: number | null;
   event_type?: string | null;
+  event_direction?: string | null;
+  event_severity?: string | null;
   event_date?: string | null;
   subject?: string | null;
   amount?: number | null;

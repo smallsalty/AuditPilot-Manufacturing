@@ -31,7 +31,7 @@ class DocumentService:
         "receivable_recoverability": ["应收账款", "坏账", "信用减值", "回款"],
         "inventory_impairment": ["存货", "跌价", "减值", "库龄"],
         "cashflow_quality": ["经营现金流", "净利润", "现金流量"],
-        "related_party_funds_occupation": ["关联交易", "资金占用", "非经营性资金占用"],
+        "related_party_transaction": ["关联交易", "资金占用", "非经营性资金占用"],
         "litigation_compliance": ["诉讼", "处罚", "问询", "仲裁"],
         "internal_control_effectiveness": ["内部控制", "内控", "缺陷整改"],
         "financing_pressure": ["回购", "可转债", "担保", "融资"],
@@ -84,6 +84,8 @@ class DocumentService:
     HEADING_PATTERN = re.compile(r"^(第[一二三四五六七八九十0-9]+[章节部分项]|[一二三四五六七八九十]+、|[0-9]+\.)")
     MONEY_PATTERN = re.compile(r"(?P<value>\d[\d,]*\.?\d*)\s*(?P<unit>亿元|万元|元|%)")
     DATE_PATTERN = re.compile(r"(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)")
+    POSITION_PATTERN = re.compile(r"(董事长|总经理|副总经理|财务总监|财务负责人|CFO|董事|监事)")
+    PERSON_PATTERN = re.compile(r"(?P<name>[\u4e00-\u9fa5]{2,4})(先生|女士)")
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.embedding_service = HashingEmbeddingService()
@@ -215,6 +217,7 @@ class DocumentService:
                 is_current=True,
                 extract_family=extract.get("extract_family"),
                 problem_summary=extract.get("problem_summary"),
+                parameters=extract.get("parameters"),
                 applied_rules=extract.get("applied_rules"),
                 evidence_excerpt=extract.get("evidence_excerpt"),
                 detail_level=extract.get("detail_level"),
@@ -351,6 +354,10 @@ class DocumentService:
         metric_name, metric_value, metric_unit = self._extract_metric(text)
         event_type = self._detect_event_type(text if classified_type == "announcement_event" else document.document_name)
         opinion_type = self._detect_opinion_type(text)
+        if not event_type and opinion_type:
+            event_type = opinion_type
+        if not event_type and classified_type in {"annual_report", "annual_summary"} and (metric_name or financial_topics):
+            event_type = "financial_anomaly"
 
         if not any([financial_topics, applied_rules, metric_name, event_type, opinion_type]) and index > 8:
             return None
@@ -362,12 +369,34 @@ class DocumentService:
         )
         extract_family = "financial_statement" if classified_type in self.FINANCIAL_DOCUMENT_TYPES else "announcement_event" if classified_type == "announcement_event" else "general"
         if opinion_type:
-            extract_family = "governance"
+            extract_family = "opinion_conclusion"
+        parameters = self._extract_parameters(
+            text=text,
+            document=document,
+            classified_type=classified_type,
+            event_type=event_type,
+            opinion_type=opinion_type,
+            metric_name=metric_name,
+            metric_value=metric_value,
+            metric_unit=metric_unit,
+        )
+        summary = self._build_summary(
+            text=text,
+            event_type=event_type,
+            opinion_type=opinion_type,
+            parameters=parameters,
+            metric_name=metric_name,
+            metric_value=metric_value,
+            metric_unit=metric_unit,
+            canonical_risk_key=canonical_risk_key,
+        )
         return {
             "title": self._derive_title(text, event_type, opinion_type, financial_topics, applied_rules),
-            "extract_type": "event_fact" if event_type else "opinion_fact" if opinion_type else "document_issue",
+            "extract_type": "event_fact" if event_type else "document_issue",
             "extract_family": extract_family,
-            "problem_summary": text[:180],
+            "summary": summary,
+            "problem_summary": summary,
+            "parameters": parameters,
             "applied_rules": applied_rules,
             "evidence_excerpt": text[:360],
             "detail_level": "financial_deep_dive" if financial_topics else "general",
@@ -413,11 +442,13 @@ class DocumentService:
         for index, item in enumerate(candidates[:12], start=1):
             lines.append(
                 f"{index}. title={item['title']}\nfamily={item['extract_family']}\nrisk={item.get('canonical_risk_key') or ''}\n"
-                f"event={item.get('event_type') or ''}\nopinion={item.get('opinion_type') or ''}\nevidence={item['evidence_excerpt']}"
+                f"event={item.get('event_type') or ''}\nopinion={item.get('opinion_type') or ''}\n"
+                f"summary={item.get('summary') or ''}\nparameters={json.dumps(item.get('parameters') or {}, ensure_ascii=False)}\n"
+                f"evidence={item['evidence_excerpt']}"
             )
         result = self.llm_client.chat_completion(
-            "你是上市公司披露文档抽取助手。请返回结构化 JSON，保留有效证据，去掉目录和封面噪声。",
-            f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，返回 JSON 数组。\n" + "\n".join(lines),
+            "你是上市公司披露文档抽取助手。请仅对候选段做结构化归纳，返回 JSON 数组。每项必须包含 summary、parameters、event_type、extract_family、evidence_excerpt，不要回显整段原文，不要新增枚举外事件类型。",
+            f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，保留固定枚举 event_type，并让 parameters 为扁平 JSON 对象。\n" + "\n".join(lines),
             json_mode=True,
         )
         if isinstance(result, list):
@@ -427,13 +458,15 @@ class DocumentService:
         return []
 
     def _normalize_extract_payload(self, document: DocumentMeta, payload: dict[str, Any], index: int) -> dict[str, Any]:
-        summary = str(payload.get("problem_summary") or payload.get("evidence_excerpt") or payload.get("title") or document.document_name).strip()
+        summary = str(payload.get("summary") or payload.get("problem_summary") or payload.get("evidence_excerpt") or payload.get("title") or document.document_name).strip()
         paragraph_hash = str(payload.get("paragraph_hash") or hashlib.sha1(summary.encode("utf-8")).hexdigest())
         return {
             "title": str(payload.get("title") or f"{document.document_name}-extract-{index}").strip(),
             "extract_type": str(payload.get("extract_type") or "document_issue"),
             "extract_family": str(payload.get("extract_family") or "general"),
+            "summary": summary,
             "problem_summary": summary,
+            "parameters": self._normalize_parameters(payload.get("parameters")),
             "applied_rules": self._dedupe_strings(list(payload.get("applied_rules") or [])),
             "evidence_excerpt": str(payload.get("evidence_excerpt") or summary)[:360],
             "detail_level": str(payload.get("detail_level") or "general"),
@@ -482,9 +515,11 @@ class DocumentService:
                 document,
                 {
                     "title": document.document_name,
+                    "summary": "未命中明确规则，当前仅保留文档摘要。",
                     "problem_summary": "未命中明确规则，当前仅保留文档摘要。",
                     "evidence_excerpt": document.document_name,
                     "extract_family": "general",
+                    "parameters": {},
                     "fact_tags": ["fallback"],
                 },
                 1,
@@ -501,7 +536,9 @@ class DocumentService:
             extracts=[
                 {
                     "title": event.title,
+                    "summary": event.summary or event.title,
                     "problem_summary": event.summary or event.title,
+                    "parameters": event.payload or {},
                     "evidence_excerpt": event.summary or event.title,
                     "fact_tags": [event.event_type, event.severity, event.regulator or event.source],
                     "keywords": [event.event_type, event.severity],
@@ -529,6 +566,170 @@ class DocumentService:
                     extract["extract_family"] = "announcement_event"
         return extracts
 
+    def _extract_parameters(
+        self,
+        *,
+        text: str,
+        document: DocumentMeta,
+        classified_type: str,
+        event_type: str | None,
+        opinion_type: str | None,
+        metric_name: str | None,
+        metric_value: float | None,
+        metric_unit: str | None,
+    ) -> dict[str, Any]:
+        parameters: dict[str, Any] = {}
+        event_date = self._extract_event_date(text, document)
+        amount = self._extract_amount(text)
+        counterparty = self._extract_counterparty(text)
+        person_name = self._extract_person_name(text)
+        position = self._extract_position(text)
+        direction = self._infer_direction(text)
+        severity = self._infer_severity(text, event_type, opinion_type)
+
+        if event_date:
+            parameters["event_date"] = event_date
+        if amount is not None:
+            parameters["amount"] = amount
+        if counterparty:
+            parameters["counterparty"] = counterparty
+        if person_name:
+            parameters["person_name"] = person_name
+        if position:
+            parameters["position"] = position
+        if event_type:
+            parameters["direction"] = direction
+        if severity:
+            parameters["severity"] = severity
+
+        if event_type == "share_repurchase":
+            parameters["repurchase_amount_upper"] = amount
+            repurchase_price = self._extract_named_amount(text, ("回购价格上限", "回购价格不超过", "回购价格"))
+            if repurchase_price is not None:
+                parameters["repurchase_price_upper"] = repurchase_price
+            ratio_to_cash = self._extract_named_ratio(text, ("占货币资金", "占现金"))
+            if ratio_to_cash is not None:
+                parameters["ratio_to_cash"] = ratio_to_cash
+        elif event_type == "convertible_bond":
+            if "下修" in text:
+                parameters["downward_revision_triggered"] = True
+            premium_rate = self._extract_named_ratio(text, ("溢价率",))
+            if premium_rate is not None:
+                parameters["premium_rate"] = premium_rate
+            maturity_date = self._extract_named_date(text, ("到期日", "到期时间"))
+            if maturity_date:
+                parameters["maturity_date"] = maturity_date
+        elif event_type == "executive_change":
+            change_type = self._infer_change_type(text)
+            if change_type:
+                parameters["change_type"] = change_type
+        elif event_type == "litigation":
+            ratio_to_net_profit = self._extract_named_ratio(text, ("占净利润", "占公司净利润"))
+            if ratio_to_net_profit is not None:
+                parameters["ratio_to_net_profit"] = ratio_to_net_profit
+            case_stage = self._extract_case_stage(text)
+            if case_stage:
+                parameters["case_stage"] = case_stage
+        elif event_type == "penalty_or_inquiry":
+            issuing_authority = self._extract_issuing_authority(text)
+            if issuing_authority:
+                parameters["issuing_authority"] = issuing_authority
+            penalty_type = self._infer_penalty_type(text)
+            if penalty_type:
+                parameters["penalty_type"] = penalty_type
+        elif event_type == "guarantee":
+            parameters["guarantee_amount"] = amount
+            guaranteed_party = self._extract_guaranteed_party(text)
+            if guaranteed_party:
+                parameters["guaranteed_party"] = guaranteed_party
+            ratio_to_net_assets = self._extract_named_ratio(text, ("占净资产",))
+            if ratio_to_net_assets is not None:
+                parameters["ratio_to_net_assets"] = ratio_to_net_assets
+        elif event_type == "related_party_transaction":
+            transaction_type = self._infer_transaction_type(text)
+            if transaction_type:
+                parameters["transaction_type"] = transaction_type
+            if "定价依据" in text and any(token in text for token in ("未", "不明确", "缺失")):
+                parameters["pricing_basis"] = "missing"
+        elif event_type == "audit_opinion_issue":
+            parameters["opinion_type"] = self._extract_audit_opinion_type(text) or opinion_type
+            affected_scope = self._extract_scope(text)
+            if affected_scope:
+                parameters["affected_scope"] = affected_scope
+            auditor = self._extract_auditor_source(text)
+            if auditor:
+                parameters["auditor_or_board_source"] = auditor
+        elif event_type == "internal_control_issue":
+            parameters["defect_level"] = self._infer_defect_level(text, opinion_type)
+            conclusion = self._extract_conclusion(text)
+            if conclusion:
+                parameters["conclusion"] = conclusion
+            affected_scope = self._extract_scope(text)
+            if affected_scope:
+                parameters["affected_scope"] = affected_scope
+        elif event_type == "financial_anomaly":
+            if metric_name:
+                parameters["metric_name"] = metric_name
+            if metric_value is not None:
+                parameters["current_value"] = metric_value
+            if metric_unit:
+                parameters["metric_unit"] = metric_unit
+            if document.report_period_label:
+                parameters["period"] = document.report_period_label
+            if classified_type in {"annual_report", "annual_summary"}:
+                parameters["fiscal_year"] = document.fiscal_year
+
+        return {key: value for key, value in parameters.items() if value not in (None, "", [])}
+
+    def _build_summary(
+        self,
+        *,
+        text: str,
+        event_type: str | None,
+        opinion_type: str | None,
+        parameters: dict[str, Any],
+        metric_name: str | None,
+        metric_value: float | None,
+        metric_unit: str | None,
+        canonical_risk_key: str | None,
+    ) -> str:
+        if event_type == "share_repurchase":
+            amount = parameters.get("repurchase_amount_upper") or parameters.get("amount")
+            suffix = f" 涉及金额约{amount}{metric_unit or ''}。" if amount is not None else "。"
+            return f"公司披露股份回购安排，需关注资金压力与回购执行意图。{suffix}".replace("。。", "。")
+        if event_type == "convertible_bond":
+            return "公司披露可转债相关事项，需关注转股动力、现金流承压与后续融资安排。"
+        if event_type == "executive_change":
+            position = parameters.get("position") or "关键岗位"
+            return f"公司披露{position}变动，需关注财务治理稳定性与交接控制。"
+        if event_type == "litigation":
+            return "公司披露诉讼或仲裁事项，需关注预计负债、披露充分性与经营影响。"
+        if event_type == "penalty_or_inquiry":
+            return "公司披露处罚或监管问询事项，需关注合规风险、整改进展与信息披露影响。"
+        if event_type == "guarantee":
+            return "公司披露担保事项，需关注担保规模、被担保对象与潜在偿付压力。"
+        if event_type == "related_party_transaction":
+            return "公司披露关联交易事项，需关注交易公允性、审批程序与资金流向。"
+        if event_type == "audit_opinion_issue":
+            opinion = parameters.get("opinion_type") or opinion_type or "审计意见异常"
+            return f"审计报告披露{opinion}，需重点关注影响事项及相关会计处理。"
+        if event_type == "internal_control_issue":
+            defect_level = parameters.get("defect_level") or "内控缺陷"
+            return f"内控报告披露{defect_level}或控制结论异常，需关注整改落实与财务报告可靠性。"
+        if event_type == "financial_anomaly":
+            metric_label = metric_name or "财务指标"
+            value_text = f"{metric_value}{metric_unit or ''}" if metric_value is not None else "存在异常变化"
+            return f"文档披露的{metric_label}显示异常信号，当前值为{value_text}，需结合规则进一步核查。"
+        if canonical_risk_key:
+            return f"文档片段命中{canonical_risk_key}相关线索，需结合证据与规则继续核查。"
+        compact = re.split(r"[。；;]", text.strip())[0][:64].rstrip("，,：: ")
+        return f"{compact}。"
+
+    def _normalize_parameters(self, value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return {str(key): item for key, item in value.items() if item not in (None, "", [])}
+        return {}
+
     def _extract_metric(self, text: str) -> tuple[str | None, float | None, str | None]:
         metric_name = next((topic for topic in self.FINANCIAL_TOPICS if topic in text), None)
         match = self.MONEY_PATTERN.search(text)
@@ -549,6 +750,83 @@ class DocumentService:
     def _extract_counterparty(self, text: str) -> str | None:
         match = re.search(r"(与|向)(?P<name>[^，。；]{2,30}?)(签署|发生|提供|开展)", text)
         return match.group("name").strip() if match else None
+
+    def _extract_person_name(self, text: str) -> str | None:
+        match = self.PERSON_PATTERN.search(text)
+        return match.group("name").strip() if match else None
+
+    def _extract_position(self, text: str) -> str | None:
+        match = self.POSITION_PATTERN.search(text)
+        return match.group(1).strip() if match else None
+
+    def _extract_named_amount(self, text: str, labels: tuple[str, ...]) -> float | None:
+        for label in labels:
+            match = re.search(rf"{re.escape(label)}[^0-9]{{0,8}}(?P<value>\d[\d,]*\.?\d*)", text)
+            if match:
+                return self._coerce_float(match.group("value").replace(",", ""))
+        return None
+
+    def _extract_named_ratio(self, text: str, labels: tuple[str, ...]) -> float | None:
+        for label in labels:
+            match = re.search(rf"{re.escape(label)}[^0-9]{{0,8}}(?P<value>\d[\d,]*\.?\d*)\s*%", text)
+            if match:
+                value = self._coerce_float(match.group("value"))
+                return None if value is None else value / 100.0
+        return None
+
+    def _extract_named_date(self, text: str, labels: tuple[str, ...]) -> str | None:
+        for label in labels:
+            match = re.search(rf"{re.escape(label)}[^0-9]{{0,8}}(20\d{{2}}[-/.年]\d{{1,2}}[-/.月]\d{{1,2}}日?)", text)
+            if match:
+                return match.group(1).replace("年", "-").replace("月", "-").replace("日", "").replace("/", "-").replace(".", "-")
+        return None
+
+    def _infer_change_type(self, text: str) -> str | None:
+        if "辞职" in text:
+            return "resignation"
+        if any(token in text for token in ("聘任", "任命", "选举")):
+            return "appointment"
+        if "离任" in text:
+            return "departure"
+        return None
+
+    def _extract_case_stage(self, text: str) -> str | None:
+        for token in ("一审", "二审", "执行", "立案", "仲裁"):
+            if token in text:
+                return token
+        return None
+
+    def _extract_issuing_authority(self, text: str) -> str | None:
+        match = re.search(r"(中国证监会|证券交易所|证监局|财政部|审计署|银保监会|法院|交易所)", text)
+        return match.group(1) if match else None
+
+    def _infer_penalty_type(self, text: str) -> str | None:
+        for token in ("行政处罚", "监管问询", "监管函", "警示函", "立案调查"):
+            if token in text:
+                return token
+        return None
+
+    def _extract_guaranteed_party(self, text: str) -> str | None:
+        match = re.search(r"为(?P<name>[^，。；]{2,30}?)(提供担保|担保)", text)
+        return match.group("name").strip() if match else None
+
+    def _infer_transaction_type(self, text: str) -> str | None:
+        for token in ("采购", "销售", "借款", "担保", "资金拆借", "租赁"):
+            if token in text:
+                return token
+        return None
+
+    def _extract_audit_opinion_type(self, text: str) -> str | None:
+        for token in ("标准无保留意见", "保留意见", "否定意见", "无法表示意见", "强调事项段"):
+            if token in text:
+                return token
+        return None
+
+    def _extract_conclusion(self, text: str) -> str | None:
+        for token in ("有效", "无效", "存在重大缺陷", "存在重要缺陷"):
+            if token in text:
+                return token
+        return None
 
     def _infer_direction(self, text: str) -> str:
         if any(token in text for token in ("回购", "增持", "获批")):

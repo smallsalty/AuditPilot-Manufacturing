@@ -135,6 +135,7 @@ class DocumentExtractResult(TimestampMixin, Base):
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
     extract_family: Mapped[str | None] = mapped_column(String(64), nullable=True)
     problem_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     applied_rules: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     evidence_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     detail_level: Mapped[str | None] = mapped_column(String(32), nullable=True)

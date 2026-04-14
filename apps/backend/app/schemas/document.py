@@ -13,7 +13,9 @@ class DocumentExtractItem(BaseModel):
     extract_version: str | None = None
     extract_family: str | None = None
     title: str
+    summary: str
     problem_summary: str
+    parameters: dict[str, str | int | float | bool | None] | dict[str, object] | None = None
     applied_rules: list[str]
     evidence_excerpt: str
     page_number: int | None = None
@@ -37,6 +39,8 @@ class DocumentExtractItem(BaseModel):
     fiscal_year: int | None = None
     fiscal_quarter: int | None = None
     event_type: str | None = None
+    event_direction: str | None = None
+    event_severity: str | None = None
     event_date: str | None = None
     subject: str | None = None
     amount: float | None = None

@@ -16,25 +16,35 @@ from app.repositories.risk_repository import RiskRepository
 class DocumentRiskService:
     RULE_CODE_TO_RISK_KEY = {
         "REV_Q4_SPIKE": "revenue_recognition",
-        "REV_AR_GAP": "receivable_recoverability",
+        "REV_Q4_RATIO": "revenue_recognition",
+        "REV_AR_GAP": "revenue_recognition",
+        "CF_PROFIT_LOW": "cashflow_quality",
         "OCF_PROFIT_DIVERGENCE": "cashflow_quality",
         "INV_BACKLOG": "inventory_impairment",
+        "INV_GROWTH_TURNOVER": "inventory_impairment",
         "INV_INDUSTRY_DOWN": "inventory_impairment",
+        "INV_INDUSTRY_CONFLICT": "inventory_impairment",
         "AR_COLLECTION": "receivable_recoverability",
+        "AR_TURNOVER_PRESSURE": "receivable_recoverability",
         "COMPLIANCE_EVENTS": "litigation_compliance",
-        "RELATED_PARTY_CONTROL": "related_party_funds_occupation",
+        "OTHER_AR_ASSET_RATIO": "related_party_transaction",
+        "RELATED_PARTY_CONTROL": "related_party_transaction",
+        "Q4_PROFIT_DEVIATION": "revenue_recognition",
+        "GM_EXPENSE_ANOMALY": "cashflow_quality",
     }
     RISK_TITLES = {
         "revenue_recognition": "收入确认与收入真实性风险",
         "receivable_recoverability": "应收账款回收与收入真实性风险",
         "inventory_impairment": "存货减值与积压风险",
         "cashflow_quality": "经营现金流与利润质量风险",
-        "related_party_funds_occupation": "关联交易与资金占用风险",
+        "related_party_transaction": "关联交易与资金占用风险",
         "litigation_compliance": "诉讼处罚与合规风险",
         "internal_control_effectiveness": "内部控制有效性风险",
+        "audit_opinion_issue": "审计意见异常风险",
         "going_concern": "持续经营与审计意见风险",
         "financing_pressure": "融资与资金压力风险",
         "governance_instability": "治理结构与高管稳定性风险",
+        "market_signal_conflict": "市场信号背离风险",
         "uncategorized": "文档发现风险",
     }
 

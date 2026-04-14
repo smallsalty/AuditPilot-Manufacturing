@@ -106,6 +106,7 @@ def ensure_phase2_document_columns() -> None:
             "is_current": "BOOLEAN NOT NULL DEFAULT TRUE",
             "extract_family": "VARCHAR(64)",
             "problem_summary": "TEXT",
+            "parameters": "JSON",
             "applied_rules": "JSON",
             "evidence_excerpt": "TEXT",
             "detail_level": "VARCHAR(32)",
