@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Any
@@ -59,6 +60,8 @@ class DocumentRiskService:
             extracts = document_repo.list_extracts(document.id)
             features = document_repo.list_event_features(document.id)
             for extract in extracts:
+                if self._should_ignore_extract(extract):
+                    continue
                 self._add_extract_row(grouped, document, extract)
             for feature in features:
                 self._add_feature_row(grouped, document, feature)
@@ -306,6 +309,52 @@ class DocumentRiskService:
         except Exception:
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _should_ignore_extract(self, extract: DocumentExtractResult) -> bool:
+        summary = str(extract.problem_summary or extract.evidence_excerpt or extract.title or "").strip()
+        if not summary:
+            return True
+        if self._looks_like_noise(summary):
+            return True
+        if (
+            len(summary) <= 10
+            and not extract.canonical_risk_key
+            and not extract.event_type
+            and not extract.opinion_type
+            and not extract.metric_name
+            and not list(extract.applied_rules or [])
+            and not list(extract.fact_tags or [])
+        ):
+            return True
+        if (
+            not extract.canonical_risk_key
+            and not extract.event_type
+            and not extract.opinion_type
+            and not extract.metric_name
+            and not list(extract.applied_rules or [])
+            and not list(extract.fact_tags or [])
+            and self._looks_like_noise(str(extract.title or ""))
+        ):
+            return True
+        return False
+
+    def _looks_like_noise(self, text: str) -> bool:
+        stripped = text.strip("：:。.;； ")
+        if not stripped:
+            return True
+        if re.fullmatch(r"\d{4}年\d{1,2}月\d{1,2}日", stripped):
+            return True
+        if re.fullmatch(r"[\u4e00-\u9fa5·]{1,8}\s+[\u4e00-\u9fa5·]{1,8}\s+\d{4}年\d{1,2}月\d{1,2}日", stripped):
+            return True
+        if re.fullmatch(r"[^，。；]{2,30}股份有限公司", stripped):
+            return True
+        if re.fullmatch(r"[^，。；]{2,30}股份有限公司全体股东", stripped):
+            return True
+        if re.fullmatch(r"[^，。；]{2,40}（\d{4}）[^，。；]{0,20}号", stripped):
+            return True
+        if stripped in {"董事会的责任", "管理层的责任", "我们的责任"}:
+            return True
+        return False
 
     def _finalize_row(self, row: dict[str, Any]) -> dict[str, Any]:
         row["id"] = int(hashlib.sha1(str(row["canonical_risk_key"]).encode("utf-8")).hexdigest()[:8], 16)

@@ -26,6 +26,24 @@ logger = logging.getLogger(__name__)
 class DocumentService:
     EXTRACT_VERSION = "document-extract:v3"
     FINANCIAL_DOCUMENT_TYPES = {"annual_report", "annual_summary", "audit_report", "internal_control_report"}
+    CANDIDATE_LIMITS = {
+        "announcement_event": 6,
+        "audit_report": 6,
+        "internal_control_report": 6,
+        "annual_report": 10,
+        "annual_summary": 8,
+        "general": 4,
+    }
+    FALLBACK_LIMITS = {
+        "announcement_event": 3,
+        "audit_report": 4,
+        "internal_control_report": 4,
+        "annual_report": 5,
+        "annual_summary": 4,
+        "general": 2,
+    }
+    MAX_LLM_CANDIDATES = 10
+    MAX_EVIDENCE_CHARS = 220
     RULE_GROUPS = {
         "revenue_recognition": ["营业收入", "收入确认", "合同负债", "四季度"],
         "receivable_recoverability": ["应收账款", "坏账", "信用减值", "回款"],
@@ -86,6 +104,85 @@ class DocumentService:
     DATE_PATTERN = re.compile(r"(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)")
     POSITION_PATTERN = re.compile(r"(董事长|总经理|副总经理|财务总监|财务负责人|CFO|董事|监事)")
     PERSON_PATTERN = re.compile(r"(?P<name>[\u4e00-\u9fa5]{2,4})(先生|女士)")
+
+    HIGH_VALUE_SECTION_KEYWORDS = (
+        "审计意见",
+        "关键审计事项",
+        "强调事项",
+        "内部控制审计意见",
+        "重大缺陷",
+        "重要缺陷",
+        "整改",
+        "关联交易",
+        "重大诉讼",
+        "处罚",
+        "问询",
+        "担保",
+        "回购",
+        "可转债",
+    )
+    RESPONSIBILITY_ONLY_PATTERNS = (
+        "董事会的责任",
+        "管理层的责任",
+        "我们的责任",
+        "审计机构的责任",
+        "注册会计师的责任",
+        "董事会声明",
+    )
+    RESPONSIBILITY_PREFIXES = (
+        "董事会的责任",
+        "管理层的责任",
+        "我们的责任",
+        "注册会计师的责任",
+        "审计机构的责任",
+        "董事会声明",
+        "致全体股东",
+        "致股东",
+    )
+    FIRM_TAILNOTE_KEYWORDS = (
+        "会计师事务所",
+        "注册会计师",
+        "中国注册会计师",
+        "签字注册会计师",
+        "报告日期",
+        "中国·北京",
+    )
+    ENGLISH_FOOTER_KEYWORDS = (
+        "a member firm",
+        "global limited",
+        "certified public accountants",
+        "ernst & young",
+    )
+    TYPE_NOISE_PATTERNS = {
+        "annual_report": (
+            re.compile(r"^(目录|释义)$"),
+            re.compile(r"^(公司代码|股票代码|证券代码|证券简称)[:：].*$"),
+            re.compile(r"^\d{4}年(?:年度)?报告(?:摘要)?$"),
+        ),
+        "annual_summary": (
+            re.compile(r"^(目录|释义)$"),
+            re.compile(r"^(公司代码|股票代码|证券代码|证券简称)[:：].*$"),
+            re.compile(r"^\d{4}年(?:年度)?报告(?:摘要)?$"),
+        ),
+        "audit_report": (
+            re.compile(r"^[^，。；]{2,40}（\d{4}）[^，。；]{0,20}号$"),
+            re.compile(r"^致[^，。；]{2,40}(股东|董事会).*$"),
+            re.compile(r"^[^，。；]{2,40}(会计师事务所|分所).*$"),
+            re.compile(r"^(董事会的责任|管理层的责任|我们的责任|注册会计师的责任|董事会声明)[。．]?$"),
+        ),
+        "internal_control_report": (
+            re.compile(r"^[^，。；]{2,40}（\d{4}）[^，。；]{0,20}号$"),
+            re.compile(r"^致[^，。；]{2,40}(股东|董事会).*$"),
+            re.compile(r"^[^，。；]{2,40}(内部控制审计报告|内部控制评价报告)$"),
+            re.compile(r"^(董事会的责任|管理层的责任|我们的责任|注册会计师的责任|董事会声明)[。．]?$"),
+        ),
+        "announcement_event": (
+            re.compile(r"^(联系方式|联系人|联系电话|电子邮箱)[:：].*$"),
+            re.compile(r"^特此公告[。.]?$"),
+            re.compile(r"^公告编号[:：].*$"),
+        ),
+        "general": (),
+    }
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.embedding_service = HashingEmbeddingService()
@@ -297,15 +394,20 @@ class DocumentService:
         return [item.strip() for item in re.split(r"\n{1,}", normalized) if item.strip()]
 
     def _clean_document(self, text: str, classified_type: str) -> list[dict[str, Any]]:
+        return self._clean_document_v2(text, classified_type)
+
+    def _clean_document_v2(self, text: str, classified_type: str) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []
         seen_hashes: set[str] = set()
         section_title = ""
         for raw in self._split_entries(text):
-            item = re.sub(r"\s+", " ", raw).strip()
-            if not item or any(pattern.match(item) for pattern in self.NOISE_PATTERNS) or len(item) < 6:
+            item = self._normalize_entry_text(raw)
+            if not item or self._is_common_noise(item) or len(item) < 6:
                 continue
             if self.HEADING_PATTERN.match(item):
                 section_title = item[:80]
+                continue
+            if self._should_skip_by_type(item, classified_type, section_title):
                 continue
             paragraph_hash = hashlib.sha1(item.encode("utf-8")).hexdigest()
             if paragraph_hash in seen_hashes:
@@ -320,6 +422,8 @@ class DocumentService:
                     "page_end": None,
                 }
             )
+        filtered = [entry for entry in entries if self._passes_type_signal(entry, classified_type)]
+        return (filtered or entries)[:120]
 
         if classified_type in {"annual_report", "annual_summary"}:
             entries = [entry for entry in entries if "目录" not in entry["text"][:8] and "......" not in entry["text"]]
@@ -331,6 +435,106 @@ class DocumentService:
             entries = [entry for entry in entries if self._detect_event_type(entry["text"]) or self._detect_opinion_type(entry["text"])] or entries
         return entries[:120]
 
+    def _normalize_entry_text(self, raw: str) -> str:
+        return re.sub(r"\s+", " ", raw).strip()
+
+    def _is_common_noise(self, text: str) -> bool:
+        return any(pattern.match(text) for pattern in self.NOISE_PATTERNS)
+
+    def _should_skip_by_type(self, text: str, classified_type: str, section_title: str) -> bool:
+        for pattern in self.TYPE_NOISE_PATTERNS.get(classified_type, ()):
+            if pattern.match(text):
+                return True
+        if classified_type in {"annual_report", "annual_summary"}:
+            if "目录" in text[:10] or "......" in text or "………" in text:
+                return True
+            if re.fullmatch(r"[A-Za-z0-9（）()\- ]{4,}", text):
+                return True
+        if classified_type in {"audit_report", "internal_control_report"}:
+            if self._is_responsibility_noise(text) or self._is_signature_tailnote(text) or self._is_english_footer_noise(text):
+                return True
+        if classified_type == "announcement_event":
+            if text.startswith("公司董事会") or text.startswith("本公司董事会"):
+                return True
+        return self._is_cover_like_noise(text)
+
+    def _passes_type_signal(self, entry: dict[str, Any], classified_type: str) -> bool:
+        text = entry["text"]
+        section_title = entry.get("section_title") or ""
+        if classified_type in {"annual_report", "annual_summary"}:
+            return bool(
+                self._detect_event_type(text)
+                or self._detect_opinion_type(text)
+                or any(topic in text for topic in self.FINANCIAL_TOPICS)
+                or any(keyword in text for keyword in ("附注", "减值", "坏账", "跌价", "现金流"))
+                or self._contains_high_value_section(section_title)
+            )
+        if classified_type == "audit_report":
+            if self._is_responsibility_noise(text) or self._is_signature_tailnote(text) or self._is_english_footer_noise(text):
+                return False
+            return bool(
+                any(keyword in text for keyword in ("审计意见", "关键审计事项", "强调事项", "保留意见", "否定意见", "无法表示意见", "持续经营"))
+                or self._detect_opinion_type(text)
+                or self._contains_high_value_section(section_title)
+            )
+        if classified_type == "internal_control_report":
+            if self._is_responsibility_noise(text) or self._is_signature_tailnote(text) or self._is_english_footer_noise(text):
+                return False
+            return bool(
+                any(keyword in text for keyword in ("重大缺陷", "重要缺陷", "整改", "有效性", "内部控制有效", "内部控制无效", "审计意见", "缺陷"))
+                or self._detect_opinion_type(text)
+                or self._contains_high_value_section(section_title)
+            )
+        if classified_type == "announcement_event":
+            return bool(
+                self._detect_event_type(text)
+                or self._detect_opinion_type(text)
+                or any(keyword in text for keyword in ("金额", "比例", "对象", "价格", "问询", "处罚", "诉讼"))
+                or self._contains_high_value_section(section_title)
+            )
+        return True
+
+    def _is_cover_like_noise(self, text: str) -> bool:
+        stripped = text.strip("：:。.;； ")
+        if re.fullmatch(r"\d{4}年\d{1,2}月\d{1,2}日", stripped):
+            return True
+        if re.fullmatch(r"[\u4e00-\u9fa5·]{1,8}\s+[\u4e00-\u9fa5·]{1,8}\s+\d{4}年\d{1,2}月\d{1,2}日", stripped):
+            return True
+        if re.fullmatch(r"[^，。；]{2,30}股份有限公司", stripped):
+            return True
+        if re.fullmatch(r"[^，。；]{2,30}股份有限公司全体股东", stripped):
+            return True
+        if re.fullmatch(r"[^，。；]{2,40}（\d{4}）[^，。；]{0,20}号", stripped):
+            return True
+        return False
+
+    def _contains_high_value_section(self, section_title: str | None) -> bool:
+        if not section_title:
+            return False
+        return any(keyword in section_title for keyword in self.HIGH_VALUE_SECTION_KEYWORDS)
+
+    def _is_responsibility_noise(self, text: str) -> bool:
+        normalized = text.strip("：:。．.;； ")
+        if normalized in self.RESPONSIBILITY_ONLY_PATTERNS:
+            return True
+        return any(normalized.startswith(prefix) for prefix in self.RESPONSIBILITY_PREFIXES)
+
+    def _is_signature_tailnote(self, text: str) -> bool:
+        normalized = text.strip()
+        if re.fullmatch(r"[\u4e00-\u9fa5·]{1,8}\s+[\u4e00-\u9fa5·]{1,8}\s+\d{4}年\d{1,2}月\d{1,2}日", normalized):
+            return True
+        if any(keyword in normalized for keyword in self.FIRM_TAILNOTE_KEYWORDS):
+            return not any(token in normalized for token in ("保留意见", "否定意见", "无法表示意见", "强调事项", "关键审计事项", "重大缺陷", "重要缺陷", "整改", "有效性"))
+        return False
+
+    def _is_english_footer_noise(self, text: str) -> bool:
+        lowered = text.lower().strip()
+        if not lowered or not re.search(r"[a-z]", lowered):
+            return False
+        if any(keyword in lowered for keyword in self.ENGLISH_FOOTER_KEYWORDS):
+            return not any(token in lowered for token in ("opinion", "material weakness", "internal control", "qualified", "adverse", "disclaimer"))
+        return False
+
     def _build_structured_extracts(self, document: DocumentMeta, entries: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
         candidates = []
         for index, entry in enumerate(entries, start=1):
@@ -339,20 +543,35 @@ class DocumentService:
                 candidates.append(candidate)
         if not candidates:
             return []
+        trimmed_candidates = self._trim_candidates(candidates, classified_type)
+        if not trimmed_candidates:
+            return self._fallback_extracts(document, [], classified_type)
+        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.MAX_LLM_CANDIDATES])
         try:
-            llm_extracts = self._llm_extract(document, candidates, classified_type)
+            llm_extracts = self._llm_extract(document, trimmed_candidates, classified_type)
             if llm_extracts:
-                return [self._normalize_extract_payload(document, item, index) for index, item in enumerate(llm_extracts, start=1)]
+                normalized = [self._normalize_extract_payload(document, item, index) for index, item in enumerate(llm_extracts, start=1)]
+                filtered = [item for item in normalized if not self._is_low_quality_extract(item)]
+                if filtered:
+                    return filtered
         except Exception as exc:
-            logger.warning("document structured extraction failed document_id=%s error=%s", document.id, exc)
-        return [self._normalize_extract_payload(document, item, index) for index, item in enumerate(candidates[:16], start=1)]
+            logger.warning(
+                "document structured extraction failed document_id=%s classified_type=%s candidate_count_before_trim=%s candidate_count_after_trim=%s llm_input_chars=%s fallback_used=true error=%s",
+                document.id,
+                classified_type,
+                len(candidates),
+                len(trimmed_candidates),
+                llm_input_chars,
+                exc,
+            )
+        return self._fallback_extracts(document, trimmed_candidates, classified_type)
 
     def _build_candidate(self, document: DocumentMeta, entry: dict[str, Any], classified_type: str, index: int) -> dict[str, Any] | None:
         text = entry["text"]
         financial_topics = [topic for topic in self.FINANCIAL_TOPICS if topic in text]
         applied_rules = [name for name, keywords in self.RULE_GROUPS.items() if any(keyword in text for keyword in keywords)]
         metric_name, metric_value, metric_unit = self._extract_metric(text)
-        event_type = self._detect_event_type(text if classified_type == "announcement_event" else document.document_name)
+        event_type = self._detect_event_type(text if classified_type in {"announcement_event", "annual_report", "annual_summary"} else f"{document.document_name} {text}")
         opinion_type = self._detect_opinion_type(text)
         if not event_type and opinion_type:
             event_type = opinion_type
@@ -390,6 +609,7 @@ class DocumentService:
             metric_unit=metric_unit,
             canonical_risk_key=canonical_risk_key,
         )
+        evidence_excerpt = self._trim_evidence_safe(text)
         return {
             "title": self._derive_title(text, event_type, opinion_type, financial_topics, applied_rules),
             "extract_type": "event_fact" if event_type else "document_issue",
@@ -398,7 +618,7 @@ class DocumentService:
             "problem_summary": summary,
             "parameters": parameters,
             "applied_rules": applied_rules,
-            "evidence_excerpt": text[:360],
+            "evidence_excerpt": evidence_excerpt,
             "detail_level": "financial_deep_dive" if financial_topics else "general",
             "fact_tags": self._dedupe_strings(financial_topics + applied_rules + ([event_type] if event_type else []) + ([opinion_type] if opinion_type else [])),
             "page_number": entry.get("page_start"),
@@ -433,13 +653,112 @@ class DocumentService:
             "affected_scope": self._extract_scope(text),
             "auditor_or_board_source": self._extract_auditor_source(text),
             "canonical_risk_key": canonical_risk_key,
+            "_candidate_score": self._score_candidate(
+                text=text,
+                section_title=entry.get("section_title"),
+                classified_type=classified_type,
+                event_type=event_type,
+                opinion_type=opinion_type,
+                applied_rules=applied_rules,
+                financial_topics=financial_topics,
+                metric_name=metric_name,
+            ),
         }
+
+    def _trim_candidates(self, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+        limit = self.CANDIDATE_LIMITS.get(classified_type, self.CANDIDATE_LIMITS["general"])
+        ordered = sorted(candidates, key=lambda item: (float(item.get("_candidate_score") or 0.0), len(str(item.get("evidence_excerpt") or ""))), reverse=True)
+        trimmed: list[dict[str, Any]] = []
+        seen_titles: set[tuple[str, str]] = set()
+        for candidate in ordered:
+            if self._is_low_quality_extract(candidate):
+                continue
+            key = (str(candidate.get("title") or ""), str(candidate.get("summary") or ""))
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            trimmed.append(candidate)
+            if len(trimmed) >= limit:
+                break
+        return trimmed
+
+    def _score_candidate(
+        self,
+        *,
+        text: str,
+        section_title: str | None,
+        classified_type: str,
+        event_type: str | None,
+        opinion_type: str | None,
+        applied_rules: list[str],
+        financial_topics: list[str],
+        metric_name: str | None,
+    ) -> float:
+        score = 0.0
+        if event_type:
+            score += 10.0
+        if opinion_type:
+            score += 10.0
+        if applied_rules:
+            score += 6.0 + min(len(applied_rules), 2) * 2.0
+        if financial_topics:
+            score += 4.0 + min(len(financial_topics), 2)
+        if metric_name:
+            score += 4.0
+        if section_title and self._contains_high_value_section(section_title):
+            score += 5.0
+        if classified_type == "audit_report" and any(token in text for token in ("保留意见", "否定意见", "无法表示意见", "关键审计事项", "强调事项", "持续经营")):
+            score += 6.0
+        if classified_type == "internal_control_report" and any(token in text for token in ("重大缺陷", "重要缺陷", "整改", "有效性", "无效")):
+            score += 6.0
+        if classified_type == "announcement_event" and any(token in text for token in ("金额", "比例", "对象", "价格", "期限", "日期")):
+            score += 4.0
+        if self._is_responsibility_noise(text) or self._is_signature_tailnote(text) or self._is_english_footer_noise(text):
+            score -= 20.0
+        if self._is_cover_like_noise(text):
+            score -= 12.0
+        if len(text) < 10:
+            score -= 6.0
+        return score
+
+    def _trim_evidence_safe(self, text: str) -> str:
+        evidence = text.strip()
+        if len(evidence) <= self.MAX_EVIDENCE_CHARS:
+            return evidence
+        trimmed = evidence[: self.MAX_EVIDENCE_CHARS].rstrip("，,；; ")
+        return f"{trimmed}…"
+
+    def _trim_evidence(self, text: str) -> str:
+        evidence = text.strip()
+        if len(evidence) <= self.MAX_EVIDENCE_CHARS:
+            return evidence
+        return evidence[: self.MAX_EVIDENCE_CHARS].rstrip("，,；; ") + "…"
+
+    def _is_low_quality_extract(self, payload: dict[str, Any]) -> bool:
+        summary = str(payload.get("summary") or payload.get("problem_summary") or "").strip()
+        title = str(payload.get("title") or "").strip()
+        if not summary:
+            return True
+        if self._is_responsibility_noise(summary) or self._is_signature_tailnote(summary) or self._is_english_footer_noise(summary):
+            return True
+        if self._is_responsibility_noise(title) or self._is_signature_tailnote(title) or self._is_english_footer_noise(title):
+            return True
+        if self._is_cover_like_noise(summary) or self._is_cover_like_noise(title):
+            return True
+        if summary == title and self._is_cover_like_noise(summary):
+            return True
+        if len(summary) <= 8 and not any([payload.get("event_type"), payload.get("opinion_type"), payload.get("metric_name"), payload.get("applied_rules"), payload.get("fact_tags")]):
+            return True
+        if not any([payload.get("event_type"), payload.get("opinion_type"), payload.get("metric_name"), payload.get("applied_rules"), payload.get("fact_tags"), payload.get("canonical_risk_key")]):
+            if re.fullmatch(r"[^，。；]{2,30}(股份有限公司|内部控制审计报告|审计报告)", summary):
+                return True
+        return False
 
     def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
         if self.llm_client.config_error:
             return []
         lines = []
-        for index, item in enumerate(candidates[:12], start=1):
+        for index, item in enumerate(candidates[: self.MAX_LLM_CANDIDATES], start=1):
             lines.append(
                 f"{index}. title={item['title']}\nfamily={item['extract_family']}\nrisk={item.get('canonical_risk_key') or ''}\n"
                 f"event={item.get('event_type') or ''}\nopinion={item.get('opinion_type') or ''}\n"
@@ -468,7 +787,7 @@ class DocumentService:
             "problem_summary": summary,
             "parameters": self._normalize_parameters(payload.get("parameters")),
             "applied_rules": self._dedupe_strings(list(payload.get("applied_rules") or [])),
-            "evidence_excerpt": str(payload.get("evidence_excerpt") or summary)[:360],
+            "evidence_excerpt": self._trim_evidence_safe(str(payload.get("evidence_excerpt") or summary)),
             "detail_level": str(payload.get("detail_level") or "general"),
             "fact_tags": self._dedupe_strings(list(payload.get("fact_tags") or [])),
             "page_number": payload.get("page_number"),
@@ -506,6 +825,37 @@ class DocumentService:
         }
 
     def _fallback_extracts(self, document: DocumentMeta, entries: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+        fallback_limit = self.FALLBACK_LIMITS.get(classified_type, self.FALLBACK_LIMITS["general"])
+        normalized: list[dict[str, Any]] = []
+        for index, entry in enumerate(entries[:fallback_limit], start=1):
+            candidate = entry if isinstance(entry, dict) and entry.get("extract_type") else self._build_candidate(document, entry, classified_type, index)
+            if candidate is None:
+                continue
+            payload = self._normalize_extract_payload(document, candidate, index)
+            if self._is_low_quality_extract(payload):
+                continue
+            normalized.append(payload)
+        if normalized:
+            return normalized
+        fallback_summary = "当前未命中高价值候选，已保留最小结构化摘要等待进一步核查。"
+        if classified_type in {"audit_report", "internal_control_report"}:
+            fallback_summary = "当前未命中有效意见或缺陷候选，已保留最小结构化摘要等待进一步核查。"
+        return [
+            self._normalize_extract_payload(
+                document,
+                {
+                    "title": document.document_name,
+                    "summary": fallback_summary,
+                    "problem_summary": fallback_summary,
+                    "evidence_excerpt": fallback_summary,
+                    "extract_family": "general",
+                    "parameters": {},
+                    "fact_tags": ["fallback"],
+                },
+                1,
+            )
+        ]
+
         if entries:
             candidate = self._build_candidate(document, entries[0], classified_type, 1)
             if candidate is not None:

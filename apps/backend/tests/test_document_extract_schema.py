@@ -24,6 +24,7 @@ if "anthropic" not in sys.modules:
 
 
 from app.models import DocumentMeta
+from app.services.document_classify_service import DocumentClassifyService
 from app.services.document_service import DocumentService
 
 
@@ -106,6 +107,192 @@ def test_extracts_financial_anomaly_for_annual_report() -> None:
     assert result["parameters"]["period"] == "2024年度"
     assert result["summary"].endswith("。")
     assert result["summary"] != entry["text"]
+
+
+def test_clean_document_removes_cover_noise_for_internal_control_report() -> None:
+    service = DocumentService()
+    text = "\n".join(
+        [
+            "三一重工股份有限公司",
+            "2025年12月31日",
+            "内部控制审计报告",
+            "董事会的责任",
+            "一、内部控制审计意见",
+            "我们认为，公司于2025年12月31日按照企业内部控制基本规范在所有重大方面保持了有效的财务报告内部控制。",
+            "二、企业对内部控制的责任",
+            "管理层的责任",
+            "三、整改情况",
+            "针对关键流程缺陷，公司已制定整改计划并明确责任人。",
+        ]
+    )
+
+    entries = service._clean_document(text, "internal_control_report")
+    texts = [entry["text"] for entry in entries]
+
+    assert "三一重工股份有限公司" not in texts
+    assert "2025年12月31日" not in texts
+    assert "董事会的责任" not in texts
+    assert any("有效的财务报告内部控制" in item for item in texts)
+    assert any("整改计划" in item for item in texts)
+
+
+def test_classify_prefers_internal_control_report_over_annual_report_keywords() -> None:
+    classifier = DocumentClassifyService()
+    document = _document("2024年年度报告内部控制评价报告", "annual_report", "2024年度")
+    text = "\n".join(
+        [
+            "2024年年度报告",
+            "内部控制评价报告",
+            "公司披露内部控制有效性结论，并说明重大缺陷整改情况。",
+        ]
+    )
+
+    classified_type, source = classifier.classify(document, text)
+
+    assert classified_type == "internal_control_report"
+    assert source == "rule"
+
+
+def test_clean_document_removes_responsibility_and_english_footer_for_internal_control_report() -> None:
+    service = DocumentService()
+    text = "\n".join(
+        [
+            "内部控制评价报告",
+            "董事会的责任",
+            "中国 北京 2026年3月30日",
+            "A member firm of Ernst & Young Global Limited",
+            "一、内部控制审计意见",
+            "我们认为，公司于2025年12月31日在所有重大方面保持了有效的财务报告内部控制。",
+            "二、整改情况",
+            "针对重大缺陷，公司已制定整改计划并明确责任人。",
+        ]
+    )
+
+    entries = service._clean_document(text, "internal_control_report")
+    texts = [entry["text"] for entry in entries]
+
+    assert "董事会的责任" not in texts
+    assert "中国 北京 2026年3月30日" not in texts
+    assert "A member firm of Ernst & Young Global Limited" not in texts
+    assert any("有效的财务报告内部控制" in item for item in texts)
+    assert any("整改计划" in item for item in texts)
+
+
+def test_clean_document_removes_salutation_and_firm_footer_for_audit_report() -> None:
+    service = DocumentService()
+    text = "\n".join(
+        [
+            "致全体股东：",
+            "安永华明会计师事务所（特殊普通合伙）",
+            "A member firm of Ernst & Young Global Limited",
+            "一、审计意见",
+            "我们对财务报表出具保留意见。",
+            "二、关键审计事项",
+            "收入确认是本次审计的关键审计事项。",
+        ]
+    )
+
+    entries = service._clean_document(text, "audit_report")
+    texts = [entry["text"] for entry in entries]
+
+    assert "致全体股东：" not in texts
+    assert "安永华明会计师事务所（特殊普通合伙）" not in texts
+    assert "A member firm of Ernst & Young Global Limited" not in texts
+    assert any("保留意见" in item for item in texts)
+    assert any("关键审计事项" in item for item in texts)
+
+
+def test_build_structured_extracts_trims_candidates_and_uses_clean_fallback() -> None:
+    service = DocumentService()
+    document = _document("三一重工股份有限公司2025年度内部控制审计报告", "internal_control_report", "2025年度")
+    entries = [
+        {
+            "text": "三一重工股份有限公司",
+            "section_title": None,
+            "paragraph_hash": "noise-company",
+            "page_start": 1,
+            "page_end": 1,
+        },
+        {
+            "text": "2025年12月31日",
+            "section_title": None,
+            "paragraph_hash": "noise-date",
+            "page_start": 1,
+            "page_end": 1,
+        },
+        {
+            "text": "内部控制审计报告",
+            "section_title": None,
+            "paragraph_hash": "noise-title",
+            "page_start": 1,
+            "page_end": 1,
+        },
+        {
+            "text": "我们认为，公司于2025年12月31日按照企业内部控制基本规范在所有重大方面保持了有效的财务报告内部控制。",
+            "section_title": "内部控制审计意见",
+            "paragraph_hash": "good-opinion",
+            "page_start": 2,
+            "page_end": 2,
+        },
+        {
+            "text": "针对关键流程缺陷，公司已制定整改计划并明确责任人。",
+            "section_title": "整改情况",
+            "paragraph_hash": "good-remediation",
+            "page_start": 3,
+            "page_end": 3,
+        },
+    ]
+
+    service._llm_extract = lambda document, candidates, classified_type: []  # type: ignore[method-assign]
+    extracts = service._build_structured_extracts(document, entries, "internal_control_report")
+
+    assert 1 <= len(extracts) <= service.FALLBACK_LIMITS["internal_control_report"]
+    assert all(item["summary"] not in {"三一重工股份有限公司。", "2025年12月31日。"} for item in extracts)
+    assert all(item["evidence_excerpt"] not in {"三一重工股份有限公司", "2025年12月31日"} for item in extracts)
+    assert any(item["section_title"] in {"内部控制审计意见", "整改情况"} for item in extracts)
+
+
+def test_build_structured_extracts_ignores_responsibility_and_footer_noise() -> None:
+    service = DocumentService()
+    document = _document("2025年度内部控制评价报告", "internal_control_report", "2025年度")
+    entries = [
+        {
+            "text": "董事会的责任",
+            "section_title": "内部控制报告",
+            "paragraph_hash": "noise-responsibility",
+            "page_start": 1,
+            "page_end": 1,
+        },
+        {
+            "text": "A member firm of Ernst & Young Global Limited",
+            "section_title": "内部控制报告",
+            "paragraph_hash": "noise-footer",
+            "page_start": 1,
+            "page_end": 1,
+        },
+        {
+            "text": "我们认为，公司于2025年12月31日在所有重大方面保持了有效的财务报告内部控制。",
+            "section_title": "内部控制审计意见",
+            "paragraph_hash": "good-opinion",
+            "page_start": 2,
+            "page_end": 2,
+        },
+        {
+            "text": "针对重大缺陷，公司已制定整改计划并明确责任人。",
+            "section_title": "整改情况",
+            "paragraph_hash": "good-remediation",
+            "page_start": 3,
+            "page_end": 3,
+        },
+    ]
+
+    service._llm_extract = lambda document, candidates, classified_type: []  # type: ignore[method-assign]
+    extracts = service._build_structured_extracts(document, entries, "internal_control_report")
+
+    assert extracts
+    assert all("董事会的责任" not in item["summary"] for item in extracts)
+    assert all("Ernst & Young" not in item["summary"] for item in extracts)
+    assert any(item["section_title"] in {"内部控制审计意见", "整改情况"} for item in extracts)
 
 
 def test_normalize_extract_payload_preserves_flat_parameters() -> None:
