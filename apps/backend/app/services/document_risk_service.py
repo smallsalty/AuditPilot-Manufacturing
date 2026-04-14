@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Any
@@ -161,7 +162,7 @@ class DocumentRiskService:
         row["risk_score"] = max(row["risk_score"], self._score_extract(extract))
         row["risk_level"] = self._max_level(row["risk_level"], self._extract_level(extract))
         row["summary"] = row["summary"] or (extract.problem_summary or extract.evidence_excerpt or extract.title)
-        row["reasons"] = self._dedupe_strings(row["reasons"] + list(extract.risk_points or []))
+        row["reasons"] = self._dedupe_strings(row["reasons"] + self._extract_risk_points(extract))
         row["source_rules"] = self._dedupe_strings(row["source_rules"] + list(extract.applied_rules or []))
         row["source_documents"] = self._dedupe_documents(
             row["source_documents"] + [{"document_id": document.id, "document_name": document.document_name}]
@@ -285,14 +286,26 @@ class DocumentRiskService:
         if extract.detail_level == "financial_deep_dive":
             score += 8.0
         score += min(len(extract.applied_rules or []) * 4.0, 12.0)
-        score += min(len(extract.risk_points or []) * 2.0, 8.0)
+        score += min(len(self._extract_risk_points(extract)) * 2.0, 8.0)
         return min(score, 95.0)
 
     def _extract_level(self, extract: DocumentExtractResult) -> str:
-        text = " ".join([extract.problem_summary or "", *(extract.risk_points or [])])
+        text = " ".join([extract.problem_summary or "", *self._extract_risk_points(extract)])
         if extract.detail_level == "financial_deep_dive" or any(token in text for token in ("重大", "处罚", "诉讼", "缺陷", "异常")):
             return "HIGH"
         return "MEDIUM"
+
+    def _extract_risk_points(self, extract: DocumentExtractResult) -> list[str]:
+        payload = self._extract_payload(extract)
+        points = payload.get("risk_points") or []
+        return [str(item).strip() for item in points if str(item).strip()]
+
+    def _extract_payload(self, extract: DocumentExtractResult) -> dict[str, Any]:
+        try:
+            payload = json.loads(extract.content or "{}")
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def _finalize_row(self, row: dict[str, Any]) -> dict[str, Any]:
         row["id"] = int(hashlib.sha1(str(row["canonical_risk_key"]).encode("utf-8")).hexdigest()[:8], 16)
