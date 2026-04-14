@@ -19,16 +19,7 @@ class AuditQAServer:
         self.document_risk_service = DocumentRiskService()
 
     def answer(self, db: Session, enterprise: EnterpriseProfile, question: str) -> dict:
-        risk_rows = (
-            db.query(RiskIdentificationResult)
-            .filter(RiskIdentificationResult.enterprise_id == enterprise.id)
-            .order_by(RiskIdentificationResult.risk_score.desc())
-            .limit(5)
-            .all()
-        )
-        document_risks = self.document_risk_service.list_risks(db, enterprise.id)[:5]
-        chunks = self.retrieval_service.retrieve(db, question, enterprise.id, top_k=5)
-
+        risk_rows, document_risks, chunks = self._collect_context(db, enterprise, question)
         if not risk_rows and not chunks and not document_risks:
             logger.info("chat blocked enterprise_id=%s no risk rows or chunks", enterprise.id)
             return {
@@ -38,31 +29,28 @@ class AuditQAServer:
                 "suggested_actions": ["同步巨潮公告", "上传年报或公告 PDF", "执行文档解析"],
             }
 
-        basis_level = "official_document" if chunks or document_risks else "structured_result"
-        context_lines = [f"[风险]{row.risk_name}:{'；'.join(row.reasons)}" for row in risk_rows]
-        context_lines.extend(
-            [
-                f"[文档风险]{row['risk_name']}:{row.get('summary') or '；'.join(row.get('reasons') or [])}"
-                for row in document_risks
-            ]
-        )
-        context_lines.extend([f"[知识]{chunk.title}:{chunk.content[:180]}" for chunk in chunks])
-        context = "\n".join(context_lines)
-
-        system_prompt = (
-            "你是一名审计风险问答助手。请严格基于给定的风险结果和文档依据回答，"
-            "优先使用中文给出精炼判断、依据和建议动作。"
-        )
-        user_prompt = (
-            f"企业：{enterprise.name}\n"
-            f"问题：{question}\n"
-            f"当前依据等级：{basis_level}\n"
-            f"上下文：\n{context}\n"
-            "请返回 JSON。"
+        basis_level, system_prompt, user_prompt, context_variant = self.build_prompt_payload(
+            enterprise=enterprise,
+            question=question,
+            risk_rows=risk_rows,
+            document_risks=document_risks,
+            chunks=chunks,
+            context_variant="full",
         )
 
         try:
-            result = self.llm_client.chat_completion(system_prompt, user_prompt, json_mode=True)
+            result = self.llm_client.chat_completion(
+                system_prompt,
+                user_prompt,
+                json_mode=True,
+                request_kind="chat",
+                metadata={
+                    "enterprise_id": enterprise.id,
+                    "candidate_count": len(risk_rows) + len(document_risks) + len(chunks),
+                    "context_variant": context_variant,
+                    "llm_input_chars": len(user_prompt),
+                },
+            )
         except RuntimeError as exc:
             logger.warning("chat failed enterprise_id=%s error=%s", enterprise.id, exc)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -119,12 +107,13 @@ class AuditQAServer:
         )
         db.commit()
         logger.info(
-            "chat answered enterprise_id=%s risk_rows=%s document_risks=%s chunks=%s basis_level=%s",
+            "chat answered enterprise_id=%s risk_rows=%s document_risks=%s chunks=%s basis_level=%s context_variant=%s",
             enterprise.id,
             len(risk_rows),
             len(document_risks),
             len(chunks),
             basis_level,
+            context_variant,
         )
         return {
             "answer": answer,
@@ -132,3 +121,53 @@ class AuditQAServer:
             "citations": citations,
             "suggested_actions": suggested_actions,
         }
+
+    def _collect_context(self, db: Session, enterprise: EnterpriseProfile, question: str):
+        risk_rows = (
+            db.query(RiskIdentificationResult)
+            .filter(RiskIdentificationResult.enterprise_id == enterprise.id)
+            .order_by(RiskIdentificationResult.risk_score.desc())
+            .limit(5)
+            .all()
+        )
+        document_risks = self.document_risk_service.list_risks(db, enterprise.id)[:5]
+        chunks = self.retrieval_service.retrieve(db, question, enterprise.id, top_k=5)
+        return risk_rows, document_risks, chunks
+
+    def build_prompt_payload(
+        self,
+        *,
+        enterprise: EnterpriseProfile,
+        question: str,
+        risk_rows: list[RiskIdentificationResult],
+        document_risks: list[dict],
+        chunks: list,
+        context_variant: str = "full",
+    ) -> tuple[str, str, str, str]:
+        basis_level = "official_document" if chunks or document_risks else "structured_result"
+        context_lines = []
+        if context_variant in {"full", "risk_rows"}:
+            context_lines.extend([f"[风险]{row.risk_name}:{'；'.join(row.reasons)}" for row in risk_rows])
+        if context_variant in {"full", "document_risks"}:
+            context_lines.extend(
+                [
+                    f"[文档风险]{row['risk_name']}:{row.get('summary') or '；'.join(row.get('reasons') or [])}"
+                    for row in document_risks
+                ]
+            )
+        if context_variant in {"full", "chunks"}:
+            context_lines.extend([f"[知识]{chunk.title}:{chunk.content[:180]}" for chunk in chunks])
+        context = "\n".join(context_lines)
+
+        system_prompt = (
+            "你是一名审计风险问答助手。请严格基于给定的风险结果和文档依据回答，"
+            "优先使用中文给出精炼判断、依据和建议动作。"
+        )
+        user_prompt = (
+            f"企业：{enterprise.name}\n"
+            f"问题：{question}\n"
+            f"当前依据等级：{basis_level}\n"
+            f"上下文：\n{context}\n"
+            "请返回 JSON。"
+        )
+        return basis_level, system_prompt, user_prompt, context_variant

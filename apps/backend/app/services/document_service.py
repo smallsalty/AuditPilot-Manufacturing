@@ -754,9 +754,14 @@ class DocumentService:
                 return True
         return False
 
-    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+    def _build_llm_extract_prompts(
+        self,
+        document: DocumentMeta,
+        candidates: list[dict[str, Any]],
+        classified_type: str,
+    ) -> tuple[str, str]:
         if self.llm_client.config_error:
-            return []
+            return "", ""
         lines = []
         for index, item in enumerate(candidates[: self.MAX_LLM_CANDIDATES], start=1):
             lines.append(
@@ -765,10 +770,26 @@ class DocumentService:
                 f"summary={item.get('summary') or ''}\nparameters={json.dumps(item.get('parameters') or {}, ensure_ascii=False)}\n"
                 f"evidence={item['evidence_excerpt']}"
             )
+        system_prompt = "你是上市公司披露文档抽取助手。请仅对候选段做结构化归纳，返回 JSON 数组。每项必须包含 summary、parameters、event_type、extract_family、evidence_excerpt，不要回显整段原文，不要新增枚举外事件类型。"
+        user_prompt = f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，保留固定枚举 event_type，并让 parameters 为扁平 JSON 对象。\n" + "\n".join(lines)
+        return system_prompt, user_prompt
+
+    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+        system_prompt, user_prompt = self._build_llm_extract_prompts(document, candidates, classified_type)
+        if not system_prompt:
+            return []
         result = self.llm_client.chat_completion(
-            "你是上市公司披露文档抽取助手。请仅对候选段做结构化归纳，返回 JSON 数组。每项必须包含 summary、parameters、event_type、extract_family、evidence_excerpt，不要回显整段原文，不要新增枚举外事件类型。",
-            f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，保留固定枚举 event_type，并让 parameters 为扁平 JSON 对象。\n" + "\n".join(lines),
+            system_prompt,
+            user_prompt,
             json_mode=True,
+            request_kind="document_extract",
+            metadata={
+                "document_id": document.id,
+                "enterprise_id": document.enterprise_id,
+                "classified_type": classified_type,
+                "candidate_count": min(len(candidates), self.MAX_LLM_CANDIDATES),
+                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.MAX_LLM_CANDIDATES]),
+            },
         )
         if isinstance(result, list):
             return [item for item in result if isinstance(item, dict)]
