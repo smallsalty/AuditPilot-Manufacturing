@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import re
@@ -52,6 +53,21 @@ class DocumentService:
     }
     MAX_LLM_CANDIDATES = 10
     MAX_EVIDENCE_CHARS = 220
+    EXTRACT_FAMILY_BY_EVENT_TYPE = {
+        "financial_anomaly": "financial_statement",
+        "audit_opinion_issue": "opinion_conclusion",
+        "internal_control_issue": "internal_control_conclusion",
+        "executive_change": "announcement_event",
+        "major_contract": "announcement_event",
+        "related_party_transaction": "announcement_event",
+        "share_repurchase": "announcement_event",
+        "equity_pledge": "announcement_event",
+        "penalty_or_inquiry": "announcement_event",
+        "litigation": "announcement_event",
+        "litigation_arbitration": "announcement_event",
+        "guarantee": "announcement_event",
+        "convertible_bond": "announcement_event",
+    }
     RULE_GROUPS = {
         "revenue_recognition": ["营业收入", "收入确认", "合同负债", "四季度"],
         "receivable_recoverability": ["应收账款", "坏账", "信用减值", "回款"],
@@ -590,7 +606,27 @@ class DocumentService:
         return entries[:120]
 
     def _normalize_entry_text(self, raw: str) -> str:
-        return re.sub(r"\s+", " ", raw).strip()
+        text = html.unescape(raw or "")
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        text = self._collapse_repeated_title(text)
+        return text
+
+    def _collapse_repeated_title(self, text: str) -> str:
+        cleaned = text.strip()
+        if len(cleaned) < 8:
+            return cleaned
+        repeated_with_suffix = re.match(r"^(.{4,60}?报告)(\1(?:摘要)?)$", cleaned)
+        if repeated_with_suffix:
+            return repeated_with_suffix.group(2)
+        for size in range(min(len(cleaned) // 2, 40), 5, -1):
+            prefix = cleaned[:size]
+            if prefix and cleaned == prefix * (len(cleaned) // len(prefix)) and len(cleaned) % len(prefix) == 0:
+                return prefix
+        duplicate = re.match(r"^(.{4,60}?)(?:\1){1,}$", cleaned)
+        if duplicate:
+            return duplicate.group(1)
+        return cleaned
 
     def _is_common_noise(self, text: str) -> bool:
         return any(pattern.match(text) for pattern in self.NOISE_PATTERNS)
@@ -1518,3 +1554,225 @@ class DocumentService:
             if text and text not in seen:
                 seen.append(text)
         return seen
+
+    def _should_skip_by_type(self, text: str, classified_type: str, section_title: str) -> bool:
+        for pattern in self.TYPE_NOISE_PATTERNS.get(classified_type, ()):
+            if pattern.match(text):
+                return True
+        if classified_type in {"annual_report", "annual_summary"}:
+            if "目录" in text[:10] or "......" in text or "……" in text:
+                return True
+            if re.fullmatch(r"[A-Za-z0-9（）()\- ]{4,}", text):
+                return True
+            if re.fullmatch(r"(?:20\d{2}年)?(?:半年度|年度)?报告(?:摘要)?", text):
+                return True
+        if classified_type in {"audit_report", "internal_control_report"}:
+            if self._is_responsibility_noise(text) or self._is_signature_tailnote(text) or self._is_english_footer_noise(text):
+                return True
+        if classified_type == "announcement_event":
+            if text.startswith("公司董事会") or text.startswith("本公司董事会"):
+                return True
+        return self._is_cover_like_noise(text)
+
+    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+        system_prompt, user_prompt = self._build_llm_extract_prompts(document, candidates, classified_type)
+        if not system_prompt:
+            return []
+        result = self.llm_client.chat_completion(
+            system_prompt,
+            user_prompt,
+            json_mode=True,
+            request_kind="document_extract",
+            metadata={
+                "document_id": document.id,
+                "enterprise_id": document.enterprise_id,
+                "classified_type": classified_type,
+                "candidate_count": min(len(candidates), self.MAX_LLM_CANDIDATES),
+                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.MAX_LLM_CANDIDATES]),
+            },
+        )
+        return self._extract_llm_items(result)
+
+    def _extract_llm_items(self, result: Any) -> list[dict[str, Any]]:
+        if isinstance(result, list):
+            return [item for item in result if isinstance(item, dict)]
+        if not isinstance(result, dict):
+            return []
+        if isinstance(result.get("items"), list):
+            return [item for item in result["items"] if isinstance(item, dict)]
+        if isinstance(result.get("extracts"), list):
+            return [item for item in result["extracts"] if isinstance(item, dict)]
+        raw = result.get("raw")
+        if isinstance(raw, str) and raw.strip():
+            recovered = self._recover_json_payload(raw)
+            if isinstance(recovered, list):
+                return [item for item in recovered if isinstance(item, dict)]
+            if isinstance(recovered, dict):
+                if isinstance(recovered.get("items"), list):
+                    return [item for item in recovered["items"] if isinstance(item, dict)]
+                if isinstance(recovered.get("extracts"), list):
+                    return [item for item in recovered["extracts"] if isinstance(item, dict)]
+        return []
+
+    def _recover_json_payload(self, raw: str) -> Any:
+        stripped = str(raw or "").strip()
+        if not stripped:
+            return None
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+        block = self._extract_json_block_from_raw(stripped)
+        if not block:
+            return None
+        try:
+            return json.loads(block)
+        except json.JSONDecodeError:
+            return None
+
+    def _extract_json_block_from_raw(self, raw: str) -> str | None:
+        start = None
+        depth = 0
+        in_string = False
+        escaped = False
+        for index, char in enumerate(raw):
+            if start is None:
+                if char in "{[":
+                    start = index
+                    depth = 1
+                continue
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                continue
+            if char in "{[":
+                depth += 1
+                continue
+            if char in "}]":
+                depth -= 1
+                if depth == 0:
+                    return raw[start : index + 1].strip()
+        return None
+
+    def _normalize_extract_payload(self, document: DocumentMeta, payload: dict[str, Any], index: int) -> dict[str, Any]:
+        summary = self._clean_summary_like_text(
+            payload.get("summary")
+            or payload.get("problem_summary")
+            or payload.get("evidence_excerpt")
+            or payload.get("title")
+            or document.document_name
+        )
+        if not summary:
+            summary = document.document_name
+        evidence_excerpt = self._clean_summary_like_text(payload.get("evidence_excerpt") or summary)
+        title = self._clean_summary_like_text(payload.get("title") or f"{document.document_name}-extract-{index}") or f"{document.document_name}-extract-{index}"
+        paragraph_hash = str(payload.get("paragraph_hash") or hashlib.sha1(summary.encode("utf-8")).hexdigest())
+        event_type = payload.get("event_type")
+        opinion_type = payload.get("opinion_type")
+        metric_name = payload.get("metric_name")
+        extract_family = self._resolve_extract_family(
+            document=document,
+            payload=payload,
+            event_type=event_type,
+            opinion_type=opinion_type,
+            metric_name=metric_name,
+        )
+        return {
+            "title": title,
+            "extract_type": str(payload.get("extract_type") or "document_issue"),
+            "extract_family": extract_family,
+            "summary": summary,
+            "problem_summary": summary,
+            "parameters": self._normalize_parameters(payload.get("parameters")),
+            "applied_rules": self._dedupe_strings(list(payload.get("applied_rules") or [])),
+            "evidence_excerpt": self._trim_evidence_safe(evidence_excerpt),
+            "detail_level": str(payload.get("detail_level") or "general"),
+            "fact_tags": self._dedupe_strings(list(payload.get("fact_tags") or [])),
+            "page_number": payload.get("page_number"),
+            "page_start": payload.get("page_start"),
+            "page_end": payload.get("page_end"),
+            "section_title": self._clean_summary_like_text(payload.get("section_title")) or payload.get("section_title"),
+            "paragraph_hash": paragraph_hash,
+            "evidence_span_id": str(payload.get("evidence_span_id") or f"{document.id}:{paragraph_hash[:12]}"),
+            "keywords": self._dedupe_strings(list(payload.get("keywords") or [])),
+            "financial_topics": self._dedupe_strings(list(payload.get("financial_topics") or [])),
+            "note_refs": self._dedupe_strings(list(payload.get("note_refs") or [])),
+            "risk_points": self._dedupe_strings(list(payload.get("risk_points") or [])),
+            "metric_name": metric_name,
+            "metric_value": self._coerce_float(payload.get("metric_value")),
+            "metric_unit": payload.get("metric_unit"),
+            "compare_target": payload.get("compare_target"),
+            "compare_value": self._coerce_float(payload.get("compare_value")),
+            "period": payload.get("period") or document.report_period_label,
+            "fiscal_year": payload.get("fiscal_year") or document.fiscal_year,
+            "fiscal_quarter": payload.get("fiscal_quarter") or self._infer_fiscal_quarter(document.report_period_label),
+            "event_type": event_type,
+            "event_date": payload.get("event_date"),
+            "subject": self._clean_summary_like_text(payload.get("subject") or document.document_name) or document.document_name,
+            "amount": self._coerce_float(payload.get("amount")),
+            "counterparty": self._clean_summary_like_text(payload.get("counterparty")),
+            "direction": payload.get("direction"),
+            "severity": payload.get("severity"),
+            "conditions": self._clean_summary_like_text(payload.get("conditions")),
+            "opinion_type": opinion_type,
+            "defect_level": payload.get("defect_level"),
+            "conclusion": self._clean_summary_like_text(payload.get("conclusion")),
+            "affected_scope": payload.get("affected_scope"),
+            "auditor_or_board_source": self._clean_summary_like_text(payload.get("auditor_or_board_source")),
+            "canonical_risk_key": payload.get("canonical_risk_key"),
+        }
+
+    def _resolve_extract_family(
+        self,
+        *,
+        document: DocumentMeta,
+        payload: dict[str, Any],
+        event_type: Any,
+        opinion_type: Any,
+        metric_name: Any,
+    ) -> str:
+        event_name = str(event_type or "").strip()
+        if event_name in self.EXTRACT_FAMILY_BY_EVENT_TYPE:
+            return self.EXTRACT_FAMILY_BY_EVENT_TYPE[event_name]
+        if opinion_type:
+            return "opinion_conclusion"
+        if document.classified_type in self.FINANCIAL_DOCUMENT_TYPES and (
+            metric_name or payload.get("detail_level") == "financial_deep_dive" or payload.get("financial_topics")
+        ):
+            return "financial_statement"
+        return "general"
+
+    def _clean_summary_like_text(self, value: Any) -> str:
+        text = html.unescape(str(value or ""))
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        text = self._collapse_repeated_title(text)
+        if re.fullmatch(r"(?:20\d{2}年)?(?:半年度|年度)?报告(?:摘要)?", text):
+            return ""
+        return text
+
+    def _apply_extract_overrides(self, db: Session, document_id: int, extracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        overrides = {
+            override.target_key: override
+            for override in DocumentRepository(db).list_overrides(document_id=document_id, scope="event_type")
+        }
+        document = db.get(DocumentMeta, document_id)
+        for extract in extracts:
+            override = overrides.get(str(extract.get("evidence_span_id")))
+            if override and override.override_value.get("event_type"):
+                extract["event_type"] = str(override.override_value["event_type"])
+                extract["extract_family"] = self._resolve_extract_family(
+                    document=document or type("DocumentStub", (), {"classified_type": None, "report_period_label": None, "fiscal_year": None})(),
+                    payload=extract,
+                    event_type=extract.get("event_type"),
+                    opinion_type=extract.get("opinion_type"),
+                    metric_name=extract.get("metric_name"),
+                )
+        return extracts

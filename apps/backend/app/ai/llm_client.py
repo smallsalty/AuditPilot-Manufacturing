@@ -5,6 +5,7 @@ import logging
 import random
 import re
 import time
+from json import JSONDecodeError
 from typing import Any
 
 try:
@@ -145,20 +146,31 @@ class LLMClient:
                 )
 
                 if json_mode:
-                    try:
-                        return json.loads(content)
-                    except json.JSONDecodeError:
-                        logger.warning(
-                            "llm json decode failed %s",
-                            self._format_log_fields(
-                                {
-                                    **attempt_fields,
-                                    "error_type": "json_decode_error",
-                                    "provider_response_text": self._truncate_text(content),
-                                }
-                            ),
-                        )
-                        return {"raw": content}
+                    parsed = self._parse_json_response(content)
+                    if parsed.get("parsed_ok"):
+                        if parsed.get("payload_mode") in {"extracted_dict", "extracted_list"}:
+                            logger.info(
+                                "llm json extract recovered %s",
+                                self._format_log_fields(
+                                    {
+                                        **attempt_fields,
+                                        "payload_mode": parsed.get("payload_mode"),
+                                    }
+                                ),
+                            )
+                        return parsed
+                    logger.warning(
+                        "llm json decode failed %s",
+                        self._format_log_fields(
+                            {
+                                **attempt_fields,
+                                "error_type": "json_decode_error",
+                                "payload_mode": parsed.get("payload_mode"),
+                                "provider_response_text": self._truncate_text(str(parsed.get("raw") or content)),
+                            }
+                        ),
+                    )
+                    return parsed
 
                 return content
             except (APIConnectionError, APITimeoutError, APIResponseValidationError) as exc:
@@ -252,6 +264,85 @@ class LLMClient:
             content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.I)
             content = re.sub(r"\s*```$", "", content)
         return content.strip()
+
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
+        direct = self._build_json_result(self._try_json_load(content), payload_mode=None)
+        if direct is not None:
+            return direct
+
+        extracted_source = self._extract_first_json_block(content)
+        if extracted_source:
+            extracted = self._build_json_result(self._try_json_load(extracted_source), payload_mode="extracted")
+            if extracted is not None:
+                return extracted
+
+        return {
+            "parsed_ok": False,
+            "payload_mode": "raw_text",
+            "raw": content,
+        }
+
+    def _build_json_result(self, payload: Any, payload_mode: str | None) -> dict[str, Any] | None:
+        if isinstance(payload, dict):
+            result = dict(payload)
+            result["parsed_ok"] = True
+            result["payload_mode"] = f"{payload_mode}_dict" if payload_mode else "dict"
+            return result
+        if isinstance(payload, list):
+            return {
+                "items": payload,
+                "parsed_ok": True,
+                "payload_mode": f"{payload_mode}_list" if payload_mode else "list",
+            }
+        return None
+
+    def _try_json_load(self, content: str) -> Any:
+        if not content:
+            return None
+        try:
+            return json.loads(content)
+        except JSONDecodeError:
+            return None
+
+    def _extract_first_json_block(self, content: str) -> str | None:
+        start_index = None
+        opening = None
+        depth = 0
+        in_string = False
+        escaped = False
+        for index, char in enumerate(content):
+            if start_index is None:
+                if char in "{[":
+                    start_index = index
+                    opening = char
+                    depth = 1
+                continue
+
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+                continue
+            if char in "{[":
+                depth += 1
+                continue
+            if char in "}]":
+                depth -= 1
+                if depth == 0:
+                    candidate = content[start_index : index + 1].strip()
+                    if opening == "[" and candidate.endswith("]"):
+                        return candidate
+                    if opening == "{" and candidate.endswith("}"):
+                        return candidate
+                    return None
+        return None
 
     def _backoff_seconds(self, attempt: int) -> float:
         base = min(10.0, 2.0 * (2 ** max(attempt - 1, 0)))

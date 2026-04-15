@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -363,23 +364,105 @@ class FinancialAnalysisService:
 
     def _extract_summary_text(self, result: Any) -> str | None:
         if isinstance(result, dict):
-            summary = str(result.get("summary") or "").strip()
+            summary = self._sanitize_summary_text(result.get("summary"))
             if summary:
                 return summary
+            items = result.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        summary = self._sanitize_summary_text(item.get("summary"))
+                        if summary:
+                            return summary
             raw = result.get("raw")
             if isinstance(raw, str) and raw.strip():
-                try:
-                    payload = json.loads(raw)
-                except Exception:
-                    return raw.strip()
-                if isinstance(payload, dict):
-                    parsed_summary = str(payload.get("summary") or "").strip()
-                    if parsed_summary:
-                        return parsed_summary
-                    return raw.strip()
+                recovered = self._recover_summary_payload(raw)
+                if isinstance(recovered, dict):
+                    summary = self._sanitize_summary_text(recovered.get("summary"))
+                    if summary:
+                        return summary
+                if isinstance(recovered, list):
+                    for item in recovered:
+                        if isinstance(item, dict):
+                            summary = self._sanitize_summary_text(item.get("summary"))
+                            if summary:
+                                return summary
+                return self._sanitize_summary_text(raw)
+        if isinstance(result, list):
+            for item in result:
+                if isinstance(item, dict):
+                    summary = self._sanitize_summary_text(item.get("summary"))
+                    if summary:
+                        return summary
         if isinstance(result, str):
-            return result.strip() or None
+            return self._sanitize_summary_text(result)
         return None
+
+    def _recover_summary_payload(self, raw: str) -> Any:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+        block = self._extract_json_block(raw)
+        if not block:
+            return None
+        try:
+            return json.loads(block)
+        except json.JSONDecodeError:
+            return None
+
+    def _extract_json_block(self, raw: str) -> str | None:
+        start = None
+        depth = 0
+        in_string = False
+        escaped = False
+        for index, char in enumerate(raw):
+            if start is None:
+                if char in "{[":
+                    start = index
+                    depth = 1
+                continue
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                continue
+            if char in "{[":
+                depth += 1
+                continue
+            if char in "}]":
+                depth -= 1
+                if depth == 0:
+                    return raw[start : index + 1].strip()
+        return None
+
+    def _sanitize_summary_text(self, value: Any) -> str | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
+        text = re.sub(r"\s*```$", "", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r'^[\s"\']+|[\s"\']+$', "", text)
+        text = re.sub(r"^[\-\*\d\.\)\(、]+\s*", "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return None
+        if text.startswith("{") or text.startswith("["):
+            return None
+        if len(text) > 220:
+            punctuation_cutoffs = [text.rfind(mark, 0, 220) for mark in ("。", "；", "！", "？")]
+            cutoff = max(punctuation_cutoffs)
+            if cutoff <= 0:
+                return None
+            text = text[: cutoff + 1].strip()
+        return text or None
 
     def _fallback_result(
         self,

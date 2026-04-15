@@ -1,9 +1,9 @@
 import logging
+from typing import Any
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.ai.llm_client import LLMClient
+from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import AuditChatRecord, EnterpriseProfile, RiskIdentificationResult
 from app.rag.retrieval_service import RetrievalService
 from app.services.document_risk_service import DocumentRiskService
@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class AuditQAServer:
+    DEFAULT_SUGGESTED_ACTIONS = [
+        "查看风险清单中的文档证据",
+        "优先复核高风险科目与披露依据",
+        "补充获取合同、回款和库存等支持材料",
+    ]
+    DEFAULT_FALLBACK_ANSWER = "系统已基于当前文档依据和风险结果生成兜底回答，请优先查看证据链并继续核查高风险事项。"
+
     def __init__(self, llm_client: LLMClient | None = None, retrieval_service: RetrievalService | None = None) -> None:
         self.llm_client = llm_client or LLMClient()
         self.retrieval_service = retrieval_service or RetrievalService()
@@ -51,9 +58,9 @@ class AuditQAServer:
                     "llm_input_chars": len(user_prompt),
                 },
             )
-        except RuntimeError as exc:
+        except (RuntimeError, LLMRequestError) as exc:
             logger.warning("chat failed enterprise_id=%s error=%s", enterprise.id, exc)
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            result = None
 
         citations = []
         for item in document_risks[:3]:
@@ -89,12 +96,9 @@ class AuditQAServer:
                 for item in document_risks[:3]
             ]
 
-        answer = result.get("summary") or result.get("answer") or "系统已基于当前文档依据和风险结果生成回答。"
-        suggested_actions = result.get("procedures") or result.get("suggested_actions") or [
-            "查看风险清单中的文档证据",
-            "优先复核高风险科目与披露依据",
-            "补充获取合同、回款和库存等支撑材料",
-        ]
+        normalized_result = self._normalize_chat_result(result)
+        answer = normalized_result["answer"]
+        suggested_actions = normalized_result["suggested_actions"]
 
         db.add(
             AuditChatRecord(
@@ -107,19 +111,112 @@ class AuditQAServer:
         )
         db.commit()
         logger.info(
-            "chat answered enterprise_id=%s risk_rows=%s document_risks=%s chunks=%s basis_level=%s context_variant=%s",
+            "chat answered enterprise_id=%s risk_rows=%s document_risks=%s chunks=%s basis_level=%s context_variant=%s payload_mode=%s parsed_ok=%s",
             enterprise.id,
             len(risk_rows),
             len(document_risks),
             len(chunks),
             basis_level,
             context_variant,
+            normalized_result["payload_mode"],
+            normalized_result["parsed_ok"],
         )
         return {
             "answer": answer,
             "basis_level": basis_level,
             "citations": citations,
             "suggested_actions": suggested_actions,
+        }
+
+    def _normalize_chat_result(self, result: object) -> dict[str, Any]:
+        payload = self._select_chat_payload(result)
+        if payload is None:
+            return self._fallback_chat_result()
+
+        answer = self._clean_answer_text(
+            payload.get("summary")
+            or payload.get("answer")
+            or payload.get("raw")
+            or payload.get("_text")
+        )
+        if not answer:
+            answer = self.DEFAULT_FALLBACK_ANSWER
+
+        suggested_actions = self._normalize_suggested_actions(
+            payload.get("procedures") or payload.get("suggested_actions")
+        )
+        if not suggested_actions:
+            suggested_actions = list(self.DEFAULT_SUGGESTED_ACTIONS)
+
+        return {
+            "answer": answer,
+            "suggested_actions": suggested_actions,
+            "parsed_ok": bool(payload.get("parsed_ok", False)),
+            "payload_mode": str(payload.get("payload_mode") or "fallback"),
+        }
+
+    def _select_chat_payload(self, result: object) -> dict[str, Any] | None:
+        if isinstance(result, dict):
+            if isinstance(result.get("items"), list):
+                item = self._pick_best_chat_item(result["items"])
+                if item is not None:
+                    item.setdefault("parsed_ok", bool(result.get("parsed_ok", False)))
+                    item.setdefault("payload_mode", "list_item")
+                    return item
+            payload = dict(result)
+            payload.setdefault("parsed_ok", bool(payload.get("parsed_ok", False)))
+            payload.setdefault("payload_mode", str(payload.get("payload_mode") or "dict"))
+            return payload
+        if isinstance(result, list):
+            return self._pick_best_chat_item(result)
+        if isinstance(result, str):
+            return {"_text": result, "parsed_ok": False, "payload_mode": "raw_text"}
+        return None
+
+    def _pick_best_chat_item(self, items: list[object]) -> dict[str, Any] | None:
+        dict_items = [dict(item) for item in items if isinstance(item, dict)]
+        if not dict_items:
+            return None
+        for item in dict_items:
+            if item.get("summary") or item.get("answer"):
+                item.setdefault("parsed_ok", True)
+                item.setdefault("payload_mode", "list_item")
+                return item
+        for item in dict_items:
+            if item.get("procedures") or item.get("suggested_actions"):
+                item.setdefault("parsed_ok", True)
+                item.setdefault("payload_mode", "list_item")
+                return item
+        first = dict_items[0]
+        first.setdefault("parsed_ok", True)
+        first.setdefault("payload_mode", "list_item")
+        return first
+
+    def _clean_answer_text(self, value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        text = " ".join(text.split())
+        if len(text) > 320:
+            text = text[:320].rstrip("，；、 ") + "。"
+        return text
+
+    def _normalize_suggested_actions(self, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        actions: list[str] = []
+        for item in value:
+            text = self._clean_answer_text(item)
+            if text and text not in actions:
+                actions.append(text)
+        return actions[:3]
+
+    def _fallback_chat_result(self) -> dict[str, Any]:
+        return {
+            "answer": self.DEFAULT_FALLBACK_ANSWER,
+            "suggested_actions": list(self.DEFAULT_SUGGESTED_ACTIONS),
+            "parsed_ok": False,
+            "payload_mode": "fallback",
         }
 
     def _collect_context(self, db: Session, enterprise: EnterpriseProfile, question: str):

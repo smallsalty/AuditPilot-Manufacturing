@@ -295,3 +295,43 @@ def test_financial_analysis_service_marks_inflight_reused(monkeypatch, caplog) -
     assert all(item["cached"] is False for item in results)
     assert llm_client.calls == 1
     assert "financial-analysis in-flight reused" in caplog.text
+
+
+def test_financial_analysis_service_accepts_list_style_summary_payload(monkeypatch) -> None:
+    _reset_summary_state()
+
+    class ListLLMClient:
+        config_error = None
+        provider = "minimax"
+        model = "MiniMax-M2.7"
+
+        def chat_completion(self, *args, **kwargs):
+            return {"items": [{"summary": "财报摘要"}], "parsed_ok": True, "payload_mode": "list"}
+
+    service = FinancialAnalysisService(llm_client=ListLLMClient())
+    _mock_financial_repositories(monkeypatch)
+
+    result = service.build_analysis(db=None, enterprise_id=1)
+
+    assert result["summary"] == "财报摘要"
+    assert result["summary_mode"] == "llm"
+
+
+def test_financial_analysis_service_uses_template_when_raw_text_is_too_long(monkeypatch) -> None:
+    _reset_summary_state()
+
+    class RawLLMClient:
+        config_error = None
+        provider = "minimax"
+        model = "MiniMax-M2.7"
+
+        def chat_completion(self, *args, **kwargs):
+            return {"parsed_ok": False, "payload_mode": "raw_text", "raw": "{" + ("x" * 260)}
+
+    service = FinancialAnalysisService(llm_client=RawLLMClient())
+    _mock_financial_repositories(monkeypatch)
+
+    result = service.build_analysis(db=None, enterprise_id=1)
+
+    assert result["summary_mode"] == "fallback"
+    assert result["summary"]

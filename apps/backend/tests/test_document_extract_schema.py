@@ -315,3 +315,44 @@ def test_normalize_extract_payload_preserves_flat_parameters() -> None:
     assert normalized["summary"] == "公司披露监管问询事项，需关注整改进展与信息披露影响。"
     assert normalized["problem_summary"] == normalized["summary"]
     assert normalized["parameters"] == {"issuing_authority": "证券交易所", "severity": "high"}
+def test_normalize_entry_text_strips_highlight_html_and_repeated_titles() -> None:
+    service = DocumentService()
+
+    normalized = service._normalize_entry_text("<em>2025年</em>半<em>年度报告</em><em>2025年</em>半<em>年度报告</em><em>摘要</em>")
+
+    assert "<em>" not in normalized
+    assert normalized.count("2025年") == 1
+
+
+def test_llm_extract_accepts_recovered_raw_array() -> None:
+    service = DocumentService()
+
+    items = service._extract_llm_items(
+        {
+            "parsed_ok": False,
+            "payload_mode": "raw_text",
+            "raw": '说明如下：[{"summary":"异常","event_type":"executive_change","extract_family":"financial_statement","evidence_excerpt":"董事变更"}]谢谢',
+        }
+    )
+
+    assert len(items) == 1
+    assert items[0]["event_type"] == "executive_change"
+
+
+def test_normalize_extract_payload_reconciles_event_family_mismatch() -> None:
+    service = DocumentService()
+    document = _document("2024年年度报告", "annual_report", "2024年度")
+
+    normalized = service._normalize_extract_payload(
+        document,
+        {
+            "title": "高管变动",
+            "summary": "公司披露董事变更事项。",
+            "event_type": "executive_change",
+            "extract_family": "financial_statement",
+            "evidence_excerpt": "董事会成员发生调整。",
+        },
+        1,
+    )
+
+    assert normalized["extract_family"] == "announcement_event"
