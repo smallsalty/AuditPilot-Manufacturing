@@ -31,6 +31,8 @@ export type EnterpriseReadinessPayload = {
   last_sync_source?: string | null;
   risk_analysis_status: AnalysisStatus | string;
   qa_ready: boolean;
+  empty_reason?: SyncEmptyReason | null;
+  last_sync_diagnostics?: SyncDiagnosticsPayload | null;
 };
 
 export type DashboardPayload = {
@@ -397,17 +399,40 @@ export type SyncCompanyPayload = {
   events_inserted: number;
   other_found?: number;
   parse_queued: number;
+  annual_package_attempted: boolean;
+  annual_package_target_years: number[];
+  annual_package_found: number;
+  annual_package_inserted: number;
+  empty_reason?: SyncEmptyReason | null;
   warnings: string[];
   errors: string[];
-  diagnostics?: {
-    is_initial_sync: boolean;
-    window_kind: string;
+  diagnostics?: SyncDiagnosticsPayload | null;
+};
+
+export type SyncEmptyReason =
+  | "no_sync_run"
+  | "generic_window_no_documents"
+  | "annual_package_not_published"
+  | "provider_returned_only_other"
+  | "provider_error";
+
+export type SyncDiagnosticsPayload = {
+  is_initial_sync: boolean;
+  window_kind: string;
+  date_from: string;
+  date_to: string;
+  initial_window: {
     date_from: string;
     date_to: string;
-    classification_counts: {
-      document: number;
-      penalty: number;
-      other: number;
-    };
-  } | null;
+  };
+  annual_package_attempted: boolean;
+  annual_package_target_years: number[];
+  annual_package_found: number;
+  annual_package_inserted: number;
+  empty_reason?: SyncEmptyReason | null;
+  classification_counts: {
+    document: number;
+    penalty: number;
+    other: number;
+  };
 };

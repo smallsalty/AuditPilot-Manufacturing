@@ -38,10 +38,11 @@ const PARSE_STATUS_LABELS: Record<string, string> = {
 };
 
 const ANALYSIS_STATUS_LABELS: Record<string, string> = {
-  running: "解析运行中",
-  succeeded: "解析完成",
+  pending: "待分析",
+  running: "分析运行中",
+  succeeded: "分析完成",
   partial_fallback: "部分回退",
-  failed: "解析失败",
+  failed: "分析失败",
 };
 
 const ANALYSIS_MODE_LABELS: Record<string, string> = {
@@ -49,6 +50,37 @@ const ANALYSIS_MODE_LABELS: Record<string, string> = {
   hybrid_fallback: "LLM + 规则回退",
   rule_only: "规则兜底",
 };
+
+const EMPTY_REASON_LABELS: Record<string, string> = {
+  no_sync_run: "该企业当前还没有执行过官方同步，请先触发同步或上传 PDF。",
+  generic_window_no_documents: "当前同步窗口内没有命中官方文档，建议手动刷新或重新同步。",
+  annual_package_not_published: "最近一套年报包暂未披露，或当前检索窗口内尚未命中。",
+  provider_returned_only_other: "当前窗口只抓到非文档公告，尚未抓到年报、审计报告或内控报告。",
+  provider_error: "官方同步过程中出现上游错误，本次未能产出文档。",
+};
+
+function renderStructuredFields(extract: DocumentExtractItem) {
+  const rows: string[] = [];
+  if (extract.metric_name) {
+    rows.push(`数值：${extract.metric_name} ${extract.metric_value ?? "-"} ${extract.metric_unit ?? ""}`.trim());
+  }
+  if (extract.event_type) {
+    rows.push(`事件：${extract.event_type}`);
+  }
+  if (extract.amount != null) {
+    rows.push(`金额：${extract.amount}`);
+  }
+  if (extract.counterparty) {
+    rows.push(`对手方：${extract.counterparty}`);
+  }
+  if (extract.opinion_type) {
+    rows.push(`意见：${extract.opinion_type}`);
+  }
+  if (extract.conclusion) {
+    rows.push(`结论：${extract.conclusion}`);
+  }
+  return rows;
+}
 
 export default function DocumentsPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources } = useEnterpriseContext();
@@ -124,6 +156,16 @@ export default function DocumentsPage() {
       (documents?.length ?? 0) === 0 &&
       (readiness?.official_doc_count ?? 0) > 0,
   );
+  const readinessEmptyMessage =
+    readiness?.empty_reason && EMPTY_REASON_LABELS[readiness.empty_reason]
+      ? EMPTY_REASON_LABELS[readiness.empty_reason]
+      : "当前企业暂无文档。可先同步官方公告或上传 PDF。";
+  const lastSyncWindow = readiness?.last_sync_diagnostics?.initial_window;
+  const annualTargetYears = readiness?.last_sync_diagnostics?.annual_package_target_years ?? [];
+
+  const refreshAll = async () => {
+    await Promise.allSettled([refreshReadiness(), refresh(), refreshFinancialAnalysis()]);
+  };
 
   const upload = async () => {
     if (!file || !currentEnterpriseId) return;
@@ -131,7 +173,7 @@ export default function DocumentsPage() {
     try {
       const result = await api.uploadDocument(currentEnterpriseId, file);
       invalidateEnterpriseResources(currentEnterpriseId, ["documents", "readiness", "financialAnalysis"]);
-      await Promise.allSettled([refreshReadiness(), refresh(), refreshFinancialAnalysis()]);
+      await refreshAll();
       setActiveDocumentId(result.id);
       setMessage(`文档 ${result.document_name} 上传成功。`);
     } catch (uploadError) {
@@ -147,7 +189,7 @@ export default function DocumentsPage() {
       await api.parseDocument(document.id);
       const response = await api.getDocumentExtracts(document.id);
       invalidateEnterpriseResources(currentEnterpriseId ?? 0, ["documents", "readiness", "financialAnalysis"]);
-      await Promise.allSettled([refreshReadiness(), refresh(), refreshFinancialAnalysis()]);
+      await refreshAll();
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
       setMessage(`已生成 ${response.extracts.length} 条结构化抽取结果。`);
@@ -204,10 +246,6 @@ export default function DocumentsPage() {
     }
   };
 
-  const refreshAll = async () => {
-    await Promise.allSettled([refreshReadiness(), refresh(), refreshFinancialAnalysis()]);
-  };
-
   return (
     <div className="space-y-6 pb-10">
       <Card>
@@ -262,9 +300,7 @@ export default function DocumentsPage() {
       ) : hasSyncGap ? (
         <Card>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-            {syncGapRetryCount === 0
-              ? "官方文档已存在，文档列表正在同步刷新中..."
-              : "暂未同步完成，请手动刷新。"}
+            {syncGapRetryCount === 0 ? "官方文档已存在，列表正在同步刷新..." : "暂未同步完成，请手动刷新。"}
           </div>
         </Card>
       ) : (
@@ -284,12 +320,12 @@ export default function DocumentsPage() {
                             {PARSE_STATUS_LABELS[document.parse_status] ?? document.parse_status} | {document.source}
                           </p>
                           <p className="mt-2 text-xs text-haze/65">
-                            版本：{document.latest_extract_version ?? "pending"} | 抽取家族：
-                            {document.extract_family_summary?.join(" / ") || "未生成"} | 事件覆盖：
+                            版本：{document.latest_extract_version ?? "pending"} | 抽取族：{" "}
+                            {document.extract_family_summary?.join(" / ") || "未生成"} | 事件覆盖：{" "}
                             {document.event_coverage?.join(" / ") || "无"}
                           </p>
                           <p className="mt-2 text-xs text-haze/65">
-                            解析状态：{ANALYSIS_STATUS_LABELS[document.analysis_status ?? ""] ?? (document.analysis_status ?? "pending")} |{" "}
+                            分析状态：{ANALYSIS_STATUS_LABELS[document.analysis_status ?? ""] ?? (document.analysis_status ?? "pending")} |{" "}
                             {ANALYSIS_MODE_LABELS[document.analysis_mode ?? ""] ?? (document.analysis_mode ?? "待生成")}
                           </p>
                           {document.analysis_groups?.length ? (
@@ -328,7 +364,15 @@ export default function DocumentsPage() {
                 </div>
               ) : (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                  当前企业暂无文档。可先同步官方公告或上传 PDF。
+                  <p>{readinessEmptyMessage}</p>
+                  {lastSyncWindow ? (
+                    <p className="mt-2 text-xs text-haze/60">
+                      最近同步窗口：{lastSyncWindow.date_from} ~ {lastSyncWindow.date_to}
+                    </p>
+                  ) : null}
+                  {annualTargetYears.length > 0 ? (
+                    <p className="mt-2 text-xs text-haze/60">年报包补抓年份：{annualTargetYears.join(" / ")}</p>
+                  ) : null}
                 </div>
               )}
             </Card>
@@ -338,79 +382,75 @@ export default function DocumentsPage() {
               {activeDocument ? <p className="mt-2 text-sm text-haze/70">当前文档：{activeDocument.document_name}</p> : null}
               {extracts.length > 0 ? (
                 <div className="mt-4 space-y-3">
-                  {extracts.map((extract, index) => (
-                    <details key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <summary className="list-none cursor-pointer">
-                        <div className="flex items-start gap-3">
-                          <span className="pt-0.5 text-sm font-semibold text-amber-300">{index + 1}.</span>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium text-white">{extract.title}</p>
-                            <p className="mt-2 text-sm text-haze/80">{extract.problem_summary}</p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/65">
-                              <span>{extract.extract_family ?? extract.extract_type}</span>
-                              <span>{extract.detail_level === "financial_deep_dive" ? "财报深析" : "通用抽取"}</span>
-                              {extract.section_title ? <span>{extract.section_title}</span> : null}
-                              {extract.page_start || extract.page_end ? (
-                                <span>
-                                  页码：{extract.page_start ?? "?"}-{extract.page_end ?? extract.page_start ?? "?"}
-                                </span>
-                              ) : null}
+                  {extracts.map((extract, index) => {
+                    const structuredRows = renderStructuredFields(extract);
+                    return (
+                      <details key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                        <summary className="list-none cursor-pointer">
+                          <div className="flex items-start gap-3">
+                            <span className="pt-0.5 text-sm font-semibold text-amber-300">{index + 1}.</span>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-white">{extract.title}</p>
+                              <p className="mt-2 text-sm text-haze/80">{extract.problem_summary}</p>
+                              <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/65">
+                                <span>{extract.extract_family ?? extract.extract_type}</span>
+                                <span>{extract.detail_level === "financial_deep_dive" ? "财报深析" : "通用抽取"}</span>
+                                {extract.section_title ? <span>{extract.section_title}</span> : null}
+                                {extract.page_start || extract.page_end ? (
+                                  <span>
+                                    页码：{extract.page_start ?? "?"}-{extract.page_end ?? extract.page_start ?? "?"}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
+                        </summary>
+                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+                          <section>
+                            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">规则与风险键</p>
+                            <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
+                              <p>规则：{extract.applied_rules.length ? extract.applied_rules.join(" / ") : "未命中"}</p>
+                              {extract.canonical_risk_key ? <p className="mt-2">风险键：{extract.canonical_risk_key}</p> : null}
+                            </div>
+                          </section>
+                          <section>
+                            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">证据摘要</p>
+                            <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
+                              {extract.evidence_excerpt}
+                            </div>
+                          </section>
+                          {(extract.event_type || extract.opinion_type) && activeDocumentId ? (
+                            <section>
+                              <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">事件 / 意见修正</p>
+                              <select
+                                className="rounded-2xl border border-white/10 bg-black/10 px-3 py-2 text-sm text-haze/80"
+                                value={extract.event_type ?? extract.opinion_type ?? ""}
+                                onChange={(event) => void updateEventType(extract, event.target.value)}
+                                disabled={busy || !extract.evidence_span_id}
+                              >
+                                <option value="">请选择</option>
+                                {EVENT_OPTIONS.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </section>
+                          ) : null}
+                          {structuredRows.length > 0 ? (
+                            <section>
+                              <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">结构化字段</p>
+                              <div className="space-y-2 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
+                                {structuredRows.map((row) => (
+                                  <p key={row}>{row}</p>
+                                ))}
+                              </div>
+                            </section>
+                          ) : null}
                         </div>
-                      </summary>
-                      <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                        <section>
-                          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">规则与风险键</p>
-                          <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
-                            <p>规则：{extract.applied_rules.length ? extract.applied_rules.join(" / ") : "未命中"}</p>
-                            {extract.canonical_risk_key ? <p className="mt-2">风险键：{extract.canonical_risk_key}</p> : null}
-                          </div>
-                        </section>
-                        <section>
-                          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">证据摘要</p>
-                          <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
-                            {extract.evidence_excerpt}
-                          </div>
-                        </section>
-                        {(extract.event_type || extract.opinion_type) && activeDocumentId ? (
-                          <section>
-                            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">事件/意见修正</p>
-                            <select
-                              className="rounded-2xl border border-white/10 bg-black/10 px-3 py-2 text-sm text-haze/80"
-                              value={extract.event_type ?? extract.opinion_type ?? ""}
-                              onChange={(event) => void updateEventType(extract, event.target.value)}
-                              disabled={busy || !extract.evidence_span_id}
-                            >
-                              <option value="">请选择</option>
-                              {EVENT_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </section>
-                        ) : null}
-                        {(extract.metric_name || extract.amount || extract.counterparty || extract.conclusion) ? (
-                          <section>
-                            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">结构化字段</p>
-                            <div className="space-y-2 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
-                              {extract.metric_name ? (
-                                <p>
-                                  数值：{extract.metric_name} {extract.metric_value ?? "-"} {extract.metric_unit ?? ""}
-                                </p>
-                              ) : null}
-                              {extract.event_type ? <p>事件：{extract.event_type}</p> : null}
-                              {extract.amount != null ? <p>金额：{extract.amount}</p> : null}
-                              {extract.counterparty ? <p>对手方：{extract.counterparty}</p> : null}
-                              {extract.opinion_type ? <p>意见：{extract.opinion_type}</p> : null}
-                              {extract.conclusion ? <p>结论：{extract.conclusion}</p> : null}
-                            </div>
-                          </section>
-                        ) : null}
-                      </div>
-                    </details>
-                  ))}
+                      </details>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
@@ -432,7 +472,9 @@ export default function DocumentsPage() {
                       <p className="mt-2 text-xs text-haze/65">
                         {document.classified_type} | {document.analysis_status ?? "unknown"} | {document.analysis_mode ?? "unknown"}
                       </p>
-                      <p className="mt-2 text-sm text-haze/80">异常条数：{document.anomalies.length} | 指标条数：{document.key_metrics.length}</p>
+                      <p className="mt-2 text-sm text-haze/80">
+                        异常条数：{document.anomalies.length} | 指标条数：{document.key_metrics.length}
+                      </p>
                       {document.anomalies.slice(0, 2).map((item) => (
                         <div key={`${document.document_id}-${item.title}`} className="mt-3 rounded-2xl border border-white/10 bg-black/10 p-3 text-sm text-haze/80">
                           <p className="font-medium text-white">{item.title}</p>
@@ -465,7 +507,7 @@ export default function DocumentsPage() {
               </div>
             ) : (
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                只有当年报、审计报告或内控报告中存在财报深析抽取时，才会显示这里的专项结果。
+                只有年报、审计报告或内控报告中存在财报深析抽取时，才会显示这里的专项结果。
               </div>
             )}
           </Card>

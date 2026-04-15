@@ -51,6 +51,15 @@ class CninfoProvider(BaseAuditProvider):
         "\u7eaa\u5f8b\u5904\u5206",
         "\u7acb\u6848",
     )
+    ANNUAL_PACKAGE_KEYWORDS = (
+        "{year}\u5e74\u5e74\u5ea6\u62a5\u544a",
+        "{year}\u5e74\u5e74\u5ea6\u62a5\u544a\u6458\u8981",
+        "{year}\u5e74\u5ea6\u5ba1\u8ba1\u62a5\u544a",
+        "{year}\u5e74\u5ea6\u5185\u90e8\u63a7\u5236\u8bc4\u4ef7\u62a5\u544a",
+        "{year}\u5e74\u5ea6\u5185\u90e8\u63a7\u5236\u5ba1\u8ba1\u62a5\u544a",
+        "{year}\u5e74\u5ea6\u975e\u7ecf\u8425\u6027\u8d44\u91d1\u5360\u7528",
+        "{year}\u5e74\u4e13\u9879\u5ba1\u8ba1\u62a5\u544a",
+    )
 
     def __init__(self) -> None:
         self.enabled = settings.cninfo_enable
@@ -85,13 +94,48 @@ class CninfoProvider(BaseAuditProvider):
         if not stock_param:
             raise ValueError(f"\u65e0\u6cd5\u89e3\u6790 {ticker} \u5bf9\u5e94\u7684\u5de8\u6f6e\u8bc1\u5238\u7f16\u7801\u3002")
 
+        return self._fetch_with_search(ticker, stock_param, date_from, date_to, searchkey="")
+
+    def fetch_annual_package(self, ticker: str, fiscal_year: int) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+
+        stock_param = self._build_stock_param(ticker)
+        if not stock_param:
+            raise ValueError(f"\u65e0\u6cd5\u89e3\u6790 {ticker} \u5bf9\u5e94\u7684\u5de8\u6f6e\u8bc1\u5238\u7f16\u7801\u3002")
+
+        date_from = date(fiscal_year, 1, 1)
+        date_to = date(fiscal_year + 1, 12, 31)
+        documents: dict[str, dict[str, Any]] = {}
+        for template in self.ANNUAL_PACKAGE_KEYWORDS:
+            keyword = template.format(year=fiscal_year)
+            for item in self._fetch_with_search(ticker, stock_param, date_from, date_to, searchkey=keyword):
+                if item.get("category") != "document":
+                    continue
+                item.setdefault("diagnostics", {})
+                item["diagnostics"]["searchkey"] = keyword
+                item["diagnostics"]["fiscal_year"] = fiscal_year
+                item["diagnostics"]["sync_path"] = "annual_package"
+                dedupe_key = str(item.get("source_object_id") or "") or self._dedupe_key_from_item(item)
+                documents[dedupe_key] = item
+        return list(documents.values())
+
+    def _fetch_with_search(
+        self,
+        ticker: str,
+        stock_param: str,
+        date_from: date,
+        date_to: date,
+        *,
+        searchkey: str,
+    ) -> list[dict[str, Any]]:
         base_payload = {
             "pageSize": self.page_size,
             "column": "sse" if ticker.upper().endswith(".SH") else "szse",
             "tabName": "fulltext",
             "plate": "",
             "stock": stock_param,
-            "searchkey": "",
+            "searchkey": searchkey,
             "category": "",
             "seDate": f"{date_from.isoformat()}~{date_to.isoformat()}",
             "isHLtitle": "true",
@@ -110,36 +154,9 @@ class CninfoProvider(BaseAuditProvider):
                 break
 
             for row in rows:
-                title = str(row.get("announcementTitle") or row.get("announcementTitleCn") or "").strip()
-                if not title:
-                    continue
-                normalized_title = self._normalize_title(title)
-                category = self._classify_title(normalized_title)
-                document_url = self._build_document_url(row.get("adjunctUrl"))
-                announcements.append(
-                    {
-                        "source": self.provider_name,
-                        "source_object_id": str(row.get("announcementId") or "").strip() or None,
-                        "title": title,
-                        "normalized_title": normalized_title,
-                        "announcement_date": self._normalize_announcement_time(row.get("announcementTime")),
-                        "source_url": document_url or self.query_url,
-                        "document_url": document_url,
-                        "content_text": None,
-                        "raw_payload": row,
-                        "category": category,
-                        "document_type": self._infer_document_type(normalized_title) if category == "document" else None,
-                        "event_type": "regulatory_penalty" if category == "penalty" else None,
-                        "summary": title,
-                        "regulator": "cninfo",
-                        "diagnostics": {
-                            "stock": stock_param,
-                            "page_num": page_num,
-                            "seDate": base_payload["seDate"],
-                            "totalRecordNum": total_record_num,
-                        },
-                    }
-                )
+                item = self._serialize_announcement_row(row, stock_param, base_payload["seDate"], page_num, total_record_num)
+                if item is not None:
+                    announcements.append(item)
 
             if total_record_num and len(announcements) >= total_record_num:
                 break
@@ -151,8 +168,56 @@ class CninfoProvider(BaseAuditProvider):
             item.setdefault("diagnostics", {})
             item["diagnostics"]["pages_fetched"] = pages_fetched
             item["diagnostics"]["total_pages"] = total_pages
-
+            item["diagnostics"].setdefault("sync_path", "generic_window")
+            if searchkey:
+                item["diagnostics"]["searchkey"] = searchkey
         return announcements
+
+    def _serialize_announcement_row(
+        self,
+        row: dict[str, Any],
+        stock_param: str,
+        se_date: str,
+        page_num: int,
+        total_record_num: int,
+    ) -> dict[str, Any] | None:
+        title = str(row.get("announcementTitle") or row.get("announcementTitleCn") or "").strip()
+        if not title:
+            return None
+        normalized_title = self._normalize_title(title)
+        category = self._classify_title(normalized_title)
+        document_url = self._build_document_url(row.get("adjunctUrl"))
+        return {
+            "source": self.provider_name,
+            "source_object_id": str(row.get("announcementId") or "").strip() or None,
+            "title": title,
+            "normalized_title": normalized_title,
+            "announcement_date": self._normalize_announcement_time(row.get("announcementTime")),
+            "source_url": document_url or self.query_url,
+            "document_url": document_url,
+            "content_text": None,
+            "raw_payload": row,
+            "category": category,
+            "document_type": self._infer_document_type(normalized_title) if category == "document" else None,
+            "event_type": "regulatory_penalty" if category == "penalty" else None,
+            "summary": title,
+            "regulator": "cninfo",
+            "diagnostics": {
+                "stock": stock_param,
+                "page_num": page_num,
+                "seDate": se_date,
+                "totalRecordNum": total_record_num,
+            },
+        }
+
+    def _dedupe_key_from_item(self, item: dict[str, Any]) -> str:
+        return "|".join(
+            [
+                str(item.get("title") or ""),
+                str(item.get("announcement_date") or ""),
+                str(item.get("document_url") or ""),
+            ]
+        )
 
     def _build_stock_param(self, ticker: str) -> str | None:
         code = ticker.split(".", 1)[0].strip()

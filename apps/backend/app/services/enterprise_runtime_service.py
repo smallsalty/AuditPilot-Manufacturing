@@ -29,7 +29,7 @@ class EnterpriseRuntimeService:
             enterprise = EnterpriseProfile(
                 name=profile.get("name") or resolved_ticker,
                 ticker=resolved_ticker,
-                report_year=datetime.now().year,
+                report_year=datetime.now().year - 1,
                 industry_tag=profile.get("industry_tag") or "制造业",
                 exchange=profile.get("exchange") or ("SSE" if resolved_ticker.endswith(".SH") else "SZSE"),
             )
@@ -103,6 +103,12 @@ class EnterpriseRuntimeService:
         else:
             sync_status = "never_synced"
 
+        portrait = enterprise.portrait or {}
+        last_sync_diagnostics = portrait.get("last_sync_diagnostics")
+        empty_reason = portrait.get("last_sync_empty_reason")
+        if not enterprise.latest_sync_at and official_doc_count == 0 and official_event_count == 0:
+            empty_reason = "no_sync_run"
+
         return {
             "enterprise_id": enterprise.id,
             "profile_ready": bool(enterprise.name and enterprise.ticker),
@@ -116,4 +122,6 @@ class EnterpriseRuntimeService:
             "last_sync_source": "cninfo" if official_doc_count or official_event_count else "akshare_fast",
             "risk_analysis_status": analysis_state["analysis_status"],
             "qa_ready": official_doc_count > 0 or official_event_count > 0 or len(risk_results) > 0,
+            "empty_reason": empty_reason,
+            "last_sync_diagnostics": last_sync_diagnostics,
         }

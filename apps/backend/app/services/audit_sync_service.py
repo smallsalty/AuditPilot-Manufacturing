@@ -29,6 +29,11 @@ class AuditSyncService:
     SYNC_PARSE_FAILED = "parse_failed"
     DISABLED_SOURCES = {"tushare_fast"}
     AUTO_SYNC_COOLDOWN_MINUTES = 10
+    EMPTY_REASON_NO_SYNC_RUN = "no_sync_run"
+    EMPTY_REASON_GENERIC_WINDOW_NO_DOCUMENTS = "generic_window_no_documents"
+    EMPTY_REASON_ANNUAL_PACKAGE_NOT_PUBLISHED = "annual_package_not_published"
+    EMPTY_REASON_PROVIDER_RETURNED_ONLY_OTHER = "provider_returned_only_other"
+    EMPTY_REASON_PROVIDER_ERROR = "provider_error"
 
     def __init__(self) -> None:
         self.providers = {
@@ -96,6 +101,10 @@ class AuditSyncService:
         events_inserted = 0
         other_found = 0
         parse_queued = 0
+        annual_package_attempted = False
+        annual_package_target_years: list[int] = []
+        annual_package_found = 0
+        annual_package_inserted = 0
         warnings: list[str] = []
         errors: list[str] = []
 
@@ -135,20 +144,45 @@ class AuditSyncService:
                 logger.warning("announcement sync failed enterprise_id=%s source=%s error=%s", enterprise.id, source_name, exc)
                 continue
 
-            announcements_fetched += len(announcements)
+            annual_package_items: list[dict[str, Any]] = []
+            if source_name == "cninfo" and is_initial_sync:
+                annual_package_attempted = True
+                if not annual_package_target_years:
+                    annual_package_target_years = self._build_annual_package_target_years(enterprise.report_year)
+                for fiscal_year in annual_package_target_years:
+                    try:
+                        year_items = provider.fetch_annual_package(enterprise.ticker, fiscal_year)
+                    except Exception as exc:
+                        errors.append(f"{source_name} \u5e74\u62a5\u5305\u8865\u6293\u5931\u8d25\uff1a{exc}")
+                        logger.warning(
+                            "annual package sync failed enterprise_id=%s source=%s fiscal_year=%s error=%s",
+                            enterprise.id,
+                            source_name,
+                            fiscal_year,
+                            exc,
+                        )
+                        break
+                    if year_items:
+                        annual_package_items = year_items
+                        annual_package_found = len(year_items)
+                        break
+
+            merged_announcements = self._merge_announcements(announcements, annual_package_items)
+
+            announcements_fetched += len(merged_announcements)
             logger.info(
                 "announcements fetched enterprise_id=%s source=%s count=%s",
                 enterprise.id,
                 source_name,
-                len(announcements),
+                len(merged_announcements),
             )
 
-            if source_name == "cninfo" and not announcements:
+            if source_name == "cninfo" and not merged_announcements:
                 warnings.append(
                     f"{source_name} \u5728 {effective_date_from.isoformat()}~{effective_date_to.isoformat()} \u672a\u8fd4\u56de\u76ee\u6807\u516c\u544a\u3002"
                 )
 
-            for item in announcements:
+            for item in merged_announcements:
                 category = item.get("category") or "other"
                 if category == "document":
                     documents_found += 1
@@ -163,6 +197,8 @@ class AuditSyncService:
                     )
                     if created:
                         documents_inserted += 1
+                        if self._is_annual_package_item(item):
+                            annual_package_inserted += 1
                     if document.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
                 elif category == "penalty":
@@ -184,9 +220,9 @@ class AuditSyncService:
                     other_found += 1
                     source_other_found += 1
 
-            if source_name == "cninfo" and announcements and source_documents_found == 0 and source_events_found == 0:
+            if source_name == "cninfo" and merged_announcements and source_documents_found == 0 and source_events_found == 0:
                 warnings.append(
-                    f"{source_name} \u5df2\u6293\u53d6 {len(announcements)} \u6761\u516c\u544a\uff0c"
+                    f"{source_name} \u5df2\u6293\u53d6 {len(merged_announcements)} \u6761\u516c\u544a\uff0c"
                     "\u4f46\u5f53\u524d\u5206\u7c7b\u89c4\u5219\u672a\u547d\u4e2d\u8d22\u62a5\u7c7b\u5173\u952e\u8bcd\u3002"
                 )
 
@@ -204,17 +240,36 @@ class AuditSyncService:
         db.commit()
         db.refresh(enterprise)
 
+        empty_reason = self._infer_empty_reason(
+            announcements_fetched=announcements_fetched,
+            documents_found=documents_found,
+            events_found=events_found,
+            other_found=other_found,
+            annual_package_attempted=annual_package_attempted,
+            annual_package_found=annual_package_found,
+            errors=errors,
+        )
         diagnostics = {
             "is_initial_sync": is_initial_sync,
             "window_kind": "audit_year" if is_initial_sync and date_from is None and date_to is None else "incremental",
             "date_from": effective_date_from.isoformat(),
             "date_to": effective_date_to.isoformat(),
+            "initial_window": {
+                "date_from": effective_date_from.isoformat(),
+                "date_to": effective_date_to.isoformat(),
+            },
+            "annual_package_attempted": annual_package_attempted,
+            "annual_package_target_years": annual_package_target_years,
+            "annual_package_found": annual_package_found,
+            "annual_package_inserted": annual_package_inserted,
+            "empty_reason": empty_reason,
             "classification_counts": {
                 "document": documents_found,
                 "penalty": events_found,
                 "other": other_found,
             },
         }
+        self._persist_sync_diagnostics(enterprise, diagnostics, empty_reason)
 
         logger.info(
             "sync finished enterprise_id=%s announcements=%s documents_inserted=%s events_inserted=%s other=%s parse_queued=%s errors=%s diagnostics=%s",
@@ -239,6 +294,11 @@ class AuditSyncService:
             "events_inserted": events_inserted,
             "other_found": other_found,
             "parse_queued": parse_queued,
+            "annual_package_attempted": annual_package_attempted,
+            "annual_package_target_years": annual_package_target_years,
+            "annual_package_found": annual_package_found,
+            "annual_package_inserted": annual_package_inserted,
+            "empty_reason": empty_reason,
             "warnings": warnings,
             "errors": errors,
             "diagnostics": diagnostics,
@@ -256,10 +316,86 @@ class AuditSyncService:
             "events_inserted": 0,
             "other_found": 0,
             "parse_queued": 0,
+            "annual_package_attempted": False,
+            "annual_package_target_years": [],
+            "annual_package_found": 0,
+            "annual_package_inserted": 0,
+            "empty_reason": None,
             "warnings": [message],
             "errors": [],
             "diagnostics": None,
         }
+
+    def _build_annual_package_target_years(self, report_year: int) -> list[int]:
+        years = [report_year, report_year - 1]
+        deduped: list[int] = []
+        for year in years:
+            if year >= 2000 and year not in deduped:
+                deduped.append(year)
+        return deduped
+
+    def _merge_announcements(
+        self,
+        generic_items: list[dict[str, Any]],
+        annual_package_items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for item in generic_items:
+            merged[self._announcement_dedupe_key(item)] = item
+        for item in annual_package_items:
+            key = self._announcement_dedupe_key(item)
+            merged[key] = {**merged.get(key, {}), **item}
+        return list(merged.values())
+
+    def _announcement_dedupe_key(self, item: dict[str, Any]) -> str:
+        if item.get("source_object_id"):
+            return f"id:{item['source_object_id']}"
+        return "|".join(
+            [
+                str(item.get("title") or ""),
+                str(item.get("announcement_date") or ""),
+                str(item.get("source_url") or ""),
+            ]
+        )
+
+    def _is_annual_package_item(self, item: dict[str, Any]) -> bool:
+        diagnostics = item.get("diagnostics") or {}
+        return diagnostics.get("sync_path") == "annual_package"
+
+    def _infer_empty_reason(
+        self,
+        *,
+        announcements_fetched: int,
+        documents_found: int,
+        events_found: int,
+        other_found: int,
+        annual_package_attempted: bool,
+        annual_package_found: int,
+        errors: list[str],
+    ) -> str | None:
+        if documents_found > 0 or events_found > 0:
+            return None
+        if errors:
+            return self.EMPTY_REASON_PROVIDER_ERROR
+        if annual_package_attempted and annual_package_found == 0:
+            if announcements_fetched == 0:
+                return self.EMPTY_REASON_ANNUAL_PACKAGE_NOT_PUBLISHED
+            if other_found > 0:
+                return self.EMPTY_REASON_PROVIDER_RETURNED_ONLY_OTHER
+        if announcements_fetched == 0:
+            return self.EMPTY_REASON_GENERIC_WINDOW_NO_DOCUMENTS
+        return self.EMPTY_REASON_PROVIDER_RETURNED_ONLY_OTHER
+
+    def _persist_sync_diagnostics(
+        self,
+        enterprise: EnterpriseProfile,
+        diagnostics: dict[str, Any],
+        empty_reason: str | None,
+    ) -> None:
+        portrait = dict(enterprise.portrait or {})
+        portrait["last_sync_diagnostics"] = diagnostics
+        portrait["last_sync_empty_reason"] = empty_reason
+        enterprise.portrait = portrait
 
     def _default_date_from(self, enterprise: EnterpriseProfile, effective_date_to: date, is_initial_sync: bool) -> date:
         if is_initial_sync:

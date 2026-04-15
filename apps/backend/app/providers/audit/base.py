@@ -20,3 +20,6 @@ class BaseAuditProvider(ABC):
         date_to: date,
     ) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+    def fetch_annual_package(self, ticker: str, fiscal_year: int) -> list[dict[str, Any]]:
+        return []
