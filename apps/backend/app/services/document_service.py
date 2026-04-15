@@ -1776,3 +1776,239 @@ class DocumentService:
                     metric_name=extract.get("metric_name"),
                 )
         return extracts
+
+    def _build_structured_extracts(self, document: DocumentMeta, entries: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+        setattr(self, "_last_llm_payload_diagnostics", None)
+        candidates = []
+        for index, entry in enumerate(entries, start=1):
+            candidate = self._build_candidate(document, entry, classified_type, index)
+            if candidate is not None:
+                candidates.append(candidate)
+        if not candidates:
+            self._set_extraction_trace(
+                analysis_mode="rule_only",
+                candidate_count_before_trim=0,
+                candidate_count_after_trim=0,
+                llm_attempted=False,
+                llm_error=self._config_error_payload(),
+                extract_count=0,
+            )
+            return []
+        trimmed_candidates = self._trim_candidates(candidates, classified_type)
+        if not trimmed_candidates:
+            self._set_extraction_trace(
+                analysis_mode="rule_only",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=0,
+                llm_attempted=False,
+                llm_error=self._config_error_payload(),
+                extract_count=0,
+            )
+            return self._fallback_extracts(document, [], classified_type)
+        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.MAX_LLM_CANDIDATES])
+        if self.llm_client.config_error:
+            self._set_extraction_trace(
+                analysis_mode="rule_only",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_attempted=False,
+                llm_error=self._config_error_payload(),
+                extract_count=0,
+            )
+            return self._fallback_extracts(document, trimmed_candidates, classified_type)
+        try:
+            llm_extracts = self._llm_extract(document, trimmed_candidates, classified_type)
+            if llm_extracts:
+                normalized = [self._normalize_extract_payload(document, item, index) for index, item in enumerate(llm_extracts, start=1)]
+                filtered = [item for item in normalized if not self._is_low_quality_extract(item)]
+                if filtered:
+                    self._set_extraction_trace(
+                        analysis_mode="llm_primary",
+                        candidate_count_before_trim=len(candidates),
+                        candidate_count_after_trim=len(trimmed_candidates),
+                        llm_attempted=True,
+                        llm_error=None,
+                        extract_count=len(filtered),
+                    )
+                    return filtered
+            llm_error = self._build_llm_extract_fallback_error()
+            if llm_error is None:
+                llm_error = self._analysis_error_payload(
+                    LLMRequestError(
+                        "模型未返回有效的结构化抽取结果。",
+                        error_type="empty_result",
+                        retryable=False,
+                    )
+                )
+            self._set_extraction_trace(
+                analysis_mode="hybrid_fallback",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_attempted=True,
+                llm_error=llm_error,
+                extract_count=0,
+            )
+        except Exception as exc:
+            self._set_extraction_trace(
+                analysis_mode="hybrid_fallback",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_attempted=True,
+                llm_error=self._analysis_error_payload(exc),
+                extract_count=0,
+            )
+            logger.warning(
+                "document structured extraction failed document_id=%s classified_type=%s candidate_count_before_trim=%s candidate_count_after_trim=%s llm_input_chars=%s fallback_used=true error=%s",
+                document.id,
+                classified_type,
+                len(candidates),
+                len(trimmed_candidates),
+                llm_input_chars,
+                exc,
+            )
+        return self._fallback_extracts(document, trimmed_candidates, classified_type)
+
+    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
+        setattr(self, "_last_llm_payload_diagnostics", None)
+        system_prompt, user_prompt = self._build_llm_extract_prompts(document, candidates, classified_type)
+        if not system_prompt:
+            return []
+        result = self.llm_client.chat_completion(
+            system_prompt,
+            user_prompt,
+            json_mode=True,
+            request_kind="document_extract",
+            metadata={
+                "document_id": document.id,
+                "enterprise_id": document.enterprise_id,
+                "classified_type": classified_type,
+                "candidate_count": min(len(candidates), self.MAX_LLM_CANDIDATES),
+                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.MAX_LLM_CANDIDATES]),
+            },
+        )
+        return self._extract_llm_items(result, document_id=document.id)
+
+    def _extract_llm_items(self, result: Any, document_id: int | None = None) -> list[dict[str, Any]]:
+        setattr(self, "_last_llm_payload_diagnostics", None)
+        if isinstance(result, list):
+            return [item for item in result if isinstance(item, dict)]
+        if not isinstance(result, dict):
+            return []
+        if isinstance(result.get("items"), list):
+            return [item for item in result["items"] if isinstance(item, dict)]
+        if isinstance(result.get("extracts"), list):
+            return [item for item in result["extracts"] if isinstance(item, dict)]
+        raw = result.get("raw")
+        if isinstance(raw, str) and raw.strip():
+            recovered = self._recover_json_payload(raw)
+            if isinstance(recovered, list):
+                return [item for item in recovered if isinstance(item, dict)]
+            if isinstance(recovered, dict):
+                if isinstance(recovered.get("items"), list):
+                    return [item for item in recovered["items"] if isinstance(item, dict)]
+                if isinstance(recovered.get("extracts"), list):
+                    return [item for item in recovered["extracts"] if isinstance(item, dict)]
+            partial_items = self._recover_partial_json_items(raw, result.get("raw_prefix_kind"))
+            if partial_items:
+                setattr(
+                    self,
+                    "_last_llm_payload_diagnostics",
+                    {
+                        "mode": "partial_json_recovered",
+                        "payload_mode": result.get("payload_mode"),
+                        "raw_prefix_kind": result.get("raw_prefix_kind"),
+                        "recovered_count": len(partial_items),
+                    },
+                )
+                logger.info(
+                    "document_extract partial_json_recovered document_id=%s payload_mode=%s raw_prefix_kind=%s recovered_count=%s",
+                    document_id,
+                    result.get("payload_mode"),
+                    result.get("raw_prefix_kind"),
+                    len(partial_items),
+                )
+                return partial_items
+            if result.get("truncated_json_prefix"):
+                provider_response = self._trim_evidence_safe(raw)
+                setattr(
+                    self,
+                    "_last_llm_payload_diagnostics",
+                    {
+                        "mode": "truncated_json_fallback",
+                        "payload_mode": result.get("payload_mode"),
+                        "raw_prefix_kind": result.get("raw_prefix_kind"),
+                        "provider_response_text": provider_response,
+                    },
+                )
+                logger.info(
+                    "document_extract truncated_json_fallback document_id=%s payload_mode=%s raw_prefix_kind=%s",
+                    document_id,
+                    result.get("payload_mode"),
+                    result.get("raw_prefix_kind"),
+                )
+        return []
+
+    def _build_llm_extract_fallback_error(self) -> dict[str, Any] | None:
+        diagnostics = getattr(self, "_last_llm_payload_diagnostics", None)
+        setattr(self, "_last_llm_payload_diagnostics", None)
+        if not diagnostics:
+            return None
+        if diagnostics.get("mode") != "truncated_json_fallback":
+            return None
+        return self._analysis_error_payload(
+            LLMRequestError(
+                "模型返回了截断的 JSON，已回退到规则抽取结果。",
+                error_type="truncated_json_fallback",
+                provider_response_text=diagnostics.get("provider_response_text"),
+                retryable=False,
+            )
+        )
+
+    def _recover_partial_json_items(self, raw: str, prefix_kind: Any) -> list[dict[str, Any]]:
+        text = str(raw or "").strip()
+        if not text:
+            return []
+        kind = str(prefix_kind or "")
+        if kind == "object_prefix":
+            first_array = text.find("[")
+            if first_array != -1:
+                return self._recover_partial_json_array_items(text[first_array:])
+            first_object = text.find("{")
+            if first_object == -1:
+                return []
+            try:
+                payload, _ = json.JSONDecoder().raw_decode(text, first_object)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(payload, dict):
+                if isinstance(payload.get("items"), list):
+                    return [item for item in payload["items"] if isinstance(item, dict)]
+                if isinstance(payload.get("extracts"), list):
+                    return [item for item in payload["extracts"] if isinstance(item, dict)]
+                return [payload]
+            return []
+        return self._recover_partial_json_array_items(text)
+
+    def _recover_partial_json_array_items(self, raw: str) -> list[dict[str, Any]]:
+        start = raw.find("[")
+        if start == -1:
+            return []
+        decoder = json.JSONDecoder()
+        items: list[dict[str, Any]] = []
+        index = start + 1
+        while index < len(raw):
+            while index < len(raw) and raw[index] in " \r\n\t,":
+                index += 1
+            if index >= len(raw) or raw[index] == "]":
+                break
+            if raw[index] != "{":
+                break
+            try:
+                payload, end = decoder.raw_decode(raw, index)
+            except json.JSONDecodeError:
+                break
+            if not isinstance(payload, dict):
+                break
+            items.append(payload)
+            index = end
+        return items

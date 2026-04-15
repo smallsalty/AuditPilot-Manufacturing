@@ -356,3 +356,45 @@ def test_normalize_extract_payload_reconciles_event_family_mismatch() -> None:
     )
 
     assert normalized["extract_family"] == "announcement_event"
+
+
+def test_llm_extract_partially_recovers_complete_items_from_truncated_array() -> None:
+    service = DocumentService()
+
+    items = service._extract_llm_items(
+        {
+            "parsed_ok": False,
+            "payload_mode": "raw_text",
+            "raw_prefix_kind": "array_prefix",
+            "truncated_json_prefix": True,
+            "raw": '[{"summary":"异常一","event_type":"executive_change","evidence_excerpt":"董事变更"},'
+            '{"summary":"异常二","event_type":"major_contract","evidence_excerpt":"重大合同"},'
+            '{"summary":"异常三"',
+        },
+        document_id=8,
+    )
+
+    assert len(items) == 2
+    assert items[0]["event_type"] == "executive_change"
+    assert items[1]["event_type"] == "major_contract"
+
+
+def test_llm_extract_records_truncated_json_fallback_when_nothing_recoverable() -> None:
+    service = DocumentService()
+
+    items = service._extract_llm_items(
+        {
+            "parsed_ok": False,
+            "payload_mode": "raw_text",
+            "raw_prefix_kind": "array_prefix",
+            "truncated_json_prefix": True,
+            "raw": '[{"summary":"只有开头"',
+        },
+        document_id=8,
+    )
+
+    error_payload = service._build_llm_extract_fallback_error()
+
+    assert items == []
+    assert error_payload is not None
+    assert error_payload["error_type"] == "truncated_json_fallback"

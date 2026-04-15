@@ -335,3 +335,33 @@ def test_financial_analysis_service_uses_template_when_raw_text_is_too_long(monk
 
     assert result["summary_mode"] == "fallback"
     assert result["summary"]
+
+
+def test_financial_analysis_service_uses_text_mode_for_summary(monkeypatch, caplog) -> None:
+    _reset_summary_state()
+    caplog.set_level("INFO")
+
+    class TextLLMClient:
+        config_error = None
+        provider = "minimax"
+        model = "MiniMax-M2.7"
+
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def chat_completion(self, *args, **kwargs):
+            self.calls.append(kwargs)
+            return "这是可直接展示的财报专项摘要。"
+
+    llm_client = TextLLMClient()
+    service = FinancialAnalysisService(llm_client=llm_client)
+    _mock_financial_repositories(monkeypatch)
+
+    result = service.build_analysis(db=None, enterprise_id=1)
+
+    assert result["summary"] == "这是可直接展示的财报专项摘要。"
+    assert result["summary_mode"] == "llm"
+    assert llm_client.calls
+    assert llm_client.calls[0]["json_mode"] is False
+    assert llm_client.calls[0]["max_tokens"] == 220
+    assert "financial_analysis_summary text mode used" in caplog.text

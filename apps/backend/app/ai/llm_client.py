@@ -276,10 +276,14 @@ class LLMClient:
             if extracted is not None:
                 return extracted
 
+        raw_prefix_kind = self._detect_json_prefix_kind(content)
+
         return {
             "parsed_ok": False,
             "payload_mode": "raw_text",
             "raw": content,
+            "raw_prefix_kind": raw_prefix_kind,
+            "truncated_json_prefix": raw_prefix_kind is not None,
         }
 
     def _build_json_result(self, payload: Any, payload_mode: str | None) -> dict[str, Any] | None:
@@ -343,6 +347,22 @@ class LLMClient:
                         return candidate
                     return None
         return None
+
+    def _detect_json_prefix_kind(self, content: str) -> str | None:
+        stripped = content.lstrip()
+        if not stripped:
+            return None
+        if stripped[0] == "[":
+            return "array_prefix"
+        if stripped[0] == "{":
+            return "object_prefix"
+        first_array = stripped.find("[")
+        first_object = stripped.find("{")
+        if first_array == -1 and first_object == -1:
+            return None
+        if first_array != -1 and (first_object == -1 or first_array < first_object):
+            return "array_prefix"
+        return "object_prefix"
 
     def _backoff_seconds(self, attempt: int) -> float:
         base = min(10.0, 2.0 * (2 ** max(attempt - 1, 0)))

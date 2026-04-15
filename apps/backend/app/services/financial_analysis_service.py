@@ -532,3 +532,108 @@ class FinancialAnalysisService:
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    def _generate_summary(
+        self,
+        *,
+        enterprise_id: int,
+        enterprise_name: str,
+        periods: list[str],
+        anomalies: list[dict[str, Any]],
+        focus_accounts: list[str],
+        recommended_procedures: list[str],
+    ) -> _SummaryResult:
+        if self.llm_client.config_error:
+            return self._fallback_result(enterprise_name, periods, focus_accounts, recommended_procedures, cache_state="fresh")
+
+        logger.info("financial_analysis_summary text mode used enterprise_id=%s", enterprise_id)
+        prompt = (
+            f"企业：{enterprise_name}\n"
+            f"期间：{', '.join(periods[:3]) or '当前期间'}\n"
+            f"重点科目：{', '.join(focus_accounts[:5]) or '关键财务科目'}\n"
+            f"异常摘要：{json.dumps(self._summarize_anomalies(anomalies[:4]), ensure_ascii=False)}\n"
+            f"建议程序：{json.dumps(recommended_procedures[:4], ensure_ascii=False)}\n"
+            "请直接输出一段中文单段摘要，不要使用 JSON、列表、代码块或额外说明。"
+        )
+        try:
+            result = self.llm_client.chat_completion(
+                "你是一名财报审阅助手。请用中文生成简洁、可直接展示的财报专项摘要。",
+                prompt,
+                json_mode=False,
+                request_kind="financial_analysis_summary",
+                metadata={
+                    "enterprise_id": enterprise_id,
+                    "candidate_count": min(len(anomalies), 4),
+                    "context_variant": "financial_analysis_summary",
+                },
+                max_tokens=220,
+                max_attempts=2,
+            )
+            summary = self._extract_summary_text(result)
+            if summary:
+                return _SummaryResult(
+                    summary=summary,
+                    summary_mode="llm",
+                    cache_state="fresh",
+                    cached=False,
+                    updated_at=self._now_iso(),
+                )
+        except LLMRequestError as exc:
+            if exc.status_code == 401:
+                return _SummaryResult(
+                    summary=f"MiniMax 摘要暂不可用：{exc.message}",
+                    summary_mode="fallback",
+                    cache_state="fresh",
+                    cached=False,
+                    updated_at=self._now_iso(),
+                )
+
+        return self._fallback_result(enterprise_name, periods, focus_accounts, recommended_procedures, cache_state="fresh")
+
+    def _extract_summary_text(self, result: Any) -> str | None:
+        if isinstance(result, dict):
+            summary = self._sanitize_summary_text(result.get("summary"))
+            if summary:
+                return summary
+            items = result.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        summary = self._sanitize_summary_text(item.get("summary"))
+                    elif isinstance(item, str):
+                        summary = self._sanitize_summary_text(item)
+                    else:
+                        summary = None
+                    if summary:
+                        return summary
+            raw = result.get("raw")
+            if isinstance(raw, str) and raw.strip():
+                recovered = self._recover_summary_payload(raw)
+                if isinstance(recovered, dict):
+                    summary = self._sanitize_summary_text(recovered.get("summary"))
+                    if summary:
+                        return summary
+                if isinstance(recovered, list):
+                    for item in recovered:
+                        if isinstance(item, dict):
+                            summary = self._sanitize_summary_text(item.get("summary"))
+                        elif isinstance(item, str):
+                            summary = self._sanitize_summary_text(item)
+                        else:
+                            summary = None
+                        if summary:
+                            return summary
+                return self._sanitize_summary_text(raw)
+        if isinstance(result, list):
+            for item in result:
+                if isinstance(item, dict):
+                    summary = self._sanitize_summary_text(item.get("summary"))
+                elif isinstance(item, str):
+                    summary = self._sanitize_summary_text(item)
+                else:
+                    summary = None
+                if summary:
+                    return summary
+        if isinstance(result, str):
+            return self._sanitize_summary_text(result)
+        return None
