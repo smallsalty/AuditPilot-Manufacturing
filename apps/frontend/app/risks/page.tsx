@@ -15,6 +15,17 @@ import {
   useRiskResultsResource,
 } from "@/lib/enterprise-resources";
 
+function formatTimestamp(value?: string | null): string {
+  if (!value) {
+    return "暂无";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
 export default function RisksPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources, setCachedResource } =
     useEnterpriseContext();
@@ -24,7 +35,11 @@ export default function RisksPage() {
     useDashboardResource(currentEnterpriseId);
   const { data: risks, loading: risksLoading, error: risksError, refresh: refreshRisks } =
     useRiskResultsResource(currentEnterpriseId);
-  const { data: financialAnalysis, refresh: refreshFinancialAnalysis } = useFinancialAnalysisResource(currentEnterpriseId);
+  const {
+    data: financialAnalysis,
+    loading: financialAnalysisLoading,
+    refresh: refreshFinancialAnalysis,
+  } = useFinancialAnalysisResource(currentEnterpriseId);
 
   const [running, setRunning] = useState(false);
   const [displayRisks, setDisplayRisks] = useState<RiskResultPayload[]>([]);
@@ -47,7 +62,7 @@ export default function RisksPage() {
       setActionMessage("正在执行风险分析并刷新财报专项聚合...");
       return;
     }
-    if (risksLoading || readinessLoading) {
+    if (risksLoading || readinessLoading || dashboardLoading) {
       setActionMessage("正在加载风险清单...");
       return;
     }
@@ -55,12 +70,24 @@ export default function RisksPage() {
       setActionMessage(`当前已生成 ${displayRisks.length} 条风险项，优先展示文档证据和规则来源。`);
       return;
     }
+    if (readiness?.manual_parse_required) {
+      setActionMessage(`官方文档已同步，仍有 ${readiness.documents_pending_parse} 份待手动解析。`);
+      return;
+    }
     if (readiness && !readiness.risk_analysis_ready) {
       setActionMessage(readiness.risk_analysis_message);
       return;
     }
     setActionMessage("当前尚无风险项，可先运行风险分析或补充更多文档。");
-  }, [currentEnterpriseId, displayRisks.length, readiness, readinessLoading, risksLoading, running]);
+  }, [
+    currentEnterpriseId,
+    dashboardLoading,
+    displayRisks.length,
+    readiness,
+    readinessLoading,
+    risksLoading,
+    running,
+  ]);
 
   const runAnalysis = async () => {
     if (!currentEnterpriseId || running || !readiness?.risk_analysis_ready) {
@@ -84,7 +111,9 @@ export default function RisksPage() {
   const showResults = displayRisks.length > 0;
 
   const pageTitle = useMemo(() => {
-    if (!currentEnterprise) return "风险清单与证据";
+    if (!currentEnterprise) {
+      return "风险清单与证据";
+    }
     return `${currentEnterprise.name} 风险清单与证据`;
   }, [currentEnterprise]);
 
@@ -99,7 +128,7 @@ export default function RisksPage() {
             {currentEnterpriseId ? <p className="mt-3 text-sm text-haze/65">企业 ID：{currentEnterpriseId}</p> : null}
           </div>
           <Button
-            onClick={runAnalysis}
+            onClick={() => void runAnalysis()}
             disabled={running || dashboard?.analysis_status === "running" || !currentEnterpriseId || !readiness?.risk_analysis_ready}
           >
             {running || dashboard?.analysis_status === "running" ? "分析中..." : "运行风险分析"}
@@ -136,6 +165,14 @@ export default function RisksPage() {
           <Card>
             <p className="text-xs uppercase tracking-[0.24em] text-steel">财报专项分析</p>
             <p className="mt-2 text-sm text-haze/75">{financialAnalysis?.summary ?? "当前尚未生成财报专项聚合结果。"}</p>
+            {financialAnalysis ? (
+              <div className="mt-3 flex flex-wrap gap-3 text-xs text-haze/65">
+                <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
+                <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "MiniMax" : "降级摘要"}</span>
+                <span>返回来源：{financialAnalysis.cache_state}</span>
+                <span>{financialAnalysisLoading ? "读取中" : "已就绪"}</span>
+              </div>
+            ) : null}
             {financialAnalysis?.anomalies?.length ? (
               <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
                 <div className="space-y-3">
@@ -174,7 +211,7 @@ export default function RisksPage() {
               </div>
             ) : (
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                财报专项区只展示聚合后的异常、重点科目和建议程序，不重复文档级明细。
+                财报专项区只展示聚合后的异常、重点科目和建议程序，不重复文档明细。
               </div>
             )}
           </Card>

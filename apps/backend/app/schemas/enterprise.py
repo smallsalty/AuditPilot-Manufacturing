@@ -37,6 +37,8 @@ class EnterpriseReadinessPayload(BaseModel):
     profile_ready: bool
     sync_status: str
     official_doc_count: int
+    documents_pending_parse: int = 0
+    manual_parse_required: bool = False
     official_event_count: int
     risk_analysis_ready: bool
     risk_analysis_reason: str

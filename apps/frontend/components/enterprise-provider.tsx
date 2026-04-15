@@ -66,6 +66,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   const [enterpriseLoading, setEnterpriseLoading] = useState(true);
   const [enterpriseError, setEnterpriseError] = useState<string | null>(null);
 
+  const selectionVersionRef = useRef(0);
   const searchCacheRef = useRef<Map<string, { items: EnterpriseSearchItem[]; fetchedAt: number }>>(new Map());
   const autoSyncTriggeredRef = useRef<Set<number>>(new Set());
   const initializedRef = useRef(false);
@@ -85,7 +86,20 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     financialAnalysis: new Map(),
   });
 
-  const urlEnterpriseId = useMemo(() => parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey)), [pathname, searchParamsKey]);
+  const urlEnterpriseId = useMemo(
+    () => parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey)),
+    [pathname, searchParamsKey],
+  );
+
+  const invalidateEnterpriseResources = useCallback((enterpriseId: number, kinds?: ResourceKind[]) => {
+    const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"];
+    for (const kind of targets) {
+      resourceCacheRef.current[kind].delete(enterpriseId);
+    }
+    if (!kinds || kinds.includes("financialAnalysis")) {
+      api.invalidateFinancialAnalysis(enterpriseId);
+    }
+  }, []);
 
   const refreshEnterpriseOptions = useCallback(async (query = "", options?: { force?: boolean }) => {
     const normalized = query.trim().toLowerCase();
@@ -113,14 +127,19 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
 
   const selectEnterprise = useCallback(
     (enterpriseId: number) => {
+      if (!Number.isFinite(enterpriseId) || enterpriseId <= 0) {
+        return;
+      }
+      if (currentEnterpriseId === enterpriseId) {
+        return;
+      }
+
+      selectionVersionRef.current += 1;
       if (currentEnterpriseId) {
-        for (const kind of ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"] as ResourceKind[]) {
-          resourceCacheRef.current[kind].delete(currentEnterpriseId);
-        }
+        invalidateEnterpriseResources(currentEnterpriseId);
       }
-      for (const kind of ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"] as ResourceKind[]) {
-        resourceCacheRef.current[kind].delete(enterpriseId);
-      }
+      invalidateEnterpriseResources(enterpriseId);
+
       setCurrentEnterpriseId(enterpriseId);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(enterpriseId));
@@ -131,7 +150,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         router.replace(`${pathname}?enterpriseId=${enterpriseId}`);
       }
     },
-    [currentEnterpriseId, pathname, router, searchParams],
+    [currentEnterpriseId, invalidateEnterpriseResources, pathname, router, searchParams],
   );
 
   const bootstrapEnterprise = useCallback(
@@ -160,9 +179,12 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
       setEnterpriseError(null);
       try {
         const items = await refreshEnterpriseOptions("", { force: true });
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         if (items.length === 0) {
           setCurrentEnterpriseId(null);
+          initializedRef.current = true;
           return;
         }
 
@@ -180,7 +202,9 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         }
         initializedRef.current = true;
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setDefaultEnterpriseOptions([]);
         setEnterpriseOptions([]);
         setCurrentEnterpriseId(null);
@@ -202,46 +226,69 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     if (!initializedRef.current || !urlEnterpriseId || currentEnterpriseId === urlEnterpriseId) {
       return;
     }
-    const exists = defaultEnterpriseOptions.some((item) => item.id === urlEnterpriseId) || enterpriseOptions.some((item) => item.id === urlEnterpriseId);
-    if (exists) {
-      setCurrentEnterpriseId(urlEnterpriseId);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(urlEnterpriseId));
-      }
+    const exists =
+      defaultEnterpriseOptions.some((item) => item.id === urlEnterpriseId) ||
+      enterpriseOptions.some((item) => item.id === urlEnterpriseId);
+    if (!exists) {
+      return;
+    }
+    selectionVersionRef.current += 1;
+    setCurrentEnterpriseId(urlEnterpriseId);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(urlEnterpriseId));
     }
   }, [currentEnterpriseId, defaultEnterpriseOptions, enterpriseOptions, urlEnterpriseId]);
 
   useEffect(() => {
-    let active = true;
+    if (!currentEnterpriseId || !initializedRef.current || autoSyncTriggeredRef.current.has(currentEnterpriseId)) {
+      return;
+    }
+
+    const enterpriseId = currentEnterpriseId;
+    const controller = new AbortController();
+    const selectionVersion = selectionVersionRef.current;
+
     async function maybeAutoSync() {
-      if (!currentEnterpriseId || !initializedRef.current || autoSyncTriggeredRef.current.has(currentEnterpriseId)) {
-        return;
-      }
       try {
-        const readiness = await api.getReadiness(currentEnterpriseId);
-        if (!active) return;
-        resourceCacheRef.current.readiness.set(currentEnterpriseId, readiness);
-        if (readiness.profile_ready && readiness.official_doc_count === 0 && readiness.sync_status !== "syncing") {
-          autoSyncTriggeredRef.current.add(currentEnterpriseId);
-          const result = await api.syncCompany(currentEnterpriseId);
-          resourceCacheRef.current.readiness.delete(currentEnterpriseId);
-          if (result.documents_inserted > 0 || result.events_inserted > 0 || result.announcements_fetched > 0) {
-            resourceCacheRef.current.documents.delete(currentEnterpriseId);
-            resourceCacheRef.current.dashboard.delete(currentEnterpriseId);
-            resourceCacheRef.current.auditFocus.delete(currentEnterpriseId);
-            resourceCacheRef.current.riskResults.delete(currentEnterpriseId);
-            resourceCacheRef.current.financialAnalysis.delete(currentEnterpriseId);
-          }
+        const readiness = await api.getReadiness(enterpriseId, { signal: controller.signal });
+        if (controller.signal.aborted || selectionVersionRef.current !== selectionVersion) {
+          return;
         }
-      } catch {
-        // page-level resources surface errors
+        resourceCacheRef.current.readiness.set(enterpriseId, readiness);
+        if (!readiness.profile_ready || readiness.official_doc_count > 0 || readiness.sync_status === "syncing") {
+          return;
+        }
+
+        autoSyncTriggeredRef.current.add(enterpriseId);
+        const result = await api.syncCompany(enterpriseId, ["akshare_fast", "cninfo"], {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || selectionVersionRef.current !== selectionVersion) {
+          return;
+        }
+        invalidateEnterpriseResources(enterpriseId, ["readiness"]);
+        if (result.documents_inserted > 0 || result.events_inserted > 0 || result.announcements_fetched > 0) {
+          invalidateEnterpriseResources(enterpriseId, [
+            "documents",
+            "dashboard",
+            "auditFocus",
+            "riskResults",
+            "financialAnalysis",
+          ]);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        // page-level resources surface user-facing errors
       }
     }
+
     void maybeAutoSync();
     return () => {
-      active = false;
+      controller.abort();
     };
-  }, [currentEnterpriseId]);
+  }, [currentEnterpriseId, invalidateEnterpriseResources]);
 
   const currentEnterprise = useMemo(
     () =>
@@ -257,13 +304,6 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
 
   const setCachedResource = useCallback(<T,>(kind: ResourceKind, enterpriseId: number, value: T) => {
     resourceCacheRef.current[kind].set(enterpriseId, value as never);
-  }, []);
-
-  const invalidateEnterpriseResources = useCallback((enterpriseId: number, kinds?: ResourceKind[]) => {
-    const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"];
-    for (const kind of targets) {
-      resourceCacheRef.current[kind].delete(enterpriseId);
-    }
   }, []);
 
   const value = useMemo<EnterpriseContextValue>(

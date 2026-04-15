@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AuditFocusPayload,
   DashboardPayload,
@@ -11,7 +11,7 @@ import type {
 } from "@auditpilot/shared-types";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
-import { api } from "@/lib/api";
+import { api, type ApiRequestOptions } from "@/lib/api";
 
 type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness" | "financialAnalysis";
 
@@ -19,59 +19,129 @@ type ResourceState<T> = {
   data: T | null;
   loading: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (options?: { force?: boolean }) => Promise<void>;
 };
+
+type ResourceFetcher<T> = (enterpriseId: number, options?: ApiRequestOptions) => Promise<T>;
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
 
 function useCachedEnterpriseResource<T>(
   kind: ResourceKind,
   enterpriseId: number | null,
-  fetcher: (enterpriseId: number) => Promise<T>,
+  fetcher: ResourceFetcher<T>,
 ): ResourceState<T> {
-  const { getCachedResource, setCachedResource } = useEnterpriseContext();
+  const { currentEnterpriseId: activeEnterpriseId, getCachedResource, setCachedResource } = useEnterpriseContext();
   const [data, setData] = useState<T | null>(enterpriseId ? getCachedResource<T>(kind, enterpriseId) : null);
-  const [dataEnterpriseId, setDataEnterpriseId] = useState<number | null>(enterpriseId);
   const [loading, setLoading] = useState(Boolean(enterpriseId && !getCachedResource<T>(kind, enterpriseId)));
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!enterpriseId) {
-      setData(null);
-      setDataEnterpriseId(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    const cached = getCachedResource<T>(kind, enterpriseId);
-    if (cached) {
-      setData(cached);
-      setLoading(false);
-    } else {
-      setLoading(true);
-    }
-    try {
-      const payload = await fetcher(enterpriseId);
-      setCachedResource(kind, enterpriseId, payload);
-      setData(payload);
-      setDataEnterpriseId(enterpriseId);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "数据加载失败");
-      if (!cached) {
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const refresh = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!enterpriseId) {
+        requestIdRef.current += 1;
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
         setData(null);
+        setLoading(false);
+        setError(null);
+        return;
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [enterpriseId, fetcher, getCachedResource, kind, setCachedResource]);
+
+      requestIdRef.current += 1;
+      const requestId = requestIdRef.current;
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      const cached = !options?.force ? getCachedResource<T>(kind, enterpriseId) : null;
+      if (cached) {
+        setData(cached);
+        setLoading(false);
+      } else {
+        setData(null);
+        setLoading(true);
+      }
+      setError(null);
+
+      try {
+        const payload = await fetcher(enterpriseId, {
+          signal: controller.signal,
+          force: options?.force,
+        });
+        if (requestIdRef.current !== requestId || controller.signal.aborted) {
+          console.info(
+            "stale enterprise response dropped",
+            JSON.stringify({
+              kind,
+              requested_enterprise_id: enterpriseId,
+              current_enterprise_id: activeEnterpriseId,
+              reason: controller.signal.aborted ? "aborted" : "request_id_mismatch",
+            }),
+          );
+          return;
+        }
+        setCachedResource(kind, enterpriseId, payload);
+        setData(payload);
+        setError(null);
+      } catch (err) {
+        if (requestIdRef.current !== requestId || controller.signal.aborted || isAbortError(err)) {
+          if (requestIdRef.current !== requestId || controller.signal.aborted) {
+            console.info(
+              "stale enterprise response dropped",
+              JSON.stringify({
+                kind,
+                requested_enterprise_id: enterpriseId,
+                current_enterprise_id: activeEnterpriseId,
+                reason: controller.signal.aborted ? "aborted" : "request_id_mismatch",
+              }),
+            );
+          }
+          return;
+        }
+        setError(err instanceof Error ? err.message : "数据加载失败");
+        if (!cached) {
+          setData(null);
+        }
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
+      }
+    },
+    [activeEnterpriseId, enterpriseId, fetcher, getCachedResource, kind, setCachedResource],
+  );
 
   useEffect(() => {
-    setData(enterpriseId ? getCachedResource<T>(kind, enterpriseId) : null);
-    setDataEnterpriseId(enterpriseId);
+    requestIdRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setError(null);
+
+    if (!enterpriseId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+
+    const cached = getCachedResource<T>(kind, enterpriseId);
+    setData(cached);
+    setLoading(!cached);
     void refresh();
+
+    return () => {
+      requestIdRef.current += 1;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+    };
   }, [enterpriseId, getCachedResource, kind, refresh]);
 
-  return { data: dataEnterpriseId === enterpriseId ? data : null, loading, error, refresh };
+  return { data, loading, error, refresh };
 }
 
 export function useDashboardResource(enterpriseId: number | null) {

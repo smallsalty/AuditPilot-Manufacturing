@@ -44,9 +44,8 @@ export function EnterpriseSwitcher() {
     setSearchError(null);
     try {
       const payload = /^\d{6}(\.(SH|SZ))?$/i.test(query) ? { ticker: query } : { name: query };
-      const enterprise = await bootstrapEnterprise(payload);
+      await bootstrapEnterprise(payload);
       setSearchKeyword("");
-      selectEnterprise(enterprise.id);
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "企业引入失败。");
     } finally {

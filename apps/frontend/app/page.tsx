@@ -55,6 +55,9 @@ export default function DashboardPage() {
                   <p className="mt-3 text-sm text-haze/70">
                     官方文档 {readiness?.official_doc_count ?? 0} 份 | 同步状态 {readiness?.sync_status ?? "--"}
                   </p>
+                  {readiness?.manual_parse_required ? (
+                    <p className="mt-1 text-sm text-emerald-200">已同步，待手动解析：{readiness.documents_pending_parse} 份</p>
+                  ) : null}
                   <p className="mt-1 text-sm text-haze/70">风险分析状态：{analysisStatus}</p>
                 </div>
               ) : enterpriseOptions.length === 0 ? (
@@ -201,6 +204,11 @@ export default function DashboardPage() {
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               最近风险分析：{dashboard?.last_run_at ?? "尚未运行"}
             </div>
+            {readiness?.manual_parse_required ? (
+              <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-emerald-100">
+                已同步，待手动解析：{readiness.documents_pending_parse} 份官方文档
+              </div>
+            ) : null}
           </div>
         </Card>
       </section>

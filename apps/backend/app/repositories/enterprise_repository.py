@@ -146,6 +146,17 @@ class EnterpriseRepository:
         )
         return int(self.db.scalar(stmt) or 0)
 
+    def count_documents_pending_parse(self, enterprise_id: int) -> int:
+        stmt = select(func.count(DocumentMeta.id)).where(
+            DocumentMeta.enterprise_id == enterprise_id,
+            or_(
+                DocumentMeta.is_official_source.is_(True),
+                DocumentMeta.source.in_(self.OFFICIAL_DOCUMENT_SOURCES),
+            ),
+            DocumentMeta.parse_status != "parsed",
+        )
+        return int(self.db.scalar(stmt) or 0)
+
     def count_official_events(self, enterprise_id: int) -> int:
         stmt = select(func.count(ExternalEvent.id)).where(
             ExternalEvent.enterprise_id == enterprise_id,

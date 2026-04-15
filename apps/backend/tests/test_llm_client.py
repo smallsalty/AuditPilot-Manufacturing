@@ -76,6 +76,7 @@ def test_llm_client_maps_401_without_retry(monkeypatch) -> None:
         client.chat_completion("system", "user", max_attempts=3)
     except LLMRequestError as exc:
         assert exc.status_code == 401
+        assert exc.error_type == "auth_error"
         assert exc.retryable is False
         assert "HTTP 401" in str(exc)
     else:
@@ -118,3 +119,33 @@ def test_llm_client_retries_529_then_succeeds(monkeypatch) -> None:
 
     assert result == {"summary": "ok"}
     assert client.client.messages.calls == 3
+
+
+def test_llm_client_marks_transport_errors_with_fixed_error_type(monkeypatch) -> None:
+    class DummyConnectionError(Exception):
+        pass
+
+    class DummyMessages:
+        def create(self, **_: object) -> object:
+            raise DummyConnectionError("network down")
+
+    class DummyAnthropic:
+        def __init__(self, **_: object) -> None:
+            self.messages = DummyMessages()
+
+    monkeypatch.setattr(llm_client_module.settings, "llm_api_key", "mini-key")
+    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/anthropic")
+    monkeypatch.setattr(llm_client_module.settings, "llm_model", "MiniMax-M2.5")
+    monkeypatch.setattr(llm_client_module, "Anthropic", DummyAnthropic)
+    monkeypatch.setattr(llm_client_module, "APIConnectionError", DummyConnectionError)
+    monkeypatch.setattr(llm_client_module.time, "sleep", lambda *_: None)
+
+    client = llm_client_module.LLMClient()
+
+    try:
+        client.chat_completion("system", "user", max_attempts=1)
+    except LLMRequestError as exc:
+        assert exc.error_type == "transport_error"
+        assert exc.retryable is True
+    else:
+        raise AssertionError("expected LLMRequestError")

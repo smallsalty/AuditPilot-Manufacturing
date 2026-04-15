@@ -50,6 +50,8 @@ class LLMRequestError(RuntimeError):
 
 
 class LLMClient:
+    RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
+
     def __init__(self) -> None:
         self.provider = (settings.llm_provider or "minimax").lower().strip()
         self.model = (settings.llm_model or "MiniMax-M2.7").strip()
@@ -75,11 +77,7 @@ class LLMClient:
 
         self.client = None
         if not self.config_error and Anthropic is not None:
-            self.client = Anthropic(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                timeout=120.0,
-            )
+            self.client = Anthropic(api_key=self.api_key, base_url=self.base_url, timeout=120.0)
 
     def chat_completion(
         self,
@@ -95,33 +93,31 @@ class LLMClient:
         strict_json_instruction: bool = True,
     ) -> Any:
         if self.config_error:
-            raise LLMRequestError(
-                self.config_error,
-                error_type="config_error",
-                retryable=False,
-            )
+            raise LLMRequestError(self.config_error, error_type="config_error", retryable=False)
 
         metadata = dict(metadata or {})
         prompt = user_prompt
         if json_mode and strict_json_instruction:
-            prompt = f"{user_prompt}\n请严格返回一个合法 JSON 对象或 JSON 数组，不要输出 Markdown 代码块。"
+            prompt = (
+                f"{user_prompt}\n"
+                "请严格返回一个合法 JSON 对象或 JSON 数组，不要输出 Markdown 代码块。"
+            )
 
         base_log_fields = {
             "request_kind": request_kind,
             "enterprise_id": metadata.get("enterprise_id"),
             "document_id": metadata.get("document_id"),
-            "classified_type": metadata.get("classified_type"),
             "model": self.model or "<unset>",
             "base_url": self.base_url or "<unset>",
             "status_code": None,
             "max_tokens": max_tokens,
             "json_mode": json_mode,
             "strict_json_instruction": strict_json_instruction,
-            "prompt_chars_system": len(system_prompt or ""),
-            "prompt_chars_user": len(prompt or ""),
+            "retry_attempt": None,
             "candidate_count": metadata.get("candidate_count"),
-            "llm_input_chars": metadata.get("llm_input_chars"),
             "context_variant": metadata.get("context_variant"),
+            "llm_input_chars": metadata.get("llm_input_chars") or len(system_prompt or "") + len(prompt or ""),
+            "provider_response_text": None,
         }
         logger.info("llm request start %s", self._format_log_fields(base_log_fields))
 
@@ -137,7 +133,6 @@ class LLMClient:
                     max_tokens=max_tokens,
                     timeout=timeout,
                 )
-
                 content = self._clean_content(self._extract_text(response))
                 logger.info(
                     "llm request success %s",
@@ -168,8 +163,8 @@ class LLMClient:
                 return content
             except (APIConnectionError, APITimeoutError, APIResponseValidationError) as exc:
                 last_error = LLMRequestError(
-                    "模型服务连接失败，请检查 Anthropic 兼容接口地址和云端网络连通性。",
-                    error_type=exc.__class__.__name__,
+                    "模型服务连接失败，请检查 Anthropic 兼容接口地址和网络连通性。",
+                    error_type="transport_error",
                     provider_response_text=self._truncate_text(str(exc)),
                     retryable=True,
                 )
@@ -193,7 +188,6 @@ class LLMClient:
                 logger.warning("llm request rejected %s", self._format_log_fields(error_fields))
 
                 status_code = error_fields.get("status_code")
-                provider_response_text = error_fields.get("provider_response_text")
                 retryable = self._should_retry_status(status_code)
                 if status_code == 401:
                     message = "模型服务返回错误：HTTP 401，请检查 MiniMax 模型名、鉴权和 Anthropic 兼容接口配置。"
@@ -209,7 +203,7 @@ class LLMClient:
                     message,
                     status_code=status_code,
                     error_type=error_type,
-                    provider_response_text=provider_response_text,
+                    provider_response_text=error_fields.get("provider_response_text"),
                     retryable=retryable,
                 )
                 if attempt < max_attempts and retryable:
@@ -221,7 +215,7 @@ class LLMClient:
             except Exception as exc:  # pragma: no cover
                 last_error = LLMRequestError(
                     "模型请求失败。",
-                    error_type=exc.__class__.__name__,
+                    error_type="unexpected_error",
                     provider_response_text=self._truncate_text(str(exc)),
                     retryable=False,
                 )
@@ -264,7 +258,7 @@ class LLMClient:
         return base + random.uniform(0.0, 1.0)
 
     def _should_retry_status(self, status_code: int | None) -> bool:
-        return status_code in {429, 500, 502, 503, 504, 529}
+        return status_code in self.RETRYABLE_STATUS_CODES
 
     def _extract_status_error_fields(self, exc: APIStatusError) -> dict[str, Any]:
         response = getattr(exc, "response", None)
@@ -285,6 +279,7 @@ class LLMClient:
                     response_text = bytes(content_attr).decode("utf-8", errors="replace")
                 elif isinstance(content_attr, str):
                     response_text = content_attr
+
         return {
             "status_code": getattr(exc, "status_code", None),
             "request_id": headers.get("x-request-id") or headers.get("request-id"),
@@ -300,7 +295,7 @@ class LLMClient:
         return f"{cleaned[:limit]}..."
 
     def _format_log_fields(self, fields: dict[str, Any]) -> str:
-        parts = []
+        parts: list[str] = []
         for key, value in fields.items():
             if value in (None, "", [], {}):
                 continue

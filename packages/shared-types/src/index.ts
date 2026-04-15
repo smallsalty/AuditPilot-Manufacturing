@@ -23,6 +23,8 @@ export type EnterpriseReadinessPayload = {
   profile_ready: boolean;
   sync_status: "never_synced" | "syncing" | "synced" | "failed" | string;
   official_doc_count: number;
+  documents_pending_parse: number;
+  manual_parse_required: boolean;
   official_event_count: number;
   risk_analysis_ready: boolean;
   risk_analysis_reason: string;
@@ -315,6 +317,10 @@ export type FinancialEvidenceItem = {
 export type FinancialAnalysisPayload = {
   enterprise_id: number;
   summary: string;
+  summary_mode: "llm" | "fallback";
+  cached: boolean;
+  cache_state: "fresh" | "cache_hit" | "in_flight_reused";
+  updated_at?: string | null;
   documents: FinancialAnalysisDocument[];
   periods: string[];
   key_metrics: FinancialMetricPoint[];

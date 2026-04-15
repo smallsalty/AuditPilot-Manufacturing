@@ -252,6 +252,7 @@ def test_build_readiness_exposes_no_sync_run_when_enterprise_has_no_history(monk
 
     monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_by_id", lambda self, company_id: enterprise)
     monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.count_official_documents", lambda self, company_id: 0)
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.count_documents_pending_parse", lambda self, company_id: 0)
     monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.count_official_events", lambda self, company_id: 0)
     monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_financials", lambda self, company_id, official_only=True: [])
     monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_external_events", lambda self, company_id, official_only=True: [])
@@ -276,3 +277,46 @@ def test_build_readiness_exposes_no_sync_run_when_enterprise_has_no_history(monk
 
     assert result["empty_reason"] == "no_sync_run"
     assert result["last_sync_diagnostics"] is None
+    assert result["documents_pending_parse"] == 0
+    assert result["manual_parse_required"] is False
+
+
+def test_build_readiness_marks_manual_parse_required_when_synced_docs_are_pending(monkeypatch) -> None:
+    enterprise = SimpleNamespace(
+        id=8,
+        name="测试企业",
+        ticker="000002.SZ",
+        sync_status="stored",
+        latest_sync_at=None,
+        ingestion_time=None,
+        portrait={},
+    )
+
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_by_id", lambda self, company_id: enterprise)
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.count_official_documents", lambda self, company_id: 3)
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.count_documents_pending_parse", lambda self, company_id: 2)
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.count_official_events", lambda self, company_id: 0)
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_financials", lambda self, company_id, official_only=True: [])
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_external_events", lambda self, company_id, official_only=True: [])
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_documents", lambda self, company_id, official_only=True: [])
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_latest_sync_document", lambda self, company_id: None)
+    monkeypatch.setattr("app.services.enterprise_runtime_service.EnterpriseRepository.get_latest_sync_event", lambda self, company_id: None)
+    monkeypatch.setattr(
+        "app.services.enterprise_runtime_service.RiskAnalysisService.get_analysis_readiness",
+        lambda enterprise, financials, events, documents: {
+            "risk_analysis_ready": False,
+            "risk_analysis_reason": "manual_parse_required",
+            "risk_analysis_message": "已同步，待手动解析",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.enterprise_runtime_service.RiskAnalysisService.get_analysis_state",
+        lambda self, db, company_id: {"analysis_status": "not_started"},
+    )
+    monkeypatch.setattr("app.services.enterprise_runtime_service.RiskRepository.list_results", lambda self, company_id: [])
+
+    result = EnterpriseRuntimeService().build_readiness(db=None, company_id=enterprise.id)
+
+    assert result["official_doc_count"] == 3
+    assert result["documents_pending_parse"] == 2
+    assert result["manual_parse_required"] is True

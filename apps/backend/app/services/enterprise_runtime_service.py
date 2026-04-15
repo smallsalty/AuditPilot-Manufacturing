@@ -78,6 +78,7 @@ class EnterpriseRuntimeService:
             raise ValueError("企业不存在。")
 
         official_doc_count = repo.count_official_documents(company_id)
+        documents_pending_parse = repo.count_documents_pending_parse(company_id)
         official_event_count = repo.count_official_events(company_id)
         analysis_state = RiskAnalysisService().get_analysis_state(db, company_id)
         risk_results = RiskRepository(db).list_results(company_id)
@@ -114,6 +115,8 @@ class EnterpriseRuntimeService:
             "profile_ready": bool(enterprise.name and enterprise.ticker),
             "sync_status": sync_status,
             "official_doc_count": official_doc_count,
+            "documents_pending_parse": documents_pending_parse,
+            "manual_parse_required": official_doc_count > 0 and documents_pending_parse > 0,
             "official_event_count": official_event_count,
             "risk_analysis_ready": analysis_readiness["risk_analysis_ready"],
             "risk_analysis_reason": analysis_readiness["risk_analysis_reason"],
