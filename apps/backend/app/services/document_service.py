@@ -4,13 +4,14 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.ai.llm_client import LLMClient
+from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_classify_service import DocumentClassifyService
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 class DocumentService:
     EXTRACT_VERSION = "document-extract:v3"
+    ANALYSIS_GROUPS = (
+        "financial_analysis",
+        "announcement_events",
+        "governance",
+        "audit_opinion",
+        "internal_control",
+    )
     FINANCIAL_DOCUMENT_TYPES = {"annual_report", "annual_summary", "audit_report", "internal_control_report"}
     CANDIDATE_LIMITS = {
         "announcement_event": 6,
@@ -190,6 +198,7 @@ class DocumentService:
         self.classify_service = DocumentClassifyService()
         self.feature_service = DocumentFeatureService()
         self.knowledge_index_service = KnowledgeIndexService()
+        self._last_extraction_trace: dict[str, Any] | None = None
 
     def save_upload(self, db: Session, enterprise_id: int, filename: str, file_bytes: bytes, uploads_dir: Path) -> DocumentMeta:
         uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -236,11 +245,126 @@ class DocumentService:
     def list_extracts(self, db: Session, document_id: int) -> list[DocumentExtractResult]:
         return DocumentRepository(db).list_extracts(document_id)
 
+    def _set_extraction_trace(
+        self,
+        *,
+        analysis_mode: str,
+        candidate_count_before_trim: int,
+        candidate_count_after_trim: int,
+        llm_attempted: bool,
+        llm_error: dict[str, Any] | None = None,
+        extract_count: int = 0,
+    ) -> None:
+        self._last_extraction_trace = {
+            "analysis_mode": analysis_mode,
+            "candidate_count_before_trim": candidate_count_before_trim,
+            "candidate_count_after_trim": candidate_count_after_trim,
+            "llm_attempted": llm_attempted,
+            "llm_error": llm_error,
+            "extract_count": extract_count,
+        }
+
+    def _analysis_error_payload(self, error: Any) -> dict[str, Any] | None:
+        if error is None:
+            return None
+        if isinstance(error, LLMRequestError):
+            return {
+                **error.to_dict(),
+                "last_error_at": datetime.now(timezone.utc).isoformat(),
+            }
+        return {
+            "message": str(error),
+            "status_code": None,
+            "error_type": error.__class__.__name__,
+            "provider_response_text": None,
+            "last_error_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _config_error_payload(self) -> dict[str, Any] | None:
+        if not self.llm_client.config_error:
+            return None
+        return {
+            "message": self.llm_client.config_error,
+            "status_code": None,
+            "error_type": "config_error",
+            "provider_response_text": None,
+            "last_error_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _build_analysis_meta(
+        self,
+        document: DocumentMeta,
+        *,
+        analysis_status: str,
+        analysis_mode: str | None,
+        candidate_count: int = 0,
+        extract_count: int = 0,
+        analysis_groups: list[str] | None = None,
+        analyzed_at: str | None = None,
+        last_error: dict[str, Any] | None = None,
+    ) -> None:
+        metadata = dict(document.metadata_json or {})
+        metadata["analysis_status"] = analysis_status
+        metadata["analysis_meta"] = {
+            "analysis_version": self.EXTRACT_VERSION,
+            "analyzed_at": analyzed_at,
+            "analysis_mode": analysis_mode,
+            "llm_provider": self.llm_client.provider,
+            "llm_model": self.llm_client.model,
+            "candidate_count": candidate_count,
+            "extract_count": extract_count,
+            "analysis_groups": analysis_groups or [],
+        }
+        metadata["last_error"] = last_error
+        document.metadata_json = metadata
+
+    def _is_financial_analysis_extract(self, document_type: str | None, extract: dict[str, Any]) -> bool:
+        return (
+            document_type in self.FINANCIAL_DOCUMENT_TYPES
+            and extract.get("extract_family") == "financial_statement"
+            and extract.get("detail_level") == "financial_deep_dive"
+        )
+
+    def _derive_analysis_groups(self, document: DocumentMeta, extracts: list[dict[str, Any]]) -> list[str]:
+        classified_type = document.classified_type or document.document_type or "general"
+        groups: list[str] = []
+        if any(self._is_financial_analysis_extract(classified_type, extract) for extract in extracts):
+            groups.append("financial_analysis")
+        if classified_type == "announcement_event" or any(extract.get("extract_family") == "announcement_event" for extract in extracts):
+            groups.append("announcement_events")
+        if classified_type == "audit_report" or any(
+            extract.get("event_type") == "audit_opinion_issue" or extract.get("opinion_type")
+            for extract in extracts
+        ):
+            groups.append("audit_opinion")
+        if classified_type == "internal_control_report" or any(
+            extract.get("event_type") == "internal_control_issue" or extract.get("defect_level")
+            for extract in extracts
+        ):
+            groups.append("internal_control")
+        if any(
+            extract.get("event_type") == "executive_change"
+            or extract.get("canonical_risk_key") == "governance_instability"
+            for extract in extracts
+        ):
+            groups.append("governance")
+        return [group for group in self.ANALYSIS_GROUPS if group in groups]
+
     def _parse_document_record(self, db: Session, document: DocumentMeta) -> DocumentMeta:
         if not document.file_path and not document.content_text:
             raise ValueError("文档缺少文件路径和正文内容。")
 
         document.parse_status = "parsing"
+        self._build_analysis_meta(
+            document,
+            analysis_status="running",
+            analysis_mode=None,
+            candidate_count=0,
+            extract_count=0,
+            analysis_groups=[],
+            analyzed_at=None,
+            last_error=None,
+        )
         db.commit()
         try:
             text = document.content_text or parse_document_text(document.file_path or "")
@@ -258,11 +382,20 @@ class DocumentService:
 
             self._retire_current_rows(db, document.id)
 
+            self._last_extraction_trace = None
             cleaned_entries = self._clean_document(text, classified_type)
             extracts = self._build_structured_extracts(document, cleaned_entries, classified_type)
             if not extracts:
                 extracts = self._fallback_extracts(document, cleaned_entries, classified_type)
             extracts = self._apply_extract_overrides(db, document.id, extracts)
+            trace = self._last_extraction_trace or {
+                "analysis_mode": "rule_only",
+                "candidate_count_before_trim": 0,
+                "candidate_count_after_trim": 0,
+                "llm_attempted": False,
+                "llm_error": self._config_error_payload(),
+                "extract_count": len(extracts),
+            }
 
             features = self.feature_service.build_features(extracts, enterprise_id=document.enterprise_id, document_id=document.id)
             extract_rows = self._persist_extracts(db, document, extracts)
@@ -276,15 +409,36 @@ class DocumentService:
                 extracts=extracts,
             )
 
+            self._build_analysis_meta(
+                document,
+                analysis_status="partial_fallback" if trace.get("analysis_mode") == "hybrid_fallback" else "succeeded",
+                analysis_mode=str(trace.get("analysis_mode") or "rule_only"),
+                candidate_count=int(trace.get("candidate_count_after_trim") or 0),
+                extract_count=len(extracts),
+                analysis_groups=self._derive_analysis_groups(document, extracts),
+                analyzed_at=datetime.now(timezone.utc).isoformat(),
+                last_error=trace.get("llm_error"),
+            )
+
             db.commit()
             db.refresh(document)
             return document
-        except Exception:
+        except Exception as exc:
             db.rollback()
             document = db.get(DocumentMeta, document.id)
             if document is not None:
                 document.parse_status = "failed"
                 document.sync_status = "parse_failed"
+                self._build_analysis_meta(
+                    document,
+                    analysis_status="failed",
+                    analysis_mode=None,
+                    candidate_count=0,
+                    extract_count=0,
+                    analysis_groups=[],
+                    analyzed_at=datetime.now(timezone.utc).isoformat(),
+                    last_error=self._analysis_error_payload(exc),
+                )
                 db.commit()
             raise
 
@@ -542,19 +696,75 @@ class DocumentService:
             if candidate is not None:
                 candidates.append(candidate)
         if not candidates:
+            self._set_extraction_trace(
+                analysis_mode="rule_only",
+                candidate_count_before_trim=0,
+                candidate_count_after_trim=0,
+                llm_attempted=False,
+                llm_error=self._config_error_payload(),
+                extract_count=0,
+            )
             return []
         trimmed_candidates = self._trim_candidates(candidates, classified_type)
         if not trimmed_candidates:
+            self._set_extraction_trace(
+                analysis_mode="rule_only",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=0,
+                llm_attempted=False,
+                llm_error=self._config_error_payload(),
+                extract_count=0,
+            )
             return self._fallback_extracts(document, [], classified_type)
         llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.MAX_LLM_CANDIDATES])
+        if self.llm_client.config_error:
+            self._set_extraction_trace(
+                analysis_mode="rule_only",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_attempted=False,
+                llm_error=self._config_error_payload(),
+                extract_count=0,
+            )
+            return self._fallback_extracts(document, trimmed_candidates, classified_type)
         try:
             llm_extracts = self._llm_extract(document, trimmed_candidates, classified_type)
             if llm_extracts:
                 normalized = [self._normalize_extract_payload(document, item, index) for index, item in enumerate(llm_extracts, start=1)]
                 filtered = [item for item in normalized if not self._is_low_quality_extract(item)]
                 if filtered:
+                    self._set_extraction_trace(
+                        analysis_mode="llm_primary",
+                        candidate_count_before_trim=len(candidates),
+                        candidate_count_after_trim=len(trimmed_candidates),
+                        llm_attempted=True,
+                        llm_error=None,
+                        extract_count=len(filtered),
+                    )
                     return filtered
+            self._set_extraction_trace(
+                analysis_mode="hybrid_fallback",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_attempted=True,
+                llm_error=self._analysis_error_payload(
+                    LLMRequestError(
+                        "模型未返回有效的结构化抽取结果。",
+                        error_type="empty_result",
+                        retryable=False,
+                    )
+                ),
+                extract_count=0,
+            )
         except Exception as exc:
+            self._set_extraction_trace(
+                analysis_mode="hybrid_fallback",
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_attempted=True,
+                llm_error=self._analysis_error_payload(exc),
+                extract_count=0,
+            )
             logger.warning(
                 "document structured extraction failed document_id=%s classified_type=%s candidate_count_before_trim=%s candidate_count_after_trim=%s llm_input_chars=%s fallback_used=true error=%s",
                 document.id,

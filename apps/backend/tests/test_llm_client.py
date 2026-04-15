@@ -1,13 +1,6 @@
 import app.ai.llm_client as llm_client_module
-from app.ai.llm_client import LLMClient
+from app.ai.llm_client import LLMClient, LLMRequestError
 from app.core.config import Settings
-
-
-def test_llm_client_falls_back_to_mock_mode() -> None:
-    client = LLMClient()
-    result = client.chat_completion("system", "请解释存货风险", json_mode=True)
-    assert "summary" in result
-    assert "procedures" in result
 
 
 def test_settings_support_legacy_glm_env_names(monkeypatch) -> None:
@@ -25,23 +18,103 @@ def test_settings_support_legacy_glm_env_names(monkeypatch) -> None:
     assert settings.llm_model == "legacy-model"
 
 
-def test_llm_client_uses_generic_openai_compatible_init(monkeypatch) -> None:
+def test_llm_client_uses_anthropic_compatible_init(monkeypatch) -> None:
     captured = {}
 
-    class DummyOpenAI:
-        def __init__(self, api_key: str, base_url: str) -> None:
+    class DummyAnthropic:
+        def __init__(self, api_key: str, base_url: str, timeout: float) -> None:
             captured["api_key"] = api_key
             captured["base_url"] = base_url
+            captured["timeout"] = timeout
 
     monkeypatch.setattr(llm_client_module.settings, "llm_provider", "minimax")
     monkeypatch.setattr(llm_client_module.settings, "llm_api_key", "mini-key")
-    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/v1")
+    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/anthropic")
     monkeypatch.setattr(llm_client_module.settings, "llm_model", "MiniMax-M2.5")
-    monkeypatch.setattr(llm_client_module, "OpenAI", DummyOpenAI)
+    monkeypatch.setattr(llm_client_module, "Anthropic", DummyAnthropic)
 
     client = llm_client_module.LLMClient()
 
-    assert client.mock_mode is False
+    assert client.config_error is None
     assert client.provider == "minimax"
     assert client.model == "MiniMax-M2.5"
-    assert captured == {"api_key": "mini-key", "base_url": "https://api.minimax.io/v1"}
+    assert captured == {
+        "api_key": "mini-key",
+        "base_url": "https://api.minimax.io/anthropic",
+        "timeout": 120.0,
+    }
+
+
+def test_llm_client_maps_401_without_retry(monkeypatch) -> None:
+    class DummyStatusError(Exception):
+        def __init__(self, status_code: int) -> None:
+            super().__init__(f"status {status_code}")
+            self.status_code = status_code
+            self.response = type("Resp", (), {"headers": {}, "text": "unauthorized"})()
+
+    class DummyMessages:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **_: object) -> object:
+            self.calls += 1
+            raise DummyStatusError(401)
+
+    class DummyAnthropic:
+        def __init__(self, **_: object) -> None:
+            self.messages = DummyMessages()
+
+    monkeypatch.setattr(llm_client_module.settings, "llm_api_key", "mini-key")
+    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/anthropic")
+    monkeypatch.setattr(llm_client_module.settings, "llm_model", "MiniMax-M2.5")
+    monkeypatch.setattr(llm_client_module, "Anthropic", DummyAnthropic)
+    monkeypatch.setattr(llm_client_module, "APIStatusError", DummyStatusError)
+
+    client = llm_client_module.LLMClient()
+
+    try:
+        client.chat_completion("system", "user", max_attempts=3)
+    except LLMRequestError as exc:
+        assert exc.status_code == 401
+        assert exc.retryable is False
+        assert "HTTP 401" in str(exc)
+    else:
+        raise AssertionError("expected LLMRequestError")
+
+    assert client.client.messages.calls == 1
+
+
+def test_llm_client_retries_529_then_succeeds(monkeypatch) -> None:
+    class DummyStatusError(Exception):
+        def __init__(self, status_code: int) -> None:
+            super().__init__(f"status {status_code}")
+            self.status_code = status_code
+            self.response = type("Resp", (), {"headers": {}, "text": "busy"})()
+
+    class DummyMessages:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **_: object) -> object:
+            self.calls += 1
+            if self.calls < 3:
+                raise DummyStatusError(529)
+            block = type("Block", (), {"text": '{"summary": "ok"}'})()
+            return type("Response", (), {"content": [block]})()
+
+    class DummyAnthropic:
+        def __init__(self, **_: object) -> None:
+            self.messages = DummyMessages()
+
+    monkeypatch.setattr(llm_client_module.settings, "llm_api_key", "mini-key")
+    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/anthropic")
+    monkeypatch.setattr(llm_client_module.settings, "llm_model", "MiniMax-M2.5")
+    monkeypatch.setattr(llm_client_module, "Anthropic", DummyAnthropic)
+    monkeypatch.setattr(llm_client_module, "APIStatusError", DummyStatusError)
+    monkeypatch.setattr(llm_client_module.time, "sleep", lambda *_: None)
+
+    client = llm_client_module.LLMClient()
+    result = client.chat_completion("system", "user", json_mode=True, max_attempts=3)
+
+    assert result == {"summary": "ok"}
+    assert client.client.messages.calls == 3

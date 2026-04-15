@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import random
@@ -5,12 +7,46 @@ import re
 import time
 from typing import Any
 
-from anthropic import APIConnectionError, APIResponseValidationError, APIStatusError, APITimeoutError, Anthropic
+try:
+    from anthropic import APIConnectionError, APIResponseValidationError, APIStatusError, APITimeoutError, Anthropic
+except ImportError:  # pragma: no cover
+    APIConnectionError = RuntimeError
+    APIResponseValidationError = RuntimeError
+    APIStatusError = RuntimeError
+    APITimeoutError = RuntimeError
+    Anthropic = None
 
 from app.core.config import settings
 
 
 logger = logging.getLogger(__name__)
+
+
+class LLMRequestError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        error_type: str | None = None,
+        provider_response_text: str | None = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.error_type = error_type
+        self.provider_response_text = provider_response_text
+        self.retryable = retryable
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "message": self.message,
+            "status_code": self.status_code,
+            "error_type": self.error_type,
+            "provider_response_text": self.provider_response_text,
+            "retryable": self.retryable,
+        }
 
 
 class LLMClient:
@@ -22,20 +58,23 @@ class LLMClient:
         self.config_error: str | None = None
 
         logger.info(
-            "llm configuration loaded provider=%s model=%s base_url=%s api_key_set=%s",
+            "llm configuration loaded provider=%s model=%s base_url=%s api_key_set=%s sdk_installed=%s",
             self.provider or "<unset>",
             self.model or "<unset>",
             self.base_url or "<unset>",
             bool(self.api_key),
+            Anthropic is not None,
         )
 
-        if not self.api_key:
+        if Anthropic is None:
+            self.config_error = "模型配置未加载：后端环境缺少 anthropic SDK。"
+        elif not self.api_key:
             self.config_error = "模型配置未加载：缺少 API Key，请检查 ANTHROPIC_API_KEY 或兼容的 LLM_API_KEY。"
         elif not self.base_url:
-            self.config_error = "模型配置未加载：缺少 base URL，请检查 ANTHROPIC_BASE_URL。"
+            self.config_error = "模型配置未加载：缺少 base URL，请检查 ANTHROPIC_BASE_URL 或兼容的 LLM_BASE_URL。"
 
         self.client = None
-        if not self.config_error:
+        if not self.config_error and Anthropic is not None:
             self.client = Anthropic(
                 api_key=self.api_key,
                 base_url=self.base_url,
@@ -56,12 +95,16 @@ class LLMClient:
         strict_json_instruction: bool = True,
     ) -> Any:
         if self.config_error:
-            raise RuntimeError(self.config_error)
+            raise LLMRequestError(
+                self.config_error,
+                error_type="config_error",
+                retryable=False,
+            )
 
         metadata = dict(metadata or {})
         prompt = user_prompt
         if json_mode and strict_json_instruction:
-            prompt = f"{user_prompt}\n请严格返回一个合法 JSON 对象，不要输出 Markdown 代码块。"
+            prompt = f"{user_prompt}\n请严格返回一个合法 JSON 对象或 JSON 数组，不要输出 Markdown 代码块。"
 
         base_log_fields = {
             "request_kind": request_kind,
@@ -70,6 +113,7 @@ class LLMClient:
             "classified_type": metadata.get("classified_type"),
             "model": self.model or "<unset>",
             "base_url": self.base_url or "<unset>",
+            "status_code": None,
             "max_tokens": max_tokens,
             "json_mode": json_mode,
             "strict_json_instruction": strict_json_instruction,
@@ -81,7 +125,7 @@ class LLMClient:
         }
         logger.info("llm request start %s", self._format_log_fields(base_log_fields))
 
-        last_error: Exception | None = None
+        last_error: LLMRequestError | None = None
         for attempt in range(1, max_attempts + 1):
             attempt_fields = dict(base_log_fields)
             attempt_fields["retry_attempt"] = attempt
@@ -94,9 +138,7 @@ class LLMClient:
                     timeout=timeout,
                 )
 
-                content = self._extract_text(response)
-                content = self._clean_content(content)
-
+                content = self._clean_content(self._extract_text(response))
                 logger.info(
                     "llm request success %s",
                     self._format_log_fields(
@@ -116,6 +158,7 @@ class LLMClient:
                             self._format_log_fields(
                                 {
                                     **attempt_fields,
+                                    "error_type": "json_decode_error",
                                     "provider_response_text": self._truncate_text(content),
                                 }
                             ),
@@ -124,42 +167,71 @@ class LLMClient:
 
                 return content
             except (APIConnectionError, APITimeoutError, APIResponseValidationError) as exc:
-                last_error = exc
+                last_error = LLMRequestError(
+                    "模型服务连接失败，请检查 Anthropic 兼容接口地址和云端网络连通性。",
+                    error_type=exc.__class__.__name__,
+                    provider_response_text=self._truncate_text(str(exc)),
+                    retryable=True,
+                )
                 logger.warning(
                     "llm request transport failure %s",
                     self._format_log_fields(
                         {
                             **attempt_fields,
-                            "error_type": exc.__class__.__name__,
+                            "error_type": last_error.error_type,
+                            "provider_response_text": last_error.provider_response_text,
                         }
                     ),
                 )
                 if attempt < max_attempts:
                     time.sleep(self._backoff_seconds(attempt))
                     continue
-                raise RuntimeError("模型服务不可连接，请检查 ANTHROPIC_BASE_URL 和云端网络连通性。") from exc
+                raise last_error from exc
             except APIStatusError as exc:
-                last_error = exc
                 error_fields = dict(attempt_fields)
                 error_fields.update(self._extract_status_error_fields(exc))
                 logger.warning("llm request rejected %s", self._format_log_fields(error_fields))
-                if attempt < max_attempts and self._should_retry_status(exc.status_code):
+
+                status_code = error_fields.get("status_code")
+                provider_response_text = error_fields.get("provider_response_text")
+                retryable = self._should_retry_status(status_code)
+                if status_code == 401:
+                    message = "模型服务返回错误：HTTP 401，请检查 MiniMax 模型名、鉴权和 Anthropic 兼容接口配置。"
+                    error_type = "auth_error"
+                elif retryable:
+                    message = f"模型服务暂时不可用：HTTP {status_code}。"
+                    error_type = "upstream_unavailable"
+                else:
+                    message = f"模型服务返回错误：HTTP {status_code}，请检查 MiniMax 模型名、鉴权和兼容接口配置。"
+                    error_type = "request_rejected"
+
+                last_error = LLMRequestError(
+                    message,
+                    status_code=status_code,
+                    error_type=error_type,
+                    provider_response_text=provider_response_text,
+                    retryable=retryable,
+                )
+                if attempt < max_attempts and retryable:
                     time.sleep(self._backoff_seconds(attempt))
                     continue
-                raise RuntimeError(
-                    f"模型服务返回错误：HTTP {exc.status_code}，请检查 MiniMax 模型名、鉴权和兼容接口配置。"
-                ) from exc
-            except RuntimeError:
+                raise last_error from exc
+            except LLMRequestError:
                 raise
-            except Exception as exc:
-                last_error = exc
+            except Exception as exc:  # pragma: no cover
+                last_error = LLMRequestError(
+                    "模型请求失败。",
+                    error_type=exc.__class__.__name__,
+                    provider_response_text=self._truncate_text(str(exc)),
+                    retryable=False,
+                )
                 logger.warning(
                     "llm request failed %s",
                     self._format_log_fields(
                         {
                             **attempt_fields,
-                            "error_type": exc.__class__.__name__,
-                            "provider_response_text": self._truncate_text(str(exc)),
+                            "error_type": last_error.error_type,
+                            "provider_response_text": last_error.provider_response_text,
                         }
                     ),
                 )
@@ -167,9 +239,9 @@ class LLMClient:
 
         if last_error is not None:
             raise last_error
-        raise RuntimeError("模型请求失败。")
+        raise LLMRequestError("模型请求失败。", error_type="unknown", retryable=False)
 
-    def _extract_text(self, response) -> str:
+    def _extract_text(self, response: Any) -> str:
         parts: list[str] = []
         for block in getattr(response, "content", []) or []:
             text = getattr(block, "text", None)
@@ -181,13 +253,10 @@ class LLMClient:
         if not content:
             return ""
 
-        content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.S | re.I)
-        content = content.strip()
-
+        content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.S | re.I).strip()
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.I)
             content = re.sub(r"\s*```$", "", content)
-
         return content.strip()
 
     def _backoff_seconds(self, attempt: int) -> float:
@@ -217,7 +286,7 @@ class LLMClient:
                 elif isinstance(content_attr, str):
                     response_text = content_attr
         return {
-            "provider_status_code": getattr(exc, "status_code", None),
+            "status_code": getattr(exc, "status_code", None),
             "request_id": headers.get("x-request-id") or headers.get("request-id"),
             "provider_response_text": self._truncate_text(response_text or str(exc)),
         }
@@ -228,7 +297,7 @@ class LLMClient:
         cleaned = re.sub(r"\s+", " ", value).strip()
         if len(cleaned) <= limit:
             return cleaned
-        return f"{cleaned[:limit]}…"
+        return f"{cleaned[:limit]}..."
 
     def _format_log_fields(self, fields: dict[str, Any]) -> str:
         parts = []

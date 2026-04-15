@@ -9,6 +9,7 @@ import type {
   DocumentListItem,
   EnterpriseBootstrapPayload,
   EnterpriseDetail,
+  FinancialAnalysisPayload,
   EnterpriseReadinessPayload,
   EnterpriseSearchItem,
   RiskResultPayload,
@@ -73,6 +74,7 @@ export const api = {
   getRiskSummary: (enterpriseId: number) => request<RiskSummaryPayload>(`/companies/${enterpriseId}/risk-summary`),
   getReadiness: (enterpriseId: number) => request<EnterpriseReadinessPayload>(`/companies/${enterpriseId}/readiness`),
   getEnterpriseDocuments: (enterpriseId: number) => request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`),
+  getFinancialAnalysis: (enterpriseId: number) => request<FinancialAnalysisPayload>(`/enterprises/${enterpriseId}/financial-analysis`),
   syncCompany: (enterpriseId: number, sources: string[] = ["akshare_fast", "cninfo"]) =>
     request<SyncCompanyPayload>(`/sync/company`, {
       method: "POST",

@@ -24,7 +24,7 @@
 - Frontend: Next.js + TypeScript + Tailwind CSS + ECharts
 - Backend: FastAPI + SQLAlchemy
 - Database: PostgreSQL
-- AI: MiniMax OpenAI-compatible client
+- AI: MiniMax Anthropic-compatible client
 - Document parsing: pdfplumber / pypdf
 
 ## 关键环境变量

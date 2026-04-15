@@ -6,13 +6,14 @@ import type {
   DashboardPayload,
   DocumentListItem,
   EnterpriseReadinessPayload,
+  FinancialAnalysisPayload,
   RiskResultPayload,
 } from "@auditpilot/shared-types";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { api } from "@/lib/api";
 
-type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness";
+type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness" | "financialAnalysis";
 
 type ResourceState<T> = {
   data: T | null;
@@ -28,12 +29,14 @@ function useCachedEnterpriseResource<T>(
 ): ResourceState<T> {
   const { getCachedResource, setCachedResource } = useEnterpriseContext();
   const [data, setData] = useState<T | null>(enterpriseId ? getCachedResource<T>(kind, enterpriseId) : null);
+  const [dataEnterpriseId, setDataEnterpriseId] = useState<number | null>(enterpriseId);
   const [loading, setLoading] = useState(Boolean(enterpriseId && !getCachedResource<T>(kind, enterpriseId)));
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!enterpriseId) {
       setData(null);
+      setDataEnterpriseId(null);
       setLoading(false);
       setError(null);
       return;
@@ -49,6 +52,7 @@ function useCachedEnterpriseResource<T>(
       const payload = await fetcher(enterpriseId);
       setCachedResource(kind, enterpriseId, payload);
       setData(payload);
+      setDataEnterpriseId(enterpriseId);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "数据加载失败");
@@ -62,11 +66,12 @@ function useCachedEnterpriseResource<T>(
 
   useEffect(() => {
     setData(enterpriseId ? getCachedResource<T>(kind, enterpriseId) : null);
+    setDataEnterpriseId(enterpriseId);
     setError(null);
     void refresh();
   }, [enterpriseId, getCachedResource, kind, refresh]);
 
-  return { data, loading, error, refresh };
+  return { data: dataEnterpriseId === enterpriseId ? data : null, loading, error, refresh };
 }
 
 export function useDashboardResource(enterpriseId: number | null) {
@@ -87,4 +92,8 @@ export function useDocumentsResource(enterpriseId: number | null) {
 
 export function useReadinessResource(enterpriseId: number | null) {
   return useCachedEnterpriseResource<EnterpriseReadinessPayload>("readiness", enterpriseId, api.getReadiness);
+}
+
+export function useFinancialAnalysisResource(enterpriseId: number | null) {
+  return useCachedEnterpriseResource<FinancialAnalysisPayload>("financialAnalysis", enterpriseId, api.getFinancialAnalysis);
 }

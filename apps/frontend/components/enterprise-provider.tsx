@@ -17,6 +17,7 @@ import type {
   EnterpriseContextState,
   EnterpriseReadinessPayload,
   EnterpriseSearchItem,
+  FinancialAnalysisPayload,
   RiskResultPayload,
 } from "@auditpilot/shared-types";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -26,7 +27,7 @@ import { api } from "@/lib/api";
 const ENTERPRISE_STORAGE_KEY = "auditpilot.currentEnterpriseId";
 const SEARCH_CACHE_TTL = 30_000;
 
-type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness";
+type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness" | "financialAnalysis";
 
 type EnterpriseContextValue = EnterpriseContextState & {
   selectEnterprise: (enterpriseId: number) => void;
@@ -74,12 +75,14 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     auditFocus: Map<number, AuditFocusPayload>;
     documents: Map<number, DocumentListItem[]>;
     readiness: Map<number, EnterpriseReadinessPayload>;
+    financialAnalysis: Map<number, FinancialAnalysisPayload>;
   }>({
     dashboard: new Map(),
     riskResults: new Map(),
     auditFocus: new Map(),
     documents: new Map(),
     readiness: new Map(),
+    financialAnalysis: new Map(),
   });
 
   const urlEnterpriseId = useMemo(() => parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey)), [pathname, searchParamsKey]);
@@ -110,6 +113,14 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
 
   const selectEnterprise = useCallback(
     (enterpriseId: number) => {
+      if (currentEnterpriseId) {
+        for (const kind of ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"] as ResourceKind[]) {
+          resourceCacheRef.current[kind].delete(currentEnterpriseId);
+        }
+      }
+      for (const kind of ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"] as ResourceKind[]) {
+        resourceCacheRef.current[kind].delete(enterpriseId);
+      }
       setCurrentEnterpriseId(enterpriseId);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(ENTERPRISE_STORAGE_KEY, String(enterpriseId));
@@ -120,7 +131,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         router.replace(`${pathname}?enterpriseId=${enterpriseId}`);
       }
     },
-    [pathname, router, searchParams],
+    [currentEnterpriseId, pathname, router, searchParams],
   );
 
   const bootstrapEnterprise = useCallback(
@@ -219,6 +230,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
             resourceCacheRef.current.dashboard.delete(currentEnterpriseId);
             resourceCacheRef.current.auditFocus.delete(currentEnterpriseId);
             resourceCacheRef.current.riskResults.delete(currentEnterpriseId);
+            resourceCacheRef.current.financialAnalysis.delete(currentEnterpriseId);
           }
         }
       } catch {
@@ -248,7 +260,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const invalidateEnterpriseResources = useCallback((enterpriseId: number, kinds?: ResourceKind[]) => {
-    const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "readiness"];
+    const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"];
     for (const kind of targets) {
       resourceCacheRef.current[kind].delete(enterpriseId);
     }

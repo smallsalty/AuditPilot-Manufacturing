@@ -184,8 +184,22 @@ export type DocumentListItem = {
   extract_family_summary?: string[];
   event_coverage?: string[];
   latest_extract_version?: string | null;
+  analysis_status?: "pending" | "running" | "succeeded" | "partial_fallback" | "failed" | string;
+  analysis_mode?: "llm_primary" | "hybrid_fallback" | "rule_only" | string | null;
+  analysis_version?: string | null;
+  analyzed_at?: string | null;
+  analysis_groups?: DocumentAnalysisGroup[];
+  last_error_message?: string | null;
+  last_error_at?: string | null;
   created_at?: string | null;
 };
+
+export type DocumentAnalysisGroup =
+  | "financial_analysis"
+  | "announcement_events"
+  | "governance"
+  | "audit_opinion"
+  | "internal_control";
 
 export type DocumentExtractItem = {
   id: number;
@@ -245,6 +259,67 @@ export type ChatAnswerPayload = {
     source_type: string;
   }[];
   suggested_actions: string[];
+};
+
+export type FinancialAnalysisDocument = {
+  document_id: number;
+  document_name: string;
+  classified_type: string;
+  period?: string | null;
+  fiscal_year?: number | null;
+  analysis_status?: string | null;
+  analysis_mode?: string | null;
+  extract_count: number;
+  key_metrics: FinancialMetricPoint[];
+  anomalies: FinancialAnomalyItem[];
+};
+
+export type FinancialMetricPoint = {
+  document_id: number;
+  document_name: string;
+  metric_name: string;
+  metric_value?: number | null;
+  metric_unit?: string | null;
+  period?: string | null;
+  fiscal_year?: number | null;
+};
+
+export type FinancialAnomalyItem = {
+  document_id: number;
+  document_name: string;
+  title: string;
+  summary: string;
+  canonical_risk_key?: string | null;
+  metric_name?: string | null;
+  metric_value?: number | null;
+  metric_unit?: string | null;
+  period?: string | null;
+  section_title?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+};
+
+export type FinancialEvidenceItem = {
+  document_id: number;
+  document_name: string;
+  title: string;
+  snippet: string;
+  period?: string | null;
+  section_title?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
+};
+
+export type FinancialAnalysisPayload = {
+  enterprise_id: number;
+  summary: string;
+  documents: FinancialAnalysisDocument[];
+  periods: string[];
+  key_metrics: FinancialMetricPoint[];
+  anomalies: FinancialAnomalyItem[];
+  evidence: FinancialEvidenceItem[];
+  focus_accounts: string[];
+  recommended_procedures: string[];
 };
 
 export type EnterpriseContextState = {

@@ -6,7 +6,9 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.schemas.enterprise import EnterpriseBootstrapRequest
 from app.services.dashboard_service import DashboardService
+from app.services.document_service import DocumentService
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
+from app.services.financial_analysis_service import FinancialAnalysisService
 
 
 router = APIRouter()
@@ -103,6 +105,9 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
     for document in documents:
         extracts = document_repo.list_extracts(document.id)
         features = document_repo.list_event_features(document.id)
+        metadata = document.metadata_json or {}
+        analysis_meta = metadata.get("analysis_meta") or {}
+        last_error = metadata.get("last_error") or {}
         items.append(
             {
                 "id": document.id,
@@ -116,7 +121,22 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
                 "extract_family_summary": sorted({item.extract_family or "general" for item in extracts}),
                 "event_coverage": sorted({item.event_type or item.opinion_type for item in features if item.event_type or item.opinion_type}),
                 "latest_extract_version": max([item.extract_version or "" for item in extracts], default=None),
+                "analysis_status": metadata.get("analysis_status"),
+                "analysis_mode": analysis_meta.get("analysis_mode"),
+                "analysis_version": analysis_meta.get("analysis_version"),
+                "analyzed_at": analysis_meta.get("analyzed_at"),
+                "analysis_groups": [group for group in analysis_meta.get("analysis_groups", []) if group in DocumentService.ANALYSIS_GROUPS],
+                "last_error_message": last_error.get("message"),
+                "last_error_at": last_error.get("last_error_at"),
                 "created_at": document.created_at.isoformat() if document.created_at else None,
             }
         )
     return items
+
+
+@router.get("/enterprises/{enterprise_id}/financial-analysis")
+def get_financial_analysis(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
+    try:
+        return FinancialAnalysisService().build_analysis(db, enterprise_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

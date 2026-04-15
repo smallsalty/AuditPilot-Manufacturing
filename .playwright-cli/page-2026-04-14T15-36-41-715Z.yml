@@ -1,0 +1,105 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - paragraph [ref=e8]: AuditPilot
+        - heading "制造业审计风险工作台" [level=1] [ref=e9]
+      - paragraph [ref=e10]: 基于企业主数据、官方公告、风险规则和证据链，为制造业上市公司提供风险识别与审计重点提示。
+    - generic [ref=e11]:
+      - paragraph [ref=e12]: 企业上下文
+      - generic [ref=e13]:
+        - img
+        - textbox "搜索企业名称或股票代码" [ref=e14]
+      - button "刷新企业列表" [disabled] [ref=e16]:
+        - img [ref=e17]
+        - text: 刷新企业列表
+      - generic [ref=e22]: 暂无可选企业
+      - paragraph [ref=e23]: 正在加载企业列表...
+    - navigation [ref=e24]:
+      - link "总览" [ref=e25] [cursor=pointer]:
+        - /url: /
+        - img [ref=e26]
+        - generic [ref=e31]: 总览
+      - link "风险清单" [ref=e32] [cursor=pointer]:
+        - /url: /risks
+        - img [ref=e33]
+        - generic [ref=e36]: 风险清单
+      - link "审计重点" [ref=e37] [cursor=pointer]:
+        - /url: /audit-focus
+        - img [ref=e38]
+        - generic [ref=e41]: 审计重点
+      - link "文档中心" [ref=e42] [cursor=pointer]:
+        - /url: /documents
+        - img [ref=e43]
+        - generic [ref=e46]: 文档中心
+      - link "AI问答" [ref=e47] [cursor=pointer]:
+        - /url: /chat
+        - img [ref=e48]
+        - generic [ref=e51]: AI问答
+    - generic [ref=e52]:
+      - paragraph [ref=e53]: 数据说明
+      - generic [ref=e54]:
+        - paragraph [ref=e55]: 企业主数据来源：AkShare
+        - paragraph [ref=e56]: 公告与处罚来源：巨潮资讯
+        - paragraph [ref=e57]: 上传文档可参与解析、问答和证据展示。
+  - main [ref=e58]:
+    - generic [ref=e59]:
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - paragraph [ref=e63]: 风险总览
+          - heading "制造业上市公司智能风险识别与审计重点提示系统" [level=2] [ref=e64]
+          - paragraph [ref=e65]: 系统基于企业主数据、官方公告、结构化财务指标和规则引擎，输出企业风险画像、证据链与审计重点。
+        - generic [ref=e66]:
+          - paragraph [ref=e67]: 当前企业
+          - generic [ref=e69]: 正在初始化企业上下文...
+          - generic [ref=e70]:
+            - link "查看风险清单" [ref=e71] [cursor=pointer]:
+              - /url: /risks
+              - button "查看风险清单" [ref=e72]
+            - link "进入问答" [ref=e73] [cursor=pointer]:
+              - /url: /chat
+              - button "进入问答" [ref=e74]
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - paragraph [ref=e77]: 综合风险评分
+          - generic [ref=e78]:
+            - generic [ref=e79]: "--"
+            - generic [ref=e80]: 规则与证据聚合
+        - generic [ref=e81]:
+          - paragraph [ref=e82]: 财务风险
+          - generic [ref=e83]:
+            - generic [ref=e84]: "--"
+            - generic [ref=e85]: 收入、应收、现金流
+        - generic [ref=e86]:
+          - paragraph [ref=e87]: 经营风险
+          - generic [ref=e88]:
+            - generic [ref=e89]: "--"
+            - generic [ref=e90]: 存货、波动、景气度
+        - generic [ref=e91]:
+          - paragraph [ref=e92]: 合规风险
+          - generic [ref=e93]:
+            - generic [ref=e94]: "--"
+            - generic [ref=e95]: 处罚、诉讼、内控
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e98]:
+            - paragraph [ref=e99]: 风险雷达
+            - heading "风险结构画像" [level=3] [ref=e100]
+          - generic [ref=e101]: 当前企业尚未完成风险分析。
+        - generic [ref=e102]:
+          - paragraph [ref=e103]: 风险趋势
+          - heading "最近分析趋势" [level=3] [ref=e104]
+          - generic [ref=e105]: 当前暂无可展示的趋势数据。
+      - generic [ref=e106]:
+        - generic [ref=e107]:
+          - paragraph [ref=e108]: 高风险事项
+          - heading "Top 风险项" [level=3] [ref=e109]
+          - generic [ref=e110]: 当前企业尚未生成可展示的风险结果。
+        - generic [ref=e111]:
+          - paragraph [ref=e112]: 数据状态
+          - heading "当前数据来源与准备情况" [level=3] [ref=e113]
+          - generic [ref=e114]:
+            - generic [ref=e115]: 企业主数据来源：AkShare
+            - generic [ref=e116]: 公告与处罚来源：巨潮资讯 / 上传文档
+            - generic [ref=e117]: 最近同步时间：尚未同步
+            - generic [ref=e118]: 最近风险分析：尚未运行
