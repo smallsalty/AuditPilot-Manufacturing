@@ -9,6 +9,7 @@ from app.core.db import get_db
 from app.models import DocumentEventFeature, DocumentExtractResult, ReviewOverride
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_service import DocumentService
+from app.utils.display_text import clean_document_title
 
 
 router = APIRouter()
@@ -27,14 +28,14 @@ async def upload_document(
         file_bytes=await file.read(),
         uploads_dir=settings.uploads_dir,
     )
-    return {"id": document.id, "document_name": document.document_name, "parse_status": document.parse_status}
+    return {"id": document.id, "document_name": clean_document_title(document.document_name), "parse_status": document.parse_status}
 
 
 @router.post("/documents/{document_id}/parse")
 def parse_document(document_id: int, db: Session = Depends(get_db)) -> dict:
     try:
         document = DocumentService().parse_document(db, document_id)
-        return {"id": document.id, "document_name": document.document_name, "parse_status": document.parse_status}
+        return {"id": document.id, "document_name": clean_document_title(document.document_name), "parse_status": document.parse_status}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -129,7 +130,7 @@ def _serialize_extract(extract: DocumentExtractResult, feature: DocumentEventFea
         "extract_type": extract.extract_type,
         "extract_version": extract.extract_version,
         "extract_family": extract.extract_family or "general",
-        "title": extract.title,
+        "title": clean_document_title(extract.title),
         "summary": extract.problem_summary or extract.content,
         "problem_summary": extract.problem_summary or extract.content,
         "parameters": extract.parameters or payload.get("parameters") or {},
@@ -159,7 +160,7 @@ def _serialize_extract(extract: DocumentExtractResult, feature: DocumentEventFea
         "event_direction": feature.direction if feature and feature.direction else extract.direction,
         "event_severity": feature.severity if feature and feature.severity else extract.severity,
         "event_date": feature.event_date.isoformat() if feature and feature.event_date else (extract.event_date.isoformat() if extract.event_date else None),
-        "subject": feature.subject if feature and feature.subject else extract.subject,
+        "subject": clean_document_title(feature.subject if feature and feature.subject else extract.subject),
         "amount": feature.amount if feature and feature.amount is not None else extract.amount,
         "counterparty": feature.counterparty if feature and feature.counterparty else extract.counterparty,
         "direction": feature.direction if feature and feature.direction else extract.direction,

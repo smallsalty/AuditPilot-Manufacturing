@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
+from app.utils.display_text import clean_document_title
 
 
 class AuditOverviewService:
@@ -61,12 +62,12 @@ class AuditOverviewService:
             {
                 "id": f"document-{document.id}",
                 "item_type": "document",
-                "title": document.document_name,
+                "title": clean_document_title(document.document_name),
                 "date": document.announcement_date.isoformat() if document.announcement_date else None,
                 "source": document.source,
                 "status": document.parse_status or document.sync_status,
                 "document_type": document.document_type,
-                "summary": document.document_name,
+                "summary": clean_document_title(document.document_name),
                 "source_url": document.source_url,
                 "is_official_source": document.is_official_source,
             }

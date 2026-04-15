@@ -13,6 +13,7 @@ from app.models import DocumentEventFeature, DocumentExtractResult, ReviewOverri
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.repositories.risk_repository import RiskRepository
+from app.utils.display_text import clean_document_title
 
 
 class DocumentRiskService:
@@ -168,7 +169,7 @@ class DocumentRiskService:
         row["reasons"] = self._dedupe_strings(row["reasons"] + self._extract_risk_points(extract))
         row["source_rules"] = self._dedupe_strings(row["source_rules"] + list(extract.applied_rules or []))
         row["source_documents"] = self._dedupe_documents(
-            row["source_documents"] + [{"document_id": document.id, "document_name": document.document_name}]
+            row["source_documents"] + [{"document_id": document.id, "document_name": clean_document_title(document.document_name)}]
         )
         row["feature_support"] = self._dedupe_feature_support(
             row["feature_support"]
@@ -186,7 +187,7 @@ class DocumentRiskService:
                 "evidence_id": extract.evidence_span_id or f"D{extract.id}",
                 "evidence_type": "announcement" if document.source == "cninfo" else "uploaded_document",
                 "source": document.source,
-                "source_label": document.document_name,
+                "source_label": clean_document_title(document.document_name),
                 "published_at": document.announcement_date.isoformat() if document.announcement_date else None,
                 "title": extract.title,
                 "snippet": extract.evidence_excerpt or extract.problem_summary or extract.title,
@@ -205,7 +206,7 @@ class DocumentRiskService:
         row["risk_level"] = self._max_level(row["risk_level"], "HIGH" if feature.severity == "high" else "MEDIUM")
         row["summary"] = row["summary"] or (feature.conclusion or feature.conditions or feature.subject or row["risk_name"])
         row["source_documents"] = self._dedupe_documents(
-            row["source_documents"] + [{"document_id": document.id, "document_name": document.document_name}]
+            row["source_documents"] + [{"document_id": document.id, "document_name": clean_document_title(document.document_name)}]
         )
         row["source_events"] = self._dedupe_events(
             row["source_events"]
@@ -214,7 +215,7 @@ class DocumentRiskService:
                     "event_type": feature.event_type or feature.opinion_type,
                     "event_date": feature.event_date.isoformat() if feature.event_date else None,
                     "severity": feature.severity,
-                    "subject": feature.subject,
+                    "subject": clean_document_title(feature.subject),
                 }
             ]
         )
@@ -223,11 +224,11 @@ class DocumentRiskService:
                 "evidence_id": f"F{feature.id}",
                 "evidence_type": "announcement",
                 "source": document.source,
-                "source_label": document.document_name,
+                "source_label": clean_document_title(document.document_name),
                 "published_at": feature.event_date.isoformat() if feature.event_date else None,
                 "title": feature.event_type or feature.opinion_type or row["risk_name"],
-                "snippet": feature.conditions or feature.conclusion or feature.subject or "",
-                "content": feature.conditions or feature.conclusion or feature.subject or "",
+                "snippet": feature.conditions or feature.conclusion or clean_document_title(feature.subject) or "",
+                "content": feature.conditions or feature.conclusion or clean_document_title(feature.subject) or "",
                 "report_period": feature.period,
             }
         )

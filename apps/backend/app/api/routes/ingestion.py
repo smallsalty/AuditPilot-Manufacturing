@@ -14,7 +14,7 @@ router = APIRouter(prefix="/ingestion")
 def ingest_financial(payload: FinancialIngestionRequest, db: Session = Depends(get_db)) -> dict:
     enterprise = EnterpriseRepository(db).get_by_id(payload.enterprise_id)
     if enterprise is None:
-        raise HTTPException(status_code=404, detail="企业不存在")
+        raise HTTPException(status_code=404, detail="企业不存在。")
     if payload.provider == "mock" or payload.force_seed_fallback:
         raise HTTPException(status_code=400, detail="运行态已禁用 mock/seed 财务数据，请使用 AkShare。")
     try:
@@ -27,6 +27,13 @@ def ingest_financial(payload: FinancialIngestionRequest, db: Session = Depends(g
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if inserted == 0:
+        return {
+            "status": "success",
+            "provider": provider,
+            "inserted": 0,
+            "message": "当前企业暂未获取到可用官方财务数据。",
+        }
     return {"status": "success", "provider": provider, "inserted": inserted, "message": "财务数据导入完成"}
 
 

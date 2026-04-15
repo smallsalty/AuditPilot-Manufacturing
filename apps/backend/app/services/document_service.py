@@ -18,6 +18,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.services.document_classify_service import DocumentClassifyService
 from app.services.document_feature_service import DocumentFeatureService
 from app.services.knowledge_index_service import KnowledgeIndexService
+from app.utils.display_text import clean_document_title
 from app.utils.documents import parse_document_text
 from app.utils.embeddings import HashingEmbeddingService
 
@@ -420,7 +421,7 @@ class DocumentService:
                 db,
                 enterprise_id=document.enterprise_id,
                 document_id=document.id,
-                document_name=document.document_name,
+                document_name=clean_document_title(document.document_name) or document.document_name,
                 version=self.EXTRACT_VERSION,
                 extracts=extracts,
             )
@@ -1018,6 +1019,7 @@ class DocumentService:
             )
         system_prompt = "你是上市公司披露文档抽取助手。请仅对候选段做结构化归纳，返回 JSON 数组。每项必须包含 summary、parameters、event_type、extract_family、evidence_excerpt，不要回显整段原文，不要新增枚举外事件类型。"
         user_prompt = f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，保留固定枚举 event_type，并让 parameters 为扁平 JSON 对象。\n" + "\n".join(lines)
+        user_prompt = user_prompt.replace(str(document.document_name), clean_document_title(document.document_name) or str(document.document_name), 1)
         return system_prompt, user_prompt
 
     def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
@@ -1111,7 +1113,7 @@ class DocumentService:
             self._normalize_extract_payload(
                 document,
                 {
-                    "title": document.document_name,
+                    "title": clean_document_title(document.document_name) or document.document_name,
                     "summary": fallback_summary,
                     "problem_summary": fallback_summary,
                     "evidence_excerpt": fallback_summary,
@@ -1131,10 +1133,10 @@ class DocumentService:
             self._normalize_extract_payload(
                 document,
                 {
-                    "title": document.document_name,
+                    "title": clean_document_title(document.document_name) or document.document_name,
                     "summary": "未命中明确规则，当前仅保留文档摘要。",
                     "problem_summary": "未命中明确规则，当前仅保留文档摘要。",
-                    "evidence_excerpt": document.document_name,
+                    "evidence_excerpt": clean_document_title(document.document_name) or document.document_name,
                     "extract_family": "general",
                     "parameters": {},
                     "fact_tags": ["fallback"],
@@ -1662,17 +1664,18 @@ class DocumentService:
         return None
 
     def _normalize_extract_payload(self, document: DocumentMeta, payload: dict[str, Any], index: int) -> dict[str, Any]:
+        display_name = clean_document_title(document.document_name) or document.document_name
         summary = self._clean_summary_like_text(
             payload.get("summary")
             or payload.get("problem_summary")
             or payload.get("evidence_excerpt")
             or payload.get("title")
-            or document.document_name
+            or display_name
         )
         if not summary:
-            summary = document.document_name
+            summary = display_name
         evidence_excerpt = self._clean_summary_like_text(payload.get("evidence_excerpt") or summary)
-        title = self._clean_summary_like_text(payload.get("title") or f"{document.document_name}-extract-{index}") or f"{document.document_name}-extract-{index}"
+        title = self._clean_summary_like_text(payload.get("title") or f"{display_name}-extract-{index}") or f"{display_name}-extract-{index}"
         paragraph_hash = str(payload.get("paragraph_hash") or hashlib.sha1(summary.encode("utf-8")).hexdigest())
         event_type = payload.get("event_type")
         opinion_type = payload.get("opinion_type")
@@ -1715,7 +1718,7 @@ class DocumentService:
             "fiscal_quarter": payload.get("fiscal_quarter") or self._infer_fiscal_quarter(document.report_period_label),
             "event_type": event_type,
             "event_date": payload.get("event_date"),
-            "subject": self._clean_summary_like_text(payload.get("subject") or document.document_name) or document.document_name,
+            "subject": self._clean_summary_like_text(payload.get("subject") or display_name) or display_name,
             "amount": self._coerce_float(payload.get("amount")),
             "counterparty": self._clean_summary_like_text(payload.get("counterparty")),
             "direction": payload.get("direction"),

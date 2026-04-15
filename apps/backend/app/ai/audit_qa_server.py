@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import AuditChatRecord, EnterpriseProfile, RiskIdentificationResult
 from app.rag.retrieval_service import RetrievalService
 from app.services.document_risk_service import DocumentRiskService
+from app.utils.display_text import clean_document_title
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,17 @@ class AuditQAServer:
         self.document_risk_service = DocumentRiskService()
 
     def answer(self, db: Session, enterprise: EnterpriseProfile, question: str) -> dict:
-        risk_rows, document_risks, chunks = self._collect_context(db, enterprise, question)
+        try:
+            risk_rows, document_risks, chunks = self._collect_context(db, enterprise, question)
+        except Exception as exc:
+            logger.exception("chat context collection failed enterprise_id=%s error=%s", enterprise.id, exc)
+            fallback = self._fallback_chat_result()
+            return {
+                "answer": fallback["answer"],
+                "basis_level": "fallback_context",
+                "citations": [],
+                "suggested_actions": fallback["suggested_actions"],
+            }
         if not risk_rows and not chunks and not document_risks:
             logger.info("chat blocked enterprise_id=%s no risk rows or chunks", enterprise.id)
             return {
@@ -45,22 +57,13 @@ class AuditQAServer:
             context_variant="full",
         )
 
-        try:
-            result = self.llm_client.chat_completion(
-                system_prompt,
-                user_prompt,
-                json_mode=True,
-                request_kind="chat",
-                metadata={
-                    "enterprise_id": enterprise.id,
-                    "candidate_count": len(risk_rows) + len(document_risks) + len(chunks),
-                    "context_variant": context_variant,
-                    "llm_input_chars": len(user_prompt),
-                },
-            )
-        except (RuntimeError, LLMRequestError) as exc:
-            logger.warning("chat failed enterprise_id=%s error=%s", enterprise.id, exc)
-            result = None
+        result = self._run_chat_completion(
+            enterprise_id=enterprise.id,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context_variant=context_variant,
+            candidate_count=len(risk_rows) + len(document_risks) + len(chunks),
+        )
 
         citations = []
         for item in document_risks[:3]:
@@ -72,7 +75,7 @@ class AuditQAServer:
                     location.append(f"页码 {evidence.get('page_start') or '?'}-{evidence.get('page_end') or evidence.get('page_start') or '?'}")
                 citations.append(
                     {
-                        "title": " | ".join([part for part in [evidence.get("source_label"), *location] if part]) or item["risk_name"],
+                        "title": " | ".join([part for part in [clean_document_title(evidence.get("source_label")), *location] if part]) or item["risk_name"],
                         "content": str(evidence.get("snippet") or item.get("summary") or "")[:180],
                         "source_type": "document",
                     }
@@ -80,7 +83,7 @@ class AuditQAServer:
         if not citations:
             citations = [
                 {
-                    "title": chunk.title,
+                    "title": clean_document_title(chunk.title),
                     "content": chunk.content[:180],
                     "source_type": chunk.source_type,
                 }
@@ -127,6 +130,44 @@ class AuditQAServer:
             "citations": citations,
             "suggested_actions": suggested_actions,
         }
+
+    def _run_chat_completion(
+        self,
+        *,
+        enterprise_id: int,
+        system_prompt: str,
+        user_prompt: str,
+        context_variant: str,
+        candidate_count: int,
+    ) -> Any:
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audit-chat-llm")
+        future = executor.submit(
+            self.llm_client.chat_completion,
+            system_prompt,
+            user_prompt,
+            True,
+            6.0,
+            request_kind="chat",
+            metadata={
+                "enterprise_id": enterprise_id,
+                "candidate_count": candidate_count,
+                "context_variant": context_variant,
+                "llm_input_chars": len(user_prompt),
+            },
+            max_attempts=1,
+            strict_json_instruction=False,
+        )
+        try:
+            return future.result(timeout=6.5)
+        except FuturesTimeoutError:
+            logger.warning("chat llm timeout fallback enterprise_id=%s", enterprise_id)
+            future.cancel()
+            return None
+        except (RuntimeError, LLMRequestError) as exc:
+            logger.warning("chat failed enterprise_id=%s error=%s", enterprise_id, exc)
+            return None
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def _normalize_chat_result(self, result: object) -> dict[str, Any]:
         payload = self._select_chat_payload(result)

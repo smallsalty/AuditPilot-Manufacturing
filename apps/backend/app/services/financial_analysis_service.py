@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
+from app.utils.display_text import clean_document_title
 
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ class FinancialAnalysisService:
 
                 metric_payload = {
                     "document_id": document.id,
-                    "document_name": document.document_name,
+                    "document_name": clean_document_title(document.document_name),
                     "metric_name": metric_name,
                     "metric_value": extract.metric_value,
                     "metric_unit": extract.metric_unit,
@@ -117,7 +118,7 @@ class FinancialAnalysisService:
 
                 anomaly_payload = {
                     "document_id": document.id,
-                    "document_name": document.document_name,
+                    "document_name": clean_document_title(document.document_name),
                     "title": extract.title,
                     "summary": extract.problem_summary or extract.evidence_excerpt or extract.title,
                     "canonical_risk_key": extract.canonical_risk_key,
@@ -135,7 +136,7 @@ class FinancialAnalysisService:
                 evidence.append(
                     {
                         "document_id": document.id,
-                        "document_name": document.document_name,
+                        "document_name": clean_document_title(document.document_name),
                         "title": extract.title,
                         "snippet": extract.evidence_excerpt or extract.problem_summary or extract.title,
                         "period": period,
@@ -148,7 +149,7 @@ class FinancialAnalysisService:
             document_items.append(
                 {
                     "document_id": document.id,
-                    "document_name": document.document_name,
+                    "document_name": clean_document_title(document.document_name),
                     "classified_type": document_type,
                     "period": document.report_period_label,
                     "fiscal_year": document.fiscal_year,

@@ -113,3 +113,38 @@ class IngestionService:
                 inserted += 1
         db.commit()
         return inserted
+
+    def ingest_financials(
+        self,
+        db: Session,
+        enterprise: EnterpriseProfile,
+        provider_name: str,
+        include_quarterly: bool,
+        force_seed_fallback: bool = False,
+    ) -> tuple[int, str]:
+        provider = self.financial_providers["mock"] if force_seed_fallback else self.financial_providers.get(provider_name)
+        if provider is None:
+            raise ValueError(f"未知财务 provider: {provider_name}")
+
+        rows = provider.fetch_financials(enterprise.ticker, include_quarterly=include_quarterly)
+        if not rows:
+            return 0, provider.provider_name
+
+        db.execute(delete(FinancialIndicator).where(FinancialIndicator.enterprise_id == enterprise.id))
+        for row in rows:
+            db.add(
+                FinancialIndicator(
+                    enterprise_id=enterprise.id,
+                    period_type=row["period_type"],
+                    report_period=str(row["report_period"]),
+                    report_year=int(row["report_year"]),
+                    report_quarter=int(row["report_quarter"]) if row.get("report_quarter") not in ("", None) else None,
+                    indicator_code=row["indicator_code"],
+                    indicator_name=row["indicator_name"],
+                    value=float(row["value"]),
+                    unit=row.get("unit"),
+                    source=row.get("source", provider.provider_name),
+                )
+            )
+        db.commit()
+        return len(rows), provider.provider_name

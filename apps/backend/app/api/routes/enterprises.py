@@ -9,6 +9,7 @@ from app.services.dashboard_service import DashboardService
 from app.services.document_service import DocumentService
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 from app.services.financial_analysis_service import FinancialAnalysisService
+from app.utils.display_text import clean_document_title
 
 
 router = APIRouter()
@@ -111,7 +112,7 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
         items.append(
             {
                 "id": document.id,
-                "document_name": document.document_name,
+                "document_name": clean_document_title(document.document_name),
                 "document_type": document.document_type,
                 "classified_type": document.classified_type or document.document_type,
                 "parse_status": document.parse_status,

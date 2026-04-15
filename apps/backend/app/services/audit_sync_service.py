@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.models import DocumentMeta, EnterpriseProfile, ExternalEvent
 from app.providers import AkshareFastProvider, CninfoProvider
 from app.repositories.enterprise_repository import EnterpriseRepository
+from app.utils.display_text import clean_document_title, clean_file_name_like
 
 
 logger = logging.getLogger(__name__)
@@ -700,3 +701,115 @@ class AuditSyncService:
     def _sanitize_file_name(file_name: str) -> str:
         sanitized = "".join(char if char.isalnum() or char in ("-", "_", ".", " ") else "_" for char in file_name).strip()
         return sanitized[:180] or "document.pdf"
+
+    @staticmethod
+    def _normalize_document_title(title: Any) -> str:
+        cleaned = clean_document_title(title)
+        return cleaned or "未命名文档"
+
+    def _upsert_document(
+        self,
+        db: Session,
+        enterprise: EnterpriseProfile,
+        provider_name: str,
+        provider_priority: int,
+        official: bool,
+        payload: dict[str, Any],
+    ) -> tuple[DocumentMeta, bool]:
+        announcement_date = self._parse_date(payload.get("announcement_date"))
+        normalized_title = self._normalize_document_title(payload.get("title"))
+        content_hash = self._content_hash(
+            title=normalized_title,
+            announcement_date=announcement_date.isoformat() if announcement_date else "",
+            content=payload.get("content_text") or payload.get("source_url") or "",
+        )
+        existing = self._find_document(
+            db=db,
+            enterprise_id=enterprise.id,
+            source_object_id=payload.get("source_object_id"),
+            title=normalized_title,
+            announcement_date=announcement_date,
+            content_hash=content_hash,
+        )
+        created = existing is None
+        document = existing or DocumentMeta(
+            enterprise_id=enterprise.id,
+            document_name=normalized_title,
+        )
+        document.document_name = normalized_title
+        document.document_type = str(payload.get("document_type") or document.document_type or "annual_report")
+        document.source = provider_name
+        document.source_url = payload.get("source_url")
+        document.source_priority = provider_priority
+        document.sync_status = self.SYNC_FETCHED
+        document.ingestion_time = datetime.now(timezone.utc)
+        document.is_official_source = official
+        document.source_object_id = payload.get("source_object_id")
+        document.announcement_date = announcement_date
+        document.report_period_label = payload.get("report_period")
+        document.fiscal_year = self._guess_fiscal_year(document.document_name, announcement_date)
+        document.raw_payload = payload.get("raw_payload")
+        document.content_text = payload.get("content_text") or document.content_text
+        document.content_hash = content_hash
+        document.metadata_json = {
+            **(document.metadata_json or {}),
+            "source_payload": payload.get("raw_payload"),
+            "source_provider": provider_name,
+            "sync_diagnostics": payload.get("diagnostics"),
+        }
+        file_url = payload.get("document_url")
+        document.file_url = file_url
+        document.file_name = self._infer_file_name(document.document_name, file_url)
+        document.mime_type = self._infer_mime_type(file_url)
+        if file_url:
+            file_path, file_hash, file_size, download_status = self._download_file(
+                file_url,
+                enterprise.id,
+                document.file_name or document.document_name,
+            )
+            if file_path:
+                document.file_path = str(file_path)
+            if file_hash:
+                document.file_hash = file_hash
+            document.file_size = file_size
+            document.download_status = download_status
+        else:
+            document.download_status = "missing"
+        document.sync_status = self.SYNC_PARSE_QUEUED if document.file_path or document.content_text else self.SYNC_FETCHED
+        if created:
+            db.add(document)
+        db.flush()
+        return document, created
+
+    def _find_document(
+        self,
+        db: Session,
+        enterprise_id: int,
+        source_object_id: str | None,
+        title: str | None,
+        announcement_date: date | None,
+        content_hash: str,
+    ) -> DocumentMeta | None:
+        normalized_title = self._normalize_document_title(title)
+        if source_object_id:
+            stmt = select(DocumentMeta).where(
+                DocumentMeta.enterprise_id == enterprise_id,
+                DocumentMeta.source_object_id == source_object_id,
+            )
+            existing = db.scalar(stmt)
+            if existing is not None:
+                return existing
+        stmt = select(DocumentMeta).where(
+            DocumentMeta.enterprise_id == enterprise_id,
+            DocumentMeta.document_name == normalized_title,
+            DocumentMeta.announcement_date == announcement_date,
+            DocumentMeta.content_hash == content_hash,
+        )
+        return db.scalar(stmt)
+
+    @staticmethod
+    def _infer_file_name(title: str, file_url: str | None) -> str:
+        if file_url:
+            suffix = Path(file_url.split("?")[0]).suffix or ".pdf"
+            return clean_file_name_like(title, fallback_suffix=suffix)
+        return clean_file_name_like(title, fallback_suffix=".pdf")
