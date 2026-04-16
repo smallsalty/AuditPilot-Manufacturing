@@ -30,6 +30,9 @@ const BASIS_LEVEL_LABELS: Record<string, string> = {
   fallback_context: "依据等级：回退结果",
 };
 
+const COLLAPSED_ANSWER_MAX_HEIGHT = 224;
+const LONG_ANSWER_THRESHOLD = 320;
+
 export default function ChatPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError } = useEnterpriseContext();
   const { data: readiness, loading: readinessLoading, error: readinessError } = useReadinessResource(currentEnterpriseId);
@@ -37,11 +40,13 @@ export default function ChatPage() {
 
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
     setMessages([]);
+    setExpandedMessages({});
     setQuestion("");
     setChatError(null);
   }, [currentEnterpriseId]);
@@ -139,49 +144,79 @@ export default function ChatPage() {
         <Card>
           <div className="space-y-4">
             {messages.length > 0 ? (
-              messages.map((message, index) => (
-                <div key={`${message.role}-${index}`} className={message.role === "user" ? "ml-auto max-w-3xl" : "max-w-4xl"}>
-                  <div
-                    className={
-                      message.role === "user"
-                        ? "rounded-[24px] bg-ember px-5 py-4 text-white"
-                        : "rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-haze/85"
-                    }
-                  >
-                    {message.content}
-                  </div>
-                  {message.role === "assistant" && message.basisLevel ? (
-                    <p className="mt-2 text-xs uppercase tracking-[0.18em] text-steel">
-                      {BASIS_LEVEL_LABELS[message.basisLevel] ?? `依据等级：${message.basisLevel}`}
-                    </p>
-                  ) : null}
-                  {message.citations?.length ? (
-                    <div className="mt-3 space-y-2">
-                      {message.citations.map((citation, citationIndex) => (
-                        <div
-                          key={`${citation.title}-${citation.source_type}-${citationIndex}`}
-                          className="rounded-2xl border border-white/10 bg-black/10 p-4 text-sm text-haze/75"
+              messages.map((message, index) => {
+                const messageKey = `${message.role}-${index}`;
+                const isLongAssistantMessage =
+                  message.role === "assistant" && message.content.trim().length > LONG_ANSWER_THRESHOLD;
+                const expanded = expandedMessages[messageKey] ?? false;
+
+                return (
+                  <div key={messageKey} className={message.role === "user" ? "ml-auto max-w-3xl" : "max-w-4xl"}>
+                    <div
+                      className={
+                        message.role === "user"
+                          ? "rounded-[24px] bg-ember px-5 py-4 text-white"
+                          : "rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-haze/85"
+                      }
+                    >
+                      <div
+                        className="whitespace-pre-wrap break-words"
+                        style={
+                          isLongAssistantMessage && !expanded
+                            ? { maxHeight: `${COLLAPSED_ANSWER_MAX_HEIGHT}px`, overflow: "hidden" }
+                            : undefined
+                        }
+                      >
+                        {message.content}
+                      </div>
+                      {isLongAssistantMessage ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedMessages((current) => ({
+                              ...current,
+                              [messageKey]: !expanded,
+                            }))
+                          }
+                          className="mt-3 text-sm text-amber-300 transition hover:text-amber-200"
                         >
-                          <p className="font-medium text-white">{citation.title}</p>
-                          <p className="mt-2">{citation.content}</p>
-                          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-steel">
-                            {formatSourceType(citation.source_type)}
-                          </p>
-                        </div>
-                      ))}
+                          {expanded ? "收起" : "展开全文"}
+                        </button>
+                      ) : null}
                     </div>
-                  ) : null}
-                  {message.suggested_actions?.length ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {message.suggested_actions.map((action) => (
-                        <span key={action} className="rounded-full bg-white/5 px-3 py-1 text-xs text-haze/80">
-                          {action}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))
+                    {message.role === "assistant" && message.basisLevel ? (
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-steel">
+                        {BASIS_LEVEL_LABELS[message.basisLevel] ?? `依据等级：${message.basisLevel}`}
+                      </p>
+                    ) : null}
+                    {message.citations?.length ? (
+                      <div className="mt-3 space-y-2">
+                        {message.citations.map((citation, citationIndex) => (
+                          <div
+                            key={`${citation.title}-${citation.source_type}-${citationIndex}`}
+                            className="rounded-2xl border border-white/10 bg-black/10 p-4 text-sm text-haze/75"
+                          >
+                            <p className="font-medium text-white">{citation.title}</p>
+                            <p className="mt-2">{citation.content}</p>
+                            <p className="mt-2 text-xs uppercase tracking-[0.2em] text-steel">
+                              {formatSourceType(citation.source_type)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {message.suggested_actions?.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {message.suggested_actions.map((action) => (
+                          <span key={action} className="rounded-full bg-white/5 px-3 py-1 text-xs text-haze/80">
+                            {action}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
             ) : (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
                 当前还没有问答记录。可以直接点击推荐问题，或输入自定义问题。

@@ -224,7 +224,7 @@ function formatMappedValue(value: string | null | undefined, labels: Record<stri
   if (!value) {
     return fallback;
   }
-  return labels[value] ?? value;
+  return resolveMappedLabel(value, labels) ?? formatReadableFallbackValue(value);
 }
 
 export function formatAnalysisStatus(value: string | null | undefined): string {
@@ -319,14 +319,74 @@ const KNOWN_LABEL_GROUPS: Array<Record<string, string>> = [
   ANALYSIS_STATUS_LABELS,
 ];
 
+function normalizeLabelKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, "_");
+}
+
+function resolveMappedLabel(value: string, labels: Record<string, string>): string | null {
+  if (value in labels) {
+    return labels[value];
+  }
+  const normalized = normalizeLabelKey(value);
+  for (const [key, label] of Object.entries(labels)) {
+    if (normalizeLabelKey(key) === normalized) {
+      return label;
+    }
+  }
+  return null;
+}
+
+function formatReadableFallbackValue(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "--";
+  }
+  if (/[\u3400-\u9fff]/.test(trimmed)) {
+    return trimmed;
+  }
+  const normalized = trimmed.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "未映射项";
+  }
+  return normalized
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => {
+      if (part.length <= 3) {
+        return part.toUpperCase();
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function resolveKnownLabel(value: string): string | null {
+  for (const labels of KNOWN_LABEL_GROUPS) {
+    const matched = resolveMappedLabel(value, labels);
+    if (matched) {
+      return matched;
+    }
+  }
+  return null;
+}
+
 export function formatKnownLabel(value: string | null | undefined, fallback = "--"): string {
   if (!value) {
     return fallback;
   }
-  for (const labels of KNOWN_LABEL_GROUPS) {
-    if (value in labels) {
-      return labels[value];
+  return resolveKnownLabel(value) ?? formatReadableFallbackValue(value);
+}
+
+export function getFinancialAnalysisLabel(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+    const matched = resolveKnownLabel(value);
+    if (matched) {
+      return matched;
     }
   }
-  return value;
+  const firstValue = values.find((value): value is string => Boolean(value?.trim()));
+  return firstValue ? formatReadableFallbackValue(firstValue) : "--";
 }

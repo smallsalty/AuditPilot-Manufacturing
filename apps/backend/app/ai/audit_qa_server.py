@@ -1,4 +1,5 @@
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
@@ -15,12 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class AuditQAServer:
+    ABNORMAL_ANSWER_LIMIT = 4000
     DEFAULT_SUGGESTED_ACTIONS = [
         "查看风险清单中的文档证据",
         "优先复核高风险科目与披露依据",
         "补充获取合同、回款和库存等支持材料",
     ]
-    DEFAULT_FALLBACK_ANSWER = "系统已基于当前文档依据和风险结果生成兜底回答，请优先查看证据链并继续核查高风险事项。"
+    DEFAULT_FALLBACK_ANSWER = (
+        "系统已基于当前文档依据和风险结果生成兜底回答，请优先查看证据链并继续核查高风险事项。"
+    )
     CHAT_LLM_TIMEOUT_SECONDS = 18.0
     CHAT_WAIT_TIMEOUT_SECONDS = 18.5
 
@@ -74,10 +78,15 @@ class AuditQAServer:
                 if evidence.get("section_title"):
                     location.append(str(evidence.get("section_title")))
                 if evidence.get("page_start") or evidence.get("page_end"):
-                    location.append(f"页码 {evidence.get('page_start') or '?'}-{evidence.get('page_end') or evidence.get('page_start') or '?'}")
+                    location.append(
+                        f"页码 {evidence.get('page_start') or '?'}-{evidence.get('page_end') or evidence.get('page_start') or '?'}"
+                    )
                 citations.append(
                     {
-                        "title": " | ".join([part for part in [clean_document_title(evidence.get("source_label")), *location] if part]) or item["risk_name"],
+                        "title": " | ".join(
+                            [part for part in [clean_document_title(evidence.get("source_label")), *location] if part]
+                        )
+                        or item["risk_name"],
                         "content": str(evidence.get("snippet") or item.get("summary") or "")[:180],
                         "source_type": "document",
                     }
@@ -157,7 +166,7 @@ class AuditQAServer:
                 "llm_input_chars": len(user_prompt),
             },
             max_attempts=2,
-            max_tokens=512,
+            max_tokens=1024,
             strict_json_instruction=False,
         )
         try:
@@ -167,7 +176,12 @@ class AuditQAServer:
             future.cancel()
             return None
         except (RuntimeError, LLMRequestError) as exc:
-            logger.warning("chat failed fallback enterprise_id=%s error_type=%s status_code=%s", enterprise_id, getattr(exc, "error_type", None), getattr(exc, "status_code", None))
+            logger.warning(
+                "chat failed fallback enterprise_id=%s error_type=%s status_code=%s",
+                enterprise_id,
+                getattr(exc, "error_type", None),
+                getattr(exc, "status_code", None),
+            )
             return None
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
@@ -178,10 +192,7 @@ class AuditQAServer:
             return self._fallback_chat_result()
 
         answer = self._clean_answer_text(
-            payload.get("summary")
-            or payload.get("answer")
-            or payload.get("raw")
-            or payload.get("_text")
+            payload.get("summary") or payload.get("answer") or payload.get("raw") or payload.get("_text")
         )
         if not answer:
             answer = self.DEFAULT_FALLBACK_ANSWER
@@ -240,17 +251,54 @@ class AuditQAServer:
         text = str(value or "").strip()
         if not text:
             return ""
-        text = " ".join(text.split())
-        if len(text) > 320:
-            text = text[:320].rstrip("，；、 ") + "。"
-        return text
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = re.sub(r"```[\s\S]*?```", "\n", text)
+        text = re.sub(r"`([^`]+)`", r"\1", text)
+        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+        text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+        text = re.sub(r"(?m)^\s*>\s?", "", text)
+        text = re.sub(r"(?m)^\s*[-*+]\s+", "", text)
+        text = text.replace("**", "").replace("__", "")
+
+        paragraphs: list[str] = []
+        previous_normalized = ""
+        for block in re.split(r"\n{2,}", text):
+            lines = [re.sub(r"[ \t]+", " ", line).strip() for line in block.splitlines()]
+            paragraph = "\n".join([line for line in lines if line]).strip()
+            if not paragraph:
+                continue
+            normalized = re.sub(r"\s+", " ", paragraph)
+            if normalized == previous_normalized:
+                continue
+            paragraphs.append(paragraph)
+            previous_normalized = normalized
+
+        cleaned = "\n\n".join(paragraphs).strip()
+        cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        if len(cleaned) > self.ABNORMAL_ANSWER_LIMIT:
+            cleaned = self._truncate_abnormal_answer(cleaned, self.ABNORMAL_ANSWER_LIMIT)
+        return cleaned
+
+    def _truncate_abnormal_answer(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        window = text[:limit]
+        boundary = max(window.rfind("\n"), window.rfind("。"), window.rfind("！"), window.rfind("？"))
+        if boundary >= int(limit * 0.6):
+            window = window[: boundary + 1]
+        return window.rstrip(" ，；、\n") + "……"
+
+    def _clean_action_text(self, value: object) -> str:
+        cleaned = self._clean_answer_text(value)
+        return re.sub(r"\s+", " ", cleaned).strip()
 
     def _normalize_suggested_actions(self, value: object) -> list[str]:
         if not isinstance(value, list):
             return []
         actions: list[str] = []
         for item in value:
-            text = self._clean_answer_text(item)
+            text = self._clean_action_text(item)
             if text and text not in actions:
                 actions.append(text)
         return actions[:3]
@@ -289,14 +337,14 @@ class AuditQAServer:
         context_lines = []
         if context_variant == "risk_summary":
             for row in risk_rows[:3]:
-                reasons = "锛?".join((row.reasons or [])[:2])
+                reasons = "；".join((row.reasons or [])[:2])
                 context_lines.append(f"[risk]{row.risk_name}: score={row.risk_score}; reasons={reasons}")
             for row in document_risks[:3]:
                 evidence = ""
                 first_evidence = next(iter(row.get("evidence") or []), None)
                 if isinstance(first_evidence, dict):
                     evidence = str(first_evidence.get("snippet") or "")[:120]
-                summary = str(row.get("summary") or "锛?".join(row.get("reasons") or []))[:160]
+                summary = str(row.get("summary") or "；".join(row.get("reasons") or []))[:160]
                 context_lines.append(
                     f"[document_risk]{row.get('risk_name')}: level={row.get('risk_level')}; "
                     f"summary={summary}; evidence={evidence}"
@@ -307,10 +355,7 @@ class AuditQAServer:
             context_lines.extend([f"[风险]{row.risk_name}:{'；'.join(row.reasons)}" for row in risk_rows])
         if context_variant in {"full", "document_risks"}:
             context_lines.extend(
-                [
-                    f"[文档风险]{row['risk_name']}:{row.get('summary') or '；'.join(row.get('reasons') or [])}"
-                    for row in document_risks
-                ]
+                [f"[文档风险]{row['risk_name']}:{row.get('summary') or '；'.join(row.get('reasons') or [])}" for row in document_risks]
             )
         if context_variant in {"full", "chunks"}:
             context_lines.extend([f"[知识]{chunk.title}:{chunk.content[:180]}" for chunk in chunks])
@@ -325,6 +370,7 @@ class AuditQAServer:
             f"问题：{question}\n"
             f"当前依据等级：{basis_level}\n"
             f"上下文：\n{context}\n"
-            "请直接输出中文回答，概括判断、核心依据和下一步关注点，不要返回 JSON、代码块或额外格式说明。"
+            "请直接输出中文分析内容，可分自然段，必要时可使用少量中文序号，尽量控制在 300~800 字。"
+            "不要使用 Markdown 标题、代码块、表格、JSON 或额外格式说明。"
         )
         return basis_level, system_prompt, user_prompt, context_variant

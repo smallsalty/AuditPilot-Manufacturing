@@ -25,7 +25,7 @@ if "anthropic" not in sys.modules:
 from app.ai.audit_qa_server import AuditQAServer
 
 
-def test_chat_completion_uses_light_context_and_small_token_budget() -> None:
+def test_chat_completion_uses_light_context_and_updated_token_budget() -> None:
     captured: dict[str, object] = {}
 
     class FakeLLM:
@@ -43,7 +43,7 @@ def test_chat_completion_uses_light_context_and_small_token_budget() -> None:
     )
 
     assert result == {"summary": "ok"}
-    assert captured["kwargs"]["max_tokens"] == 512
+    assert captured["kwargs"]["max_tokens"] == 1024
     assert captured["kwargs"]["json_mode"] is False
     assert captured["kwargs"]["max_attempts"] == 2
     assert captured["kwargs"]["metadata"]["context_variant"] == "risk_summary"

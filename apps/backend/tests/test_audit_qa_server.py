@@ -61,6 +61,43 @@ def test_audit_qa_server_normalizes_raw_payload_to_fallback_answer() -> None:
     assert normalized["suggested_actions"]
 
 
+def test_clean_answer_text_preserves_long_response_without_short_truncation() -> None:
+    server = AuditQAServer()
+    raw = "这是审计结论。" * 80
+
+    cleaned = server._clean_answer_text(raw)
+
+    assert len(cleaned) > 320
+    assert cleaned == raw
+
+
+def test_clean_answer_text_keeps_semantics_and_removes_code_blocks() -> None:
+    server = AuditQAServer()
+    raw = "# 存货跌价风险\n\n1. **应收账款**周转放缓。\n\n```python\nprint('debug')\n```\n\n- 建议复核合同与回款。"
+
+    cleaned = server._clean_answer_text(raw)
+
+    assert "存货跌价风险" in cleaned
+    assert "应收账款" in cleaned
+    assert "建议复核合同与回款" in cleaned
+    assert "print('debug')" not in cleaned
+    assert "```" not in cleaned
+
+
+def test_normalize_suggested_actions_keeps_single_line_and_deduplicates() -> None:
+    server = AuditQAServer()
+
+    actions = server._normalize_suggested_actions(
+        [
+            "1. **复核存货**\n\n补看跌价准备。",
+            "1. **复核存货**\n\n补看跌价准备。",
+            "- 补查回款凭证",
+        ]
+    )
+
+    assert actions == ["1. 复核存货 补看跌价准备。", "补查回款凭证"]
+
+
 def test_chat_route_returns_200_for_list_payload(monkeypatch) -> None:
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",

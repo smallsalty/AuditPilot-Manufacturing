@@ -16,6 +16,7 @@ import {
   formatDocumentType,
   formatEventType,
   formatKnownLabel,
+  getFinancialAnalysisLabel,
   formatParseStatus,
   formatRuleCode,
   formatSourceName,
@@ -533,7 +534,7 @@ export default function DocumentsPage() {
                 <div className="space-y-3">
                   {financialAnalysis.anomalies.slice(0, 6).map((item) => (
                     <div key={`${item.document_id}-${item.title}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="font-medium text-white">{formatKnownLabel(item.title)}</p>
+                      <p className="font-medium text-white">{getFinancialAnalysisLabel(item.title, item.canonical_risk_key)}</p>
                       <p className="mt-2 text-sm text-haze/80">{item.summary}</p>
                       <p className="mt-2 text-xs text-haze/65">
                         {item.document_name}
