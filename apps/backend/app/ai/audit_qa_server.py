@@ -54,7 +54,7 @@ class AuditQAServer:
             risk_rows=risk_rows,
             document_risks=document_risks,
             chunks=chunks,
-            context_variant="full",
+            context_variant="risk_summary",
         )
 
         result = self._run_chat_completion(
@@ -155,6 +155,7 @@ class AuditQAServer:
                 "llm_input_chars": len(user_prompt),
             },
             max_attempts=1,
+            max_tokens=512,
             strict_json_instruction=False,
         )
         try:
@@ -265,11 +266,11 @@ class AuditQAServer:
             db.query(RiskIdentificationResult)
             .filter(RiskIdentificationResult.enterprise_id == enterprise.id)
             .order_by(RiskIdentificationResult.risk_score.desc())
-            .limit(5)
+            .limit(3)
             .all()
         )
-        document_risks = self.document_risk_service.list_risks(db, enterprise.id)[:5]
-        chunks = self.retrieval_service.retrieve(db, question, enterprise.id, top_k=5)
+        document_risks = self.document_risk_service.list_risks(db, enterprise.id)[:3]
+        chunks = [] if document_risks else self.retrieval_service.retrieve(db, question, enterprise.id, top_k=2)
         return risk_rows, document_risks, chunks
 
     def build_prompt_payload(
@@ -284,6 +285,22 @@ class AuditQAServer:
     ) -> tuple[str, str, str, str]:
         basis_level = "official_document" if chunks or document_risks else "structured_result"
         context_lines = []
+        if context_variant == "risk_summary":
+            for row in risk_rows[:3]:
+                reasons = "锛?".join((row.reasons or [])[:2])
+                context_lines.append(f"[risk]{row.risk_name}: score={row.risk_score}; reasons={reasons}")
+            for row in document_risks[:3]:
+                evidence = ""
+                first_evidence = next(iter(row.get("evidence") or []), None)
+                if isinstance(first_evidence, dict):
+                    evidence = str(first_evidence.get("snippet") or "")[:120]
+                summary = str(row.get("summary") or "锛?".join(row.get("reasons") or []))[:160]
+                context_lines.append(
+                    f"[document_risk]{row.get('risk_name')}: level={row.get('risk_level')}; "
+                    f"summary={summary}; evidence={evidence}"
+                )
+            for chunk in chunks[:2]:
+                context_lines.append(f"[evidence]{clean_document_title(chunk.title)}:{chunk.content[:100]}")
         if context_variant in {"full", "risk_rows"}:
             context_lines.extend([f"[风险]{row.risk_name}:{'；'.join(row.reasons)}" for row in risk_rows])
         if context_variant in {"full", "document_risks"}:

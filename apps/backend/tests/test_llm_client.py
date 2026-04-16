@@ -176,6 +176,31 @@ def test_llm_client_extracts_top_level_list_from_wrapped_text(monkeypatch) -> No
     assert result["items"] == [{"summary": "ok"}]
 
 
+def test_llm_client_partially_recovers_truncated_array(monkeypatch) -> None:
+    class DummyMessages:
+        def create(self, **_: object) -> object:
+            text = '[{"summary":"one","event_type":"executive_change"},{"summary":"two"'
+            block = type("Block", (), {"text": text})()
+            return type("Response", (), {"content": [block]})()
+
+    class DummyAnthropic:
+        def __init__(self, **_: object) -> None:
+            self.messages = DummyMessages()
+
+    monkeypatch.setattr(llm_client_module.settings, "llm_api_key", "mini-key")
+    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/anthropic")
+    monkeypatch.setattr(llm_client_module.settings, "llm_model", "MiniMax-M2.5")
+    monkeypatch.setattr(llm_client_module, "Anthropic", DummyAnthropic)
+
+    client = llm_client_module.LLMClient()
+    result = client.chat_completion("system", "user", json_mode=True)
+
+    assert result["parsed_ok"] is True
+    assert result["payload_mode"] == "partial_list"
+    assert result["truncated_json_prefix"] is True
+    assert result["items"] == [{"summary": "one", "event_type": "executive_change"}]
+
+
 def test_llm_client_returns_raw_payload_markers_when_json_is_unrecoverable(monkeypatch) -> None:
     class DummyMessages:
         def create(self, **_: object) -> object:

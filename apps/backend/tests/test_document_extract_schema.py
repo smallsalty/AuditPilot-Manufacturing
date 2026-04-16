@@ -379,6 +379,31 @@ def test_llm_extract_partially_recovers_complete_items_from_truncated_array() ->
     assert items[1]["event_type"] == "major_contract"
 
 
+def test_llm_extract_accepts_llm_client_partial_list_payload() -> None:
+    service = DocumentService()
+
+    items = service._extract_llm_items(
+        {
+            "parsed_ok": True,
+            "payload_mode": "partial_list",
+            "raw_prefix_kind": "array_prefix",
+            "truncated_json_prefix": True,
+            "items": [
+                {
+                    "summary": "寮傚父",
+                    "event_type": "executive_change",
+                    "extract_family": "financial_statement",
+                    "evidence_excerpt": "钁ｄ簨鍙樻洿",
+                }
+            ],
+        },
+        document_id=8,
+    )
+
+    assert len(items) == 1
+    assert items[0]["event_type"] == "executive_change"
+
+
 def test_llm_extract_records_truncated_json_fallback_when_nothing_recoverable() -> None:
     service = DocumentService()
 

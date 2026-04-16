@@ -53,6 +53,7 @@ class DocumentService:
         "general": 2,
     }
     MAX_LLM_CANDIDATES = 10
+    LLM_EXTRACT_CANDIDATE_LIMIT = 5
     MAX_EVIDENCE_CHARS = 220
     EXTRACT_FAMILY_BY_EVENT_TYPE = {
         "financial_anomaly": "financial_statement",
@@ -753,7 +754,7 @@ class DocumentService:
                 extract_count=0,
             )
             return self._fallback_extracts(document, [], classified_type)
-        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.MAX_LLM_CANDIDATES])
+        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT])
         if self.llm_client.config_error:
             self._set_extraction_trace(
                 analysis_mode="rule_only",
@@ -1010,15 +1011,31 @@ class DocumentService:
         if self.llm_client.config_error:
             return "", ""
         lines = []
-        for index, item in enumerate(candidates[: self.MAX_LLM_CANDIDATES], start=1):
+        for index, item in enumerate(candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT], start=1):
+            evidence = self._trim_evidence_safe(str(item.get("evidence_excerpt") or ""), limit=120)
+            summary = self._trim_evidence_safe(str(item.get("summary") or ""), limit=120)
+            parameters = item.get("parameters") or {}
+            metric_name = item.get("metric_name") or parameters.get("metric_name") or ""
             lines.append(
-                f"{index}. title={item['title']}\nfamily={item['extract_family']}\nrisk={item.get('canonical_risk_key') or ''}\n"
-                f"event={item.get('event_type') or ''}\nopinion={item.get('opinion_type') or ''}\n"
-                f"summary={item.get('summary') or ''}\nparameters={json.dumps(item.get('parameters') or {}, ensure_ascii=False)}\n"
-                f"evidence={item['evidence_excerpt']}"
+                f"{index}. id={index}; event={item.get('event_type') or ''}; "
+                f"risk={item.get('canonical_risk_key') or ''}; metric={metric_name}; "
+                f"summary={summary}; evidence={evidence}"
             )
         system_prompt = "你是上市公司披露文档抽取助手。请仅对候选段做结构化归纳，返回 JSON 数组。每项必须包含 summary、parameters、event_type、extract_family、evidence_excerpt，不要回显整段原文，不要新增枚举外事件类型。"
         user_prompt = f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，保留固定枚举 event_type，并让 parameters 为扁平 JSON 对象。\n" + "\n".join(lines)
+        system_prompt = (
+            "You extract audit-risk signals from listed-company disclosures. "
+            "Return JSON array only. Each item must contain only: "
+            "summary, parameters, event_type, evidence_excerpt. "
+            "Do not add markdown, prose, or extra raw text."
+        )
+        user_prompt = (
+            f"document: {clean_document_title(document.document_name) or document.document_name}\n"
+            f"type: {classified_type}\n"
+            "Pick 1 to 5 important items from candidates. Keep event_type stable. "
+            "parameters must be a flat JSON object.\n"
+            + "\n".join(lines)
+        )
         user_prompt = user_prompt.replace(str(document.document_name), clean_document_title(document.document_name) or str(document.document_name), 1)
         return system_prompt, user_prompt
 
@@ -1035,9 +1052,13 @@ class DocumentService:
                 "document_id": document.id,
                 "enterprise_id": document.enterprise_id,
                 "classified_type": classified_type,
-                "candidate_count": min(len(candidates), self.MAX_LLM_CANDIDATES),
-                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.MAX_LLM_CANDIDATES]),
+                "candidate_count": min(len(candidates), self.LLM_EXTRACT_CANDIDATE_LIMIT),
+                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
             },
+            max_tokens=1024,
+            max_attempts=1,
+            timeout=30.0,
+            strict_json_instruction=False,
         )
         if isinstance(result, list):
             return [item for item in result if isinstance(item, dict)]
@@ -1589,9 +1610,13 @@ class DocumentService:
                 "document_id": document.id,
                 "enterprise_id": document.enterprise_id,
                 "classified_type": classified_type,
-                "candidate_count": min(len(candidates), self.MAX_LLM_CANDIDATES),
-                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.MAX_LLM_CANDIDATES]),
+                "candidate_count": min(len(candidates), self.LLM_EXTRACT_CANDIDATE_LIMIT),
+                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
             },
+            max_tokens=1024,
+            max_attempts=1,
+            timeout=30.0,
+            strict_json_instruction=False,
         )
         return self._extract_llm_items(result)
 
@@ -1601,6 +1626,14 @@ class DocumentService:
         if not isinstance(result, dict):
             return []
         if isinstance(result.get("items"), list):
+            if result.get("payload_mode") == "partial_list":
+                logger.info(
+                    "document_extract partial_json_recovered document_id=%s payload_mode=%s raw_prefix_kind=%s recovered_count=%s",
+                    None,
+                    result.get("payload_mode"),
+                    result.get("raw_prefix_kind"),
+                    len(result.get("items") or []),
+                )
             return [item for item in result["items"] if isinstance(item, dict)]
         if isinstance(result.get("extracts"), list):
             return [item for item in result["extracts"] if isinstance(item, dict)]
@@ -1808,7 +1841,7 @@ class DocumentService:
                 extract_count=0,
             )
             return self._fallback_extracts(document, [], classified_type)
-        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.MAX_LLM_CANDIDATES])
+        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT])
         if self.llm_client.config_error:
             self._set_extraction_trace(
                 analysis_mode="rule_only",
@@ -1885,9 +1918,13 @@ class DocumentService:
                 "document_id": document.id,
                 "enterprise_id": document.enterprise_id,
                 "classified_type": classified_type,
-                "candidate_count": min(len(candidates), self.MAX_LLM_CANDIDATES),
-                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.MAX_LLM_CANDIDATES]),
+                "candidate_count": min(len(candidates), self.LLM_EXTRACT_CANDIDATE_LIMIT),
+                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
             },
+            max_tokens=1024,
+            max_attempts=1,
+            timeout=30.0,
+            strict_json_instruction=False,
         )
         return self._extract_llm_items(result, document_id=document.id)
 
@@ -1898,6 +1935,14 @@ class DocumentService:
         if not isinstance(result, dict):
             return []
         if isinstance(result.get("items"), list):
+            if result.get("payload_mode") == "partial_list":
+                logger.info(
+                    "document_extract partial_json_recovered document_id=%s payload_mode=%s raw_prefix_kind=%s recovered_count=%s",
+                    document_id,
+                    result.get("payload_mode"),
+                    result.get("raw_prefix_kind"),
+                    len(result.get("items") or []),
+                )
             return [item for item in result["items"] if isinstance(item, dict)]
         if isinstance(result.get("extracts"), list):
             return [item for item in result["extracts"] if isinstance(item, dict)]
