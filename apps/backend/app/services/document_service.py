@@ -969,11 +969,12 @@ class DocumentService:
             score -= 6.0
         return score
 
-    def _trim_evidence_safe(self, text: str) -> str:
+    def _trim_evidence_safe(self, text: str, limit: int | None = None) -> str:
+        max_chars = limit or self.MAX_EVIDENCE_CHARS
         evidence = text.strip()
-        if len(evidence) <= self.MAX_EVIDENCE_CHARS:
+        if len(evidence) <= max_chars:
             return evidence
-        trimmed = evidence[: self.MAX_EVIDENCE_CHARS].rstrip("，,；; ")
+        trimmed = evidence[:max_chars].rstrip("，,；; ")
         return f"{trimmed}…"
 
     def _trim_evidence(self, text: str) -> str:

@@ -364,4 +364,6 @@ def test_financial_analysis_service_uses_text_mode_for_summary(monkeypatch, capl
     assert llm_client.calls
     assert llm_client.calls[0]["json_mode"] is False
     assert llm_client.calls[0]["max_tokens"] == 220
+    assert llm_client.calls[0]["max_attempts"] == 1
+    assert llm_client.calls[0]["strict_json_instruction"] is False
     assert "financial_analysis_summary text mode used" in caplog.text

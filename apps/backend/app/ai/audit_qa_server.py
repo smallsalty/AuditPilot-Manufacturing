@@ -165,7 +165,7 @@ class AuditQAServer:
             future.cancel()
             return None
         except (RuntimeError, LLMRequestError) as exc:
-            logger.warning("chat failed enterprise_id=%s error=%s", enterprise_id, exc)
+            logger.warning("chat failed fallback enterprise_id=%s error_type=%s status_code=%s", enterprise_id, getattr(exc, "error_type", None), getattr(exc, "status_code", None))
             return None
         finally:
             executor.shutdown(wait=False, cancel_futures=True)

@@ -339,6 +339,14 @@ def test_llm_extract_accepts_recovered_raw_array() -> None:
     assert items[0]["event_type"] == "executive_change"
 
 
+def test_trim_evidence_safe_accepts_custom_limit() -> None:
+    service = DocumentService()
+
+    trimmed = service._trim_evidence_safe("abcdefghijklmnopqrstuvwxyz", limit=10)
+
+    assert trimmed == "abcdefghij…"
+
+
 def test_normalize_extract_payload_reconciles_event_family_mismatch() -> None:
     service = DocumentService()
     document = _document("2024年年度报告", "annual_report", "2024年度")

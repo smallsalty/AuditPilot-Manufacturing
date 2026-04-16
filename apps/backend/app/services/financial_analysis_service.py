@@ -568,7 +568,8 @@ class FinancialAnalysisService:
                     "context_variant": "financial_analysis_summary",
                 },
                 max_tokens=220,
-                max_attempts=2,
+                max_attempts=1,
+                strict_json_instruction=False,
             )
             summary = self._extract_summary_text(result)
             if summary:
