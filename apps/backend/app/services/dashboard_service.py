@@ -1,9 +1,10 @@
 from collections import defaultdict
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.repositories.enterprise_repository import EnterpriseRepository
-from app.repositories.risk_repository import RiskRepository
+from app.services.document_risk_service import DocumentRiskService
 from app.services.risk_analysis_service import RiskAnalysisService
 
 
@@ -14,6 +15,42 @@ class DashboardService:
         "合规风险": "compliance",
         "内控风险": "compliance",
     }
+    DOCUMENT_RISK_CATEGORY_MAP = {
+        "revenue_recognition": "financial",
+        "receivable_recoverability": "financial",
+        "inventory_impairment": "operational",
+        "cashflow_quality": "financial",
+        "related_party_transaction": "compliance",
+        "related_party_funds_occupation": "compliance",
+        "litigation_compliance": "compliance",
+        "internal_control_effectiveness": "compliance",
+        "audit_opinion_issue": "compliance",
+        "going_concern": "financial",
+        "financing_pressure": "financial",
+        "governance_instability": "compliance",
+        "market_signal_conflict": "operational",
+        "uncategorized": "operational",
+    }
+
+    def _is_scored_risk(self, risk: dict[str, Any]) -> bool:
+        return not (
+            risk.get("source_type") == "baseline"
+            or risk.get("source_mode") == "baseline_observation"
+            or risk.get("is_baseline_observation") is True
+        )
+
+    def _resolve_bucket(self, risk: dict[str, Any]) -> str:
+        risk_category = str(risk.get("risk_category") or "")
+        if risk_category in self.CATEGORY_MAP:
+            return self.CATEGORY_MAP[risk_category]
+        canonical_risk_key = str(risk.get("canonical_risk_key") or "")
+        return self.DOCUMENT_RISK_CATEGORY_MAP.get(canonical_risk_key, "operational")
+
+    def _sort_risks(self, risks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            [risk for risk in risks if self._is_scored_risk(risk)],
+            key=lambda item: (-float(item.get("risk_score") or 0), str(item.get("risk_name") or "")),
+        )
 
     def build_dashboard(self, db: Session, enterprise_id: int) -> dict:
         enterprise_repo = EnterpriseRepository(db)
@@ -22,18 +59,20 @@ class DashboardService:
             raise ValueError("企业不存在。")
 
         analysis_state = RiskAnalysisService().get_analysis_state(db, enterprise_id)
-        results = RiskRepository(db).list_results(enterprise_id)
-        scored_results = [result for result in results if result.source_type != "baseline"]
+        scored_results = self._sort_risks(DocumentRiskService().list_risks(db, enterprise_id))
         score_buckets = defaultdict(list)
         for result in scored_results:
-            bucket = self.CATEGORY_MAP.get(result.risk_category, "operational")
-            score_buckets[bucket].append(result.risk_score)
+            bucket = self._resolve_bucket(result)
+            score_buckets[bucket].append(float(result.get("risk_score") or 0))
 
         financial = round(sum(score_buckets["financial"]) / max(1, len(score_buckets["financial"])), 1)
         operational = round(sum(score_buckets["operational"]) / max(1, len(score_buckets["operational"])), 1)
         compliance = round(sum(score_buckets["compliance"]) / max(1, len(score_buckets["compliance"])), 1)
         total = round((financial + operational + compliance) / 3 if scored_results else 0, 1)
-        trend = [{"report_period": f"T{idx}", "risk_score": result.risk_score} for idx, result in enumerate(scored_results[:6], 1)]
+        trend = [
+            {"report_period": f"T{idx}", "risk_score": float(result.get("risk_score") or 0)}
+            for idx, result in enumerate(scored_results[:6], 1)
+        ]
 
         return {
             "enterprise": {
@@ -62,11 +101,11 @@ class DashboardService:
             "trend": trend or [{"report_period": "未分析", "risk_score": 0}],
             "top_risks": [
                 {
-                    "id": result.id,
-                    "risk_name": result.risk_name,
-                    "risk_level": result.risk_level,
-                    "risk_score": result.risk_score,
-                    "source_type": result.source_type,
+                    "id": int(result.get("id") or 0),
+                    "risk_name": str(result.get("risk_name") or ""),
+                    "risk_level": str(result.get("risk_level") or ""),
+                    "risk_score": float(result.get("risk_score") or 0),
+                    "source_type": str(result.get("source_type") or ""),
                 }
                 for result in scored_results[:5]
             ],

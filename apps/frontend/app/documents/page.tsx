@@ -7,6 +7,18 @@ import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import {
+  formatAnalysisGroup,
+  formatAnalysisMode,
+  formatAnalysisStatus,
+  formatCacheState,
+  formatCanonicalRiskKey,
+  formatDocumentType,
+  formatEventType,
+  formatParseStatus,
+  formatRuleCode,
+  formatSourceName,
+} from "@/lib/display-labels";
 import { useDocumentsResource, useFinancialAnalysisResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 const CLASSIFICATION_OPTIONS = [
@@ -30,27 +42,6 @@ const EVENT_OPTIONS = [
   "internal_control_issue",
 ];
 
-const PARSE_STATUS_LABELS: Record<string, string> = {
-  uploaded: "已上传",
-  parsing: "解析中",
-  parsed: "已解析",
-  failed: "解析失败",
-};
-
-const ANALYSIS_STATUS_LABELS: Record<string, string> = {
-  pending: "待分析",
-  running: "分析中",
-  succeeded: "分析完成",
-  partial_fallback: "部分回退",
-  failed: "分析失败",
-};
-
-const ANALYSIS_MODE_LABELS: Record<string, string> = {
-  llm_primary: "MiniMax 主链",
-  hybrid_fallback: "LLM + 规则回退",
-  rule_only: "规则兜底",
-};
-
 const EMPTY_REASON_LABELS: Record<string, string> = {
   no_sync_run: "该企业还没有执行过官方同步，请先手动同步或上传文档。",
   generic_window_no_documents: "当前同步窗口内没有命中官方文档，建议手动刷新或重新同步。",
@@ -70,7 +61,7 @@ function renderStructuredFields(extract: DocumentExtractItem) {
     rows.push(`数值：${extract.metric_name} ${extract.metric_value ?? "-"} ${extract.metric_unit ?? ""}`.trim());
   }
   if (extract.event_type) {
-    rows.push(`事件：${extract.event_type}`);
+    rows.push(`事件：${formatEventType(extract.event_type)}`);
   }
   if (extract.amount != null) {
     rows.push(`金额：${extract.amount}`);
@@ -96,27 +87,6 @@ function formatTimestamp(value?: string | null): string {
     return value;
   }
   return date.toLocaleString("zh-CN", { hour12: false });
-}
-
-function getParseStatusLabel(status?: string | null): string {
-  if (!status) {
-    return "待处理";
-  }
-  return PARSE_STATUS_LABELS[status] ?? status;
-}
-
-function getAnalysisStatusLabel(status?: string | null): string {
-  if (!status) {
-    return "待分析";
-  }
-  return ANALYSIS_STATUS_LABELS[status] ?? status;
-}
-
-function getAnalysisModeLabel(mode?: string | null): string {
-  if (!mode) {
-    return "待生成";
-  }
-  return ANALYSIS_MODE_LABELS[mode] ?? mode;
 }
 
 export default function DocumentsPage() {
@@ -405,13 +375,16 @@ export default function DocumentsPage() {
                         <div>
                           <p className="font-medium text-white">{document.document_name}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">
-                            {document.classified_type ?? document.document_type} | {getParseStatusLabel(document.parse_status)} | {document.source}
+                            {formatDocumentType(document.classified_type ?? document.document_type)} |{" "}
+                            {formatParseStatus(document.parse_status)} | {formatSourceName(document.source)}
                           </p>
                           <p className="mt-2 text-xs text-haze/65">
-                            分析状态：{getAnalysisStatusLabel(document.analysis_status)} | {getAnalysisModeLabel(document.analysis_mode)}
+                            分析状态：{formatAnalysisStatus(document.analysis_status)} | {formatAnalysisMode(document.analysis_mode)}
                           </p>
                           {document.analysis_groups?.length ? (
-                            <p className="mt-2 text-xs text-haze/65">分析分组：{document.analysis_groups.join(" / ")}</p>
+                            <p className="mt-2 text-xs text-haze/65">
+                              分析分组：{document.analysis_groups.map((item) => formatAnalysisGroup(item)).join(" / ")}
+                            </p>
                           ) : null}
                           {document.last_error_message ? (
                             <p className="mt-2 text-xs text-amber-200">
@@ -429,7 +402,7 @@ export default function DocumentsPage() {
                           >
                             {CLASSIFICATION_OPTIONS.map((option) => (
                               <option key={option} value={option}>
-                                {option}
+                                {formatDocumentType(option)}
                               </option>
                             ))}
                           </select>
@@ -487,8 +460,14 @@ export default function DocumentsPage() {
                           <section>
                             <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">规则与风险键</p>
                             <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
-                              <p>规则：{extract.applied_rules.length ? extract.applied_rules.join(" / ") : "未命中"}</p>
-                              {extract.canonical_risk_key ? <p className="mt-2">风险键：{extract.canonical_risk_key}</p> : null}
+                              {extract.applied_rules.length ? (
+                                <p>规则：{extract.applied_rules.map((item) => formatRuleCode(item)).join(" / ")}</p>
+                              ) : (
+                                <p>规则：未命中</p>
+                              )}
+                              {extract.canonical_risk_key ? (
+                                <p className="mt-2">风险键：{formatCanonicalRiskKey(extract.canonical_risk_key)}</p>
+                              ) : null}
                             </div>
                           </section>
                           <section>
@@ -519,7 +498,7 @@ export default function DocumentsPage() {
                                 <option value="">请选择事件类型</option>
                                 {EVENT_OPTIONS.map((option) => (
                                   <option key={option} value={option}>
-                                    {option}
+                                    {formatEventType(option)}
                                   </option>
                                 ))}
                               </select>
@@ -545,7 +524,7 @@ export default function DocumentsPage() {
               <div className="mt-3 flex flex-wrap gap-3 text-xs text-haze/65">
                 <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
                 <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "MiniMax" : "降级摘要"}</span>
-                <span>返回来源：{financialAnalysis.cache_state}</span>
+                <span>返回来源：{formatCacheState(financialAnalysis.cache_state)}</span>
               </div>
             ) : null}
             {financialAnalysis?.anomalies?.length ? (

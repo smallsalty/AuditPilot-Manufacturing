@@ -6,6 +6,7 @@ import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { formatSourceType } from "@/lib/display-labels";
 import { useDocumentsResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 type ChatMessage = {
@@ -162,7 +163,9 @@ export default function ChatPage() {
                         >
                           <p className="font-medium text-white">{citation.title}</p>
                           <p className="mt-2">{citation.content}</p>
-                          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-steel">{citation.source_type}</p>
+                          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-steel">
+                            {formatSourceType(citation.source_type)}
+                          </p>
                         </div>
                       ))}
                     </div>

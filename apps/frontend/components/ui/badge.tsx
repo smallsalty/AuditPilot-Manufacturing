@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { formatRiskLevel } from "@/lib/display-labels";
 
 const palette = {
   HIGH: "bg-red-500/20 text-red-200 border-red-400/30",
@@ -9,8 +10,7 @@ const palette = {
   default: "bg-white/10 text-haze border-white/15",
 };
 
-export function Badge({ value }: { value: string }) {
+export function Badge({ value, label }: { value: string; label?: string }) {
   const style = palette[value as keyof typeof palette] ?? palette.default;
-  return <span className={cn("rounded-full border px-3 py-1 text-xs font-medium", style)}>{value}</span>;
+  return <span className={cn("rounded-full border px-3 py-1 text-xs font-medium", style)}>{label ?? formatRiskLevel(value)}</span>;
 }
-

@@ -8,6 +8,7 @@ import { RiskTable } from "@/components/risk-table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { formatCacheState } from "@/lib/display-labels";
 import {
   useDashboardResource,
   useFinancialAnalysisResource,
@@ -169,7 +170,7 @@ export default function RisksPage() {
               <div className="mt-3 flex flex-wrap gap-3 text-xs text-haze/65">
                 <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
                 <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "MiniMax" : "降级摘要"}</span>
-                <span>返回来源：{financialAnalysis.cache_state}</span>
+                <span>返回来源：{formatCacheState(financialAnalysis.cache_state)}</span>
                 <span>{financialAnalysisLoading ? "读取中" : "已就绪"}</span>
               </div>
             ) : null}
@@ -221,7 +222,11 @@ export default function RisksPage() {
               risks={displayRisks}
               enterpriseId={currentEnterpriseId}
               onChanged={async () => {
-                await refreshRisks();
+                if (!currentEnterpriseId) {
+                  return;
+                }
+                invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "riskResults"]);
+                await Promise.allSettled([refreshRisks({ force: true }), refreshDashboard({ force: true })]);
               }}
             />
           ) : (

@@ -14,6 +14,15 @@ import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import {
+  formatAnalysisStatus,
+  formatExchange,
+  formatSeverity,
+  formatSourceName,
+  formatStatus,
+  formatSyncStatus,
+  formatTimelineItemType,
+} from "@/lib/display-labels";
 
 type PageState = {
   profile: AuditProfilePayload | null;
@@ -119,7 +128,7 @@ export default function EnterpriseDetailPage() {
             </h2>
             <p className="mt-2 text-haze/75">
               {state.profile
-                ? `${state.profile.company.ticker} | ${state.profile.company.industry_tag} | ${state.profile.company.exchange}`
+                ? `${state.profile.company.ticker} | ${state.profile.company.industry_tag} | ${formatExchange(state.profile.company.exchange)}`
                 : "查看企业主数据、公告时间线、监管信号和同步状态。"}
             </p>
             {syncMessage ? <p className="mt-3 text-sm text-amber-200">{syncMessage}</p> : null}
@@ -166,7 +175,9 @@ export default function EnterpriseDetailPage() {
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             <Card>
               <p className="text-xs uppercase tracking-[0.24em] text-steel">同步状态</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{state.readiness?.sync_status ?? state.profile.sync_status}</p>
+              <p className="mt-3 text-2xl font-semibold text-white">
+                {formatSyncStatus(state.readiness?.sync_status ?? state.profile.sync_status)}
+              </p>
               <p className="mt-2 text-sm text-haze/75">
                 最近同步：{state.readiness?.last_sync_at ?? state.profile.latest_sync_at ?? "尚未同步"}
               </p>
@@ -188,7 +199,7 @@ export default function EnterpriseDetailPage() {
             <Card>
               <p className="text-xs uppercase tracking-[0.24em] text-steel">风险分析状态</p>
               <p className="mt-3 text-2xl font-semibold text-white">
-                {state.readiness?.risk_analysis_status ?? state.profile.data_sources?.risk_analysis_status ?? "not_started"}
+                {formatAnalysisStatus(state.readiness?.risk_analysis_status ?? state.profile.data_sources?.risk_analysis_status)}
               </p>
               <p className="mt-2 text-sm text-haze/75">问答可用：{state.readiness?.qa_ready ? "是" : "否"}</p>
             </Card>
@@ -201,7 +212,7 @@ export default function EnterpriseDetailPage() {
                 <p>企业名称：{state.profile.company.name}</p>
                 <p>股票代码：{state.profile.company.ticker}</p>
                 <p>行业：{state.profile.company.industry_tag}</p>
-                <p>交易所：{state.profile.company.exchange}</p>
+                <p>交易所：{formatExchange(state.profile.company.exchange)}</p>
                 <p>
                   所在地：{state.profile.company.province ?? "--"} / {state.profile.company.city ?? "--"}
                 </p>
@@ -214,16 +225,16 @@ export default function EnterpriseDetailPage() {
               <p className="text-xs uppercase tracking-[0.24em] text-steel">数据来源与状态</p>
               <div className="mt-4 space-y-3 text-sm text-haze/80">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  企业主数据来源：{state.profile.data_sources?.profile ?? "akshare_fast"}
+                  企业主数据来源：{formatSourceName(state.profile.data_sources?.profile ?? "akshare_fast")}
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  公告与文档来源：{state.profile.data_sources?.documents ?? "cninfo / upload"}
+                  公告与文档来源：{formatSourceName(state.profile.data_sources?.documents ?? "cninfo / upload")}
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  事件来源：{state.profile.data_sources?.events ?? "cninfo / upload"}
+                  事件来源：{formatSourceName(state.profile.data_sources?.events ?? "cninfo / upload")}
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  当前风险分析状态：{state.profile.data_sources?.risk_analysis_status ?? "--"}
+                  当前风险分析状态：{formatAnalysisStatus(state.profile.data_sources?.risk_analysis_status)}
                 </div>
               </div>
             </Card>
@@ -239,13 +250,13 @@ export default function EnterpriseDetailPage() {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <p className="font-medium text-white">{item.title}</p>
                         <span className="text-xs uppercase tracking-[0.2em] text-steel">
-                          {item.item_type} | {item.date ?? "未知日期"}
+                          {formatTimelineItemType(item.item_type)} | {item.date ?? "未知日期"}
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-haze/75">{item.summary}</p>
                       <p className="mt-2 text-xs text-steel">
-                        {item.source} | {item.status}
-                        {item.severity ? ` | ${item.severity}` : ""}
+                        {formatSourceName(item.source)} | {formatStatus(item.status)}
+                        {item.severity ? ` | ${formatSeverity(item.severity)}` : ""}
                       </p>
                     </div>
                   ))}

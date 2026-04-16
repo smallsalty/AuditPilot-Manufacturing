@@ -6,35 +6,18 @@ import type { RiskResultPayload } from "@auditpilot/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
-
-const EVIDENCE_TYPE_LABELS: Record<string, string> = {
-  announcement: "公告",
-  annual_report: "年报",
-  penalty: "处罚",
-  inquiry_letter: "问询",
-  financial_indicator: "财务指标",
-  industry_signal: "行业信号",
-  uploaded_document: "上传文档",
-  derived_risk_result: "派生结果",
-};
-
-const EVIDENCE_STATUS_LABELS: Record<string, string> = {
-  document_supported: "文档证据支持",
-  document_plus_rule: "文档+规则共同支持",
-  rule_inferred: "规则推断，待文档验证",
-};
-const CANONICAL_RISK_KEYS = [
-  "revenue_recognition",
-  "receivable_recoverability",
-  "inventory_impairment",
-  "cashflow_quality",
-  "related_party_funds_occupation",
-  "litigation_compliance",
-  "internal_control_effectiveness",
-  "going_concern",
-  "financing_pressure",
-  "governance_instability",
-];
+import {
+  CANONICAL_RISK_KEYS,
+  formatCanonicalRiskKey,
+  formatEvidenceStatus,
+  formatEvidenceType,
+  formatEventType,
+  formatRiskLevel,
+  formatRuleCode,
+  formatSeverity,
+  formatSourceMode,
+  formatSourceType,
+} from "@/lib/display-labels";
 
 export function RiskTable({
   risks,
@@ -83,12 +66,18 @@ export function RiskTable({
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-amber-300">{index + 1}.</span>
                     <h3 className="text-lg font-semibold text-white">{risk.risk_name}</h3>
-                    <Badge value={risk.risk_level} />
+                    <Badge value={risk.risk_level} label={formatRiskLevel(risk.risk_level)} />
                   </div>
                   <p className="mt-3 text-sm text-haze/80">{risk.summary ?? risk.llm_summary ?? risk.reasons.join("；")}</p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/65">
-                    <span>{EVIDENCE_STATUS_LABELS[risk.evidence_status ?? ""] ?? risk.evidence_status ?? risk.source_mode ?? risk.source_type}</span>
-                    {risk.canonical_risk_key ? <span>{risk.canonical_risk_key}</span> : null}
+                    <span>
+                      {risk.evidence_status
+                        ? formatEvidenceStatus(risk.evidence_status)
+                        : risk.source_mode
+                          ? formatSourceMode(risk.source_mode)
+                          : formatSourceType(risk.source_type)}
+                    </span>
+                    {risk.canonical_risk_key ? <span>{formatCanonicalRiskKey(risk.canonical_risk_key)}</span> : null}
                     <span>得分：{risk.risk_score.toFixed(1)}</span>
                     <span>证据：{risk.evidence_chain.length}</span>
                   </div>
@@ -102,7 +91,7 @@ export function RiskTable({
                   <ol className="space-y-2">
                     {risk.source_rules.map((rule, ruleIndex) => (
                       <li key={rule} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                        {ruleIndex + 1}. {rule}
+                        {ruleIndex + 1}. {formatRuleCode(rule)}
                       </li>
                     ))}
                   </ol>
@@ -115,7 +104,10 @@ export function RiskTable({
                   <ol className="space-y-2">
                     {risk.source_events.map((event, eventIndex) => (
                       <li key={`${risk.id}-${eventIndex}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                        {eventIndex + 1}. {[event.event_type, event.subject, event.event_date, event.severity].filter(Boolean).join(" | ")}
+                        {eventIndex + 1}.{" "}
+                        {[formatEventType(event.event_type), event.subject, event.event_date, formatSeverity(event.severity)]
+                          .filter(Boolean)
+                          .join(" | ")}
                       </li>
                     ))}
                   </ol>
@@ -133,7 +125,7 @@ export function RiskTable({
                         </p>
                         <p className="mt-2 text-haze/75">{evidence.snippet}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/60">
-                          <span>{EVIDENCE_TYPE_LABELS[evidence.evidence_type] ?? evidence.evidence_type}</span>
+                          <span>{formatEvidenceType(evidence.evidence_type)}</span>
                           {evidence.source_label ? <span>{evidence.source_label}</span> : null}
                           {evidence.published_at ? <span>{evidence.published_at}</span> : null}
                           {"section_title" in evidence && (evidence as Record<string, unknown>).section_title ? (
@@ -197,7 +189,9 @@ export function RiskTable({
                     >
                       <option value="">合并到标准风险键</option>
                       {CANONICAL_RISK_KEYS.filter((key) => key !== risk.canonical_risk_key).map((key) => (
-                        <option key={key} value={key}>{key}</option>
+                        <option key={key} value={key}>
+                          {formatCanonicalRiskKey(key)}
+                        </option>
                       ))}
                     </select>
                     <button

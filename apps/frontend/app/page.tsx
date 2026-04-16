@@ -8,6 +8,7 @@ import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { buildRadarOption, buildTrendOption, getSafeTopRisks } from "@/lib/dashboard";
+import { formatAnalysisStatus, formatRiskLevel, formatSourceType, formatSyncStatus } from "@/lib/display-labels";
 import { useDashboardResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 export default function DashboardPage() {
@@ -53,12 +54,12 @@ export default function DashboardPage() {
                     {currentEnterprise.ticker} | {currentEnterprise.industry_tag} | 报告年度 {currentEnterprise.report_year}
                   </p>
                   <p className="mt-3 text-sm text-haze/70">
-                    官方文档 {readiness?.official_doc_count ?? 0} 份 | 同步状态 {readiness?.sync_status ?? "--"}
+                    官方文档 {readiness?.official_doc_count ?? 0} 份 | 同步状态 {formatSyncStatus(readiness?.sync_status)}
                   </p>
                   {readiness?.manual_parse_required ? (
                     <p className="mt-1 text-sm text-emerald-200">已同步，待手动解析：{readiness.documents_pending_parse} 份</p>
                   ) : null}
-                  <p className="mt-1 text-sm text-haze/70">风险分析状态：{analysisStatus}</p>
+                  <p className="mt-1 text-sm text-haze/70">风险分析状态：{formatAnalysisStatus(analysisStatus)}</p>
                 </div>
               ) : enterpriseOptions.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-haze/75">
@@ -179,7 +180,7 @@ export default function DashboardPage() {
                     <div>
                       <p className="font-medium text-white">{risk.risk_name}</p>
                       <p className="mt-1 text-sm text-haze/70">
-                        {risk.risk_level} | {risk.source_type}
+                        {formatRiskLevel(risk.risk_level)} | {formatSourceType(risk.source_type)}
                       </p>
                     </div>
                     <span className="text-2xl font-semibold text-amber-300">{risk.risk_score.toFixed(1)}</span>
