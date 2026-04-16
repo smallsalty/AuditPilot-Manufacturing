@@ -22,6 +22,8 @@ from app.repositories.risk_repository import RiskRepository
 from app.rule_engine.evaluator import RuleEvaluator
 from app.services.document_risk_service import DocumentRiskService
 from app.services.feature_engineering_service import FeatureEngineeringService
+from app.services.industry_benchmark_service import IndustryBenchmarkService
+from app.services.industry_classifier_service import IndustryClassifierService
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,123 @@ class RiskAnalysisService:
         self.rule_evaluator = RuleEvaluator()
         self.explainer = RiskExplanationService()
         self.document_risk_service = DocumentRiskService()
+        self.industry_classifier = IndustryClassifierService()
+        self.industry_benchmark_service = IndustryBenchmarkService(self.industry_classifier)
+
+    def _with_builtin_context_rules(self, rules: list[AuditRule]) -> list[AuditRule]:
+        existing = {rule.code for rule in rules}
+        builtin_rules = []
+        if "EXCESS_PROFIT_INDUSTRY_OUTLIER" not in existing:
+            builtin_rules.append(
+                AuditRule(
+                    code="EXCESS_PROFIT_INDUSTRY_OUTLIER",
+                    name="超额盈利与回款质量背离风险",
+                    risk_category="财务风险",
+                    risk_level="HIGH",
+                    description="企业毛利率显著高于行业且应收周转弱于行业，同时现金流或应收质量出现异常。",
+                    conditions={
+                        "logic": "all",
+                        "conditions": [{"metric": "excess_profit_risk_signal", "operator": ">=", "value": 1, "label": "毛利率高于行业且回款质量偏弱"}],
+                    },
+                    focus_accounts=["主营业务收入", "营业成本", "应收账款"],
+                    focus_processes=["收入确认", "成本归集", "销售回款"],
+                    recommended_procedures=["对比行业毛利率", "执行收入截止测试", "复核期后回款和坏账准备"],
+                    evidence_types=["行业数据", "财务指标", "应收账款账龄"],
+                    weight=3.4,
+                    enabled=True,
+                )
+            )
+        if "DEBT_PRESSURE_HIGH" not in existing:
+            builtin_rules.append(
+                AuditRule(
+                    code="DEBT_PRESSURE_HIGH",
+                    name="融资与偿债压力风险",
+                    risk_category="财务风险",
+                    risk_level="MEDIUM",
+                    description="企业或行业杠杆水平偏高，需关注短期偿债压力和融资安排。",
+                    conditions={
+                        "logic": "any",
+                        "conditions": [
+                            {"metric": "short_term_debt_pressure", "operator": ">=", "value": 1, "label": "资产负债率达到高杠杆阈值"},
+                            {"metric": "debt_ratio_industry_high", "operator": ">=", "value": 1, "label": "行业杠杆水平偏高"},
+                        ],
+                    },
+                    focus_accounts=["短期借款", "长期借款", "应付债券"],
+                    focus_processes=["资金计划", "融资管理", "偿债安排"],
+                    recommended_procedures=["复核债务到期结构", "检查授信额度和续贷安排", "执行现金流压力测试"],
+                    evidence_types=["财务指标", "授信合同", "银行流水"],
+                    weight=2.8,
+                    enabled=True,
+                )
+            )
+        return [*rules, *builtin_rules]
+
+    def _rule_weight_context(self, rule: AuditRule, features: dict) -> tuple[float, list[str]]:
+        multiplier = 1.0
+        reasons: list[str] = []
+        industry_code = str((features.get("industry_comparison") or {}).get("industry_code") or "")
+        if industry_code in {"software_service", "professional_service", "internet_platform"} and rule.code in {"AR_COLLECTION", "REV_AR_GAP", "EXCESS_PROFIT_INDUSTRY_OUTLIER"}:
+            multiplier *= 1.15
+            reasons.append("light_asset_industry")
+        high_leverage = features.get("latest_debt_ratio", 0.0) >= 65.0 or features.get("debt_ratio_industry_high", 0.0) >= 1.0
+        if high_leverage and (rule.code in {"DEBT_PRESSURE_HIGH", "FINANCING_PRESSURE", "SHORT_TERM_DEBT_PRESSURE"} or "debt" in str(rule.code or "").lower()):
+            multiplier *= 1.20
+            reasons.append("high_leverage_context")
+        return min(multiplier, 1.30), reasons
+
+    def _feature_snapshot_for_hit(self, features: dict, hit) -> dict:
+        snapshot = dict(features)
+        snapshot["score_details"] = {
+            "base_score": hit.base_score,
+            "final_score": hit.score,
+            "effective_weight": hit.effective_weight,
+            "weight_multiplier": hit.weight_multiplier,
+            "weight_reasons": hit.weight_reasons,
+        }
+        return snapshot
+
+    def _ensure_baseline_result(
+        self,
+        db: Session,
+        enterprise_id: int,
+        run_id: int,
+        features: dict,
+        financials: list,
+        events: list,
+        documents: list,
+    ) -> None:
+        if not (financials or events or documents):
+            return
+        if hasattr(db, "flush"):
+            db.flush()
+        if self.document_risk_service.list_risks(db, enterprise_id):
+            return
+        snapshot = dict(features)
+        snapshot["score_details"] = {
+            "base_score": 30.0,
+            "final_score": 30.0,
+            "effective_weight": 0.0,
+            "weight_multiplier": 1.0,
+            "weight_reasons": ["baseline_observation"],
+        }
+        db.add(
+            RiskIdentificationResult(
+                enterprise_id=enterprise_id,
+                run_id=run_id,
+                rule_id=None,
+                rule_code=None,
+                risk_name="综合风险观察",
+                risk_category="baseline",
+                risk_level="LOW",
+                risk_score=30.0,
+                source_type="baseline",
+                reasons=["未触发高风险规则，但已完成基础风险评分。"],
+                evidence_chain=[],
+                feature_snapshot=snapshot,
+                llm_summary="未触发高风险规则，建议保持常规审计关注。",
+                llm_explanation="baseline 仅表示完成基础评分，不代表发现重大风险。",
+            )
+        )
 
     @staticmethod
     def get_analysis_readiness(enterprise, financials: list, events: list, documents: list) -> dict:
@@ -138,14 +257,7 @@ class RiskAnalysisService:
         events = enterprise_repo.get_external_events(enterprise_id, official_only=True)
         documents = enterprise_repo.get_documents(enterprise_id, official_only=True)
         readiness = self.get_analysis_readiness(enterprise, financials, events, documents)
-        benchmarks = list(
-            db.scalars(
-                select(IndustryBenchmark).where(
-                    IndustryBenchmark.industry_tag == enterprise.industry_tag,
-                    IndustryBenchmark.source != "mock",
-                )
-            ).all()
-        )
+        benchmarks = list(db.scalars(select(IndustryBenchmark).where(IndustryBenchmark.source != "mock")).all())
 
         if not readiness["risk_analysis_ready"]:
             raise ValueError(readiness["risk_analysis_message"])
@@ -161,16 +273,18 @@ class RiskAnalysisService:
         logger.info("risk analysis started enterprise_id=%s run_id=%s", enterprise_id, run.id)
 
         try:
-            features = self.feature_engineering_service.build_features(financials, events, benchmarks)
+            industry_comparison = self.industry_benchmark_service.build_comparison(db, enterprise, financials, benchmarks)
+            features = self.feature_engineering_service.build_features(financials, events, benchmarks, industry_comparison)
 
             risk_repo = RiskRepository(db)
             risk_repo.clear_enterprise_results(enterprise_id)
             db.execute(delete(RiskAlertRecord).where(RiskAlertRecord.enterprise_id == enterprise_id))
 
-            rules = list(db.scalars(select(AuditRule).where(AuditRule.enabled.is_(True))).all())
+            rules = self._with_builtin_context_rules(list(db.scalars(select(AuditRule).where(AuditRule.enabled.is_(True))).all()))
 
             for rule in rules:
-                hit = self.rule_evaluator.evaluate(rule, features)
+                multiplier, weight_reasons = self._rule_weight_context(rule, features)
+                hit = self.rule_evaluator.evaluate(rule, features, context_weight_multiplier=multiplier, weight_reasons=weight_reasons)
                 if hit is None:
                     continue
 
@@ -197,7 +311,7 @@ class RiskAnalysisService:
                     source_type="rule",
                     reasons=hit.reasons,
                     evidence_chain=hit.evidence_chain,
-                    feature_snapshot=features,
+                    feature_snapshot=self._feature_snapshot_for_hit(features, hit),
                     llm_summary=explanation.get("summary", ""),
                     llm_explanation=self._serialize_llm_explanation(explanation.get("explanation", "")),
                 )
@@ -254,6 +368,7 @@ class RiskAnalysisService:
                     )
                 )
 
+            self._ensure_baseline_result(db, enterprise_id, run.id, features, financials, events, documents)
             run.status = "completed"
             run.metadata_json = {"last_error": None}
             results = self.get_results(db, enterprise_id)
@@ -417,14 +532,7 @@ class RiskAnalysisService:
         events = enterprise_repo.get_external_events(enterprise_id, official_only=True)
         documents = enterprise_repo.get_documents(enterprise_id, official_only=True)
         readiness = self.get_analysis_readiness(enterprise, financials, events, documents)
-        benchmarks = list(
-            db.scalars(
-                select(IndustryBenchmark).where(
-                    IndustryBenchmark.industry_tag == enterprise.industry_tag,
-                    IndustryBenchmark.source != "mock",
-                )
-            ).all()
-        )
+        benchmarks = list(db.scalars(select(IndustryBenchmark).where(IndustryBenchmark.source != "mock")).all())
 
         if not readiness["risk_analysis_ready"]:
             raise ValueError(readiness["risk_analysis_message"])
@@ -444,16 +552,18 @@ class RiskAnalysisService:
         logger.info("risk analysis started enterprise_id=%s run_id=%s", enterprise_id, run.id)
 
         try:
-            features = self.feature_engineering_service.build_features(financials, events, benchmarks)
+            industry_comparison = self.industry_benchmark_service.build_comparison(db, enterprise, financials, benchmarks)
+            features = self.feature_engineering_service.build_features(financials, events, benchmarks, industry_comparison)
 
             risk_repo = RiskRepository(db)
             risk_repo.clear_enterprise_results(enterprise_id)
             db.execute(delete(RiskAlertRecord).where(RiskAlertRecord.enterprise_id == enterprise_id))
 
-            rules = list(db.scalars(select(AuditRule).where(AuditRule.enabled.is_(True))).all())
+            rules = self._with_builtin_context_rules(list(db.scalars(select(AuditRule).where(AuditRule.enabled.is_(True))).all()))
 
             for rule in rules:
-                hit = self.rule_evaluator.evaluate(rule, features)
+                multiplier, weight_reasons = self._rule_weight_context(rule, features)
+                hit = self.rule_evaluator.evaluate(rule, features, context_weight_multiplier=multiplier, weight_reasons=weight_reasons)
                 if hit is None:
                     continue
 
@@ -480,7 +590,7 @@ class RiskAnalysisService:
                     source_type="rule",
                     reasons=hit.reasons,
                     evidence_chain=hit.evidence_chain,
-                    feature_snapshot=features,
+                    feature_snapshot=self._feature_snapshot_for_hit(features, hit),
                     llm_summary=explanation.get("summary", ""),
                     llm_explanation=self._serialize_llm_explanation(explanation.get("explanation", "")),
                 )
@@ -537,6 +647,7 @@ class RiskAnalysisService:
                     )
                 )
 
+            self._ensure_baseline_result(db, enterprise_id, run.id, features, financials, events, documents)
             run.status = "completed"
             run.metadata_json = {"last_error": None}
             results = self.get_results(db, enterprise_id)

@@ -10,6 +10,10 @@ class RuleHit:
     score: float
     reasons: list[str]
     evidence_chain: list[dict[str, Any]]
+    base_score: float
+    effective_weight: float
+    weight_multiplier: float
+    weight_reasons: list[str]
 
 
 class RuleEvaluator:
@@ -21,7 +25,14 @@ class RuleEvaluator:
         "==": lambda left, right: left == right,
     }
 
-    def evaluate(self, rule: AuditRule, features: dict[str, float]) -> RuleHit | None:
+    def evaluate(
+        self,
+        rule: AuditRule,
+        features: dict[str, Any],
+        *,
+        context_weight_multiplier: float = 1.0,
+        weight_reasons: list[str] | None = None,
+    ) -> RuleHit | None:
         config = rule.conditions or {}
         logic = config.get("logic", "all")
         conditions = config.get("conditions", [])
@@ -32,7 +43,7 @@ class RuleEvaluator:
             metric = condition["metric"]
             operator = condition.get("operator", ">")
             threshold = float(condition.get("value", 0))
-            actual_value = float(features.get(metric, 0.0))
+            actual_value = self._coerce_float(features.get(metric))
             passed = self.OPERATOR_MAP[operator](actual_value, threshold)
             hits.append(passed)
             if passed:
@@ -51,6 +62,35 @@ class RuleEvaluator:
         matched = all(hits) if logic == "all" else any(hits)
         if not matched:
             return None
-        score = min(100.0, rule.weight * 20.0 + len(reasons) * 10.0)
-        return RuleHit(rule=rule, score=score, reasons=reasons, evidence_chain=evidence_chain)
+        multiplier = min(1.30, max(0.0, float(context_weight_multiplier or 1.0)))
+        effective_weight = float(rule.weight or 0.0) * multiplier
+        base_score = min(100.0, float(rule.weight or 0.0) * 20.0 + len(reasons) * 10.0)
+        score = min(100.0, effective_weight * 20.0 + len(reasons) * 10.0)
+        details = {
+            "base_score": base_score,
+            "final_score": score,
+            "effective_weight": effective_weight,
+            "weight_multiplier": multiplier,
+            "weight_reasons": list(weight_reasons or []),
+        }
+        for evidence in evidence_chain:
+            metadata = evidence.setdefault("metadata", {})
+            metadata["score_details"] = details
+        return RuleHit(
+            rule=rule,
+            score=score,
+            reasons=reasons,
+            evidence_chain=evidence_chain,
+            base_score=base_score,
+            effective_weight=effective_weight,
+            weight_multiplier=multiplier,
+            weight_reasons=list(weight_reasons or []),
+        )
 
+    def _coerce_float(self, value: Any) -> float:
+        if value is None:
+            return 0.0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0

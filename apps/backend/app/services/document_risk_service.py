@@ -34,6 +34,8 @@ class DocumentRiskService:
         "RELATED_PARTY_CONTROL": "related_party_transaction",
         "Q4_PROFIT_DEVIATION": "revenue_recognition",
         "GM_EXPENSE_ANOMALY": "cashflow_quality",
+        "EXCESS_PROFIT_INDUSTRY_OUTLIER": "revenue_recognition",
+        "DEBT_PRESSURE_HIGH": "financing_pressure",
     }
     RISK_TITLES = {
         "revenue_recognition": "收入确认与收入真实性风险",
@@ -75,13 +77,21 @@ class DocumentRiskService:
                 rec_map[recommendation.risk_result_id].append(recommendation)
 
         for result in persisted_results:
-            canonical_key = self.RULE_CODE_TO_RISK_KEY.get(result.rule_code or "", "uncategorized")
+            canonical_key = "baseline_observation" if result.source_type == "baseline" else self.RULE_CODE_TO_RISK_KEY.get(result.rule_code or "", "uncategorized")
             row = grouped.setdefault(canonical_key, self._new_group(canonical_key))
             row["risk_score"] = max(row["risk_score"], float(result.risk_score or 0))
             row["summary"] = row["summary"] or (result.llm_summary or "；".join(result.reasons or []))
-            row["source_mode"] = "document_plus_rule" if row["source_documents"] else "rule_only"
-            row["evidence_status"] = "document_plus_rule" if row["source_documents"] else "rule_inferred"
+            row["source_mode"] = "baseline_observation" if result.source_type == "baseline" else "document_plus_rule" if row["source_documents"] else "rule_only"
+            row["evidence_status"] = "baseline_observation" if result.source_type == "baseline" else "document_plus_rule" if row["source_documents"] else "rule_inferred"
             row["confidence_level"] = "high" if row["source_documents"] else "medium"
+            row["risk_category"] = result.risk_category or row["risk_category"]
+            row["risk_level"] = result.risk_level or row["risk_level"]
+            row["source_type"] = result.source_type or row["source_type"]
+            row["is_baseline_observation"] = result.source_type == "baseline"
+            snapshot = result.feature_snapshot or {}
+            if isinstance(snapshot, dict):
+                row["score_details"] = snapshot.get("score_details") or row["score_details"]
+                row["industry_comparison"] = snapshot.get("industry_comparison") or row["industry_comparison"]
             row["source_rules"] = self._dedupe_strings(row["source_rules"] + ([result.rule_code] if result.rule_code else []))
             row["feature_support"].extend(
                 [
@@ -157,6 +167,9 @@ class DocumentRiskService:
             "focus_processes": [],
             "recommended_procedures": [],
             "evidence_types": [],
+            "score_details": None,
+            "industry_comparison": None,
+            "is_baseline_observation": False,
             "ignored": False,
         }
 
@@ -368,7 +381,7 @@ class DocumentRiskService:
         return row
 
     def _mode_rank(self, mode: str) -> int:
-        return {"document_primary": 0, "document_plus_rule": 1, "rule_only": 2}.get(mode, 9)
+        return {"document_primary": 0, "document_plus_rule": 1, "rule_only": 2, "baseline_observation": 8}.get(mode, 9)
 
     def _max_level(self, left: str, right: str) -> str:
         order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}

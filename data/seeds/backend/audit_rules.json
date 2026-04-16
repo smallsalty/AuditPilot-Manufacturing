@@ -220,6 +220,59 @@
     "evidence_types": ["关联方台账", "审批记录", "合同与定价依据"],
     "weight": 2.7,
     "enabled": true
+  },
+  {
+    "code": "EXCESS_PROFIT_INDUSTRY_OUTLIER",
+    "name": "超额盈利与回款质量背离风险",
+    "risk_category": "财务风险",
+    "risk_level": "HIGH",
+    "description": "毛利率显著高于行业且应收周转弱于行业，并伴随现金流或应收质量异常。",
+    "conditions": {
+      "logic": "all",
+      "conditions": [
+        {
+          "metric": "excess_profit_risk_signal",
+          "operator": ">=",
+          "value": 1,
+          "label": "个体毛利率高于行业且回款质量偏弱"
+        }
+      ]
+    },
+    "focus_accounts": ["主营业务收入", "营业成本", "应收账款"],
+    "focus_processes": ["收入确认", "成本归集", "销售回款"],
+    "recommended_procedures": ["对比行业毛利率", "执行收入截止测试", "复核期后回款和坏账准备"],
+    "evidence_types": ["行业数据", "财务指标", "应收账款账龄"],
+    "weight": 3.4,
+    "enabled": true
+  },
+  {
+    "code": "DEBT_PRESSURE_HIGH",
+    "name": "融资与偿债压力风险",
+    "risk_category": "财务风险",
+    "risk_level": "MEDIUM",
+    "description": "企业或行业杠杆水平偏高，需关注短期偿债压力和融资安排。",
+    "conditions": {
+      "logic": "any",
+      "conditions": [
+        {
+          "metric": "short_term_debt_pressure",
+          "operator": ">=",
+          "value": 1,
+          "label": "资产负债率达到高杠杆阈值"
+        },
+        {
+          "metric": "debt_ratio_industry_high",
+          "operator": ">=",
+          "value": 1,
+          "label": "行业杠杆水平偏高"
+        }
+      ]
+    },
+    "focus_accounts": ["短期借款", "长期借款", "应付债券"],
+    "focus_processes": ["资金计划", "融资管理", "偿债安排"],
+    "recommended_procedures": ["复核债务到期结构", "检查授信额度和续贷安排", "执行现金流压力测试"],
+    "evidence_types": ["财务指标", "授信合同", "银行流水"],
+    "weight": 2.8,
+    "enabled": true
   }
 ]
-

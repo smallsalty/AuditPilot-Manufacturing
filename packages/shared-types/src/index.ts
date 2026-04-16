@@ -147,6 +147,15 @@ export type RiskResultPayload = {
   focus_processes: string[];
   recommended_procedures: string[];
   evidence_types: string[];
+  score_details?: {
+    base_score?: number;
+    final_score?: number;
+    effective_weight?: number;
+    weight_multiplier?: number;
+    weight_reasons?: string[];
+  } | null;
+  industry_comparison?: Record<string, unknown> | null;
+  is_baseline_observation?: boolean;
 };
 
 export type AuditFocusPayload = {

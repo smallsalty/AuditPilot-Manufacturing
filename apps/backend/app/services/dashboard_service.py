@@ -23,16 +23,17 @@ class DashboardService:
 
         analysis_state = RiskAnalysisService().get_analysis_state(db, enterprise_id)
         results = RiskRepository(db).list_results(enterprise_id)
+        scored_results = [result for result in results if result.source_type != "baseline"]
         score_buckets = defaultdict(list)
-        for result in results:
+        for result in scored_results:
             bucket = self.CATEGORY_MAP.get(result.risk_category, "operational")
             score_buckets[bucket].append(result.risk_score)
 
         financial = round(sum(score_buckets["financial"]) / max(1, len(score_buckets["financial"])), 1)
         operational = round(sum(score_buckets["operational"]) / max(1, len(score_buckets["operational"])), 1)
         compliance = round(sum(score_buckets["compliance"]) / max(1, len(score_buckets["compliance"])), 1)
-        total = round((financial + operational + compliance) / 3 if results else 0, 1)
-        trend = [{"report_period": f"T{idx}", "risk_score": result.risk_score} for idx, result in enumerate(results[:6], 1)]
+        total = round((financial + operational + compliance) / 3 if scored_results else 0, 1)
+        trend = [{"report_period": f"T{idx}", "risk_score": result.risk_score} for idx, result in enumerate(scored_results[:6], 1)]
 
         return {
             "enterprise": {
@@ -56,7 +57,7 @@ class DashboardService:
                 {"name": "经营风险", "value": operational},
                 {"name": "合规风险", "value": compliance},
                 {"name": "文本预警", "value": min(100, total + 8)},
-                {"name": "规则命中", "value": min(100, len(results) * 12)},
+                {"name": "规则命中", "value": min(100, len(scored_results) * 12)},
             ],
             "trend": trend or [{"report_period": "未分析", "risk_score": 0}],
             "top_risks": [
@@ -67,6 +68,6 @@ class DashboardService:
                     "risk_score": result.risk_score,
                     "source_type": result.source_type,
                 }
-                for result in results[:5]
+                for result in scored_results[:5]
             ],
         }

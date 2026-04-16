@@ -142,3 +142,28 @@ def test_feature_engineering_computes_growth_and_gaps() -> None:
     assert round(features["q4_revenue_ratio"], 2) == 0.40
     assert features["penalty_count"] == 1.0
 
+
+def test_feature_engineering_requires_quality_signal_for_excess_profit_risk() -> None:
+    service = FeatureEngineeringService()
+    base_features = {
+        "operating_cf_profit_ratio": 1.2,
+        "ar_revenue_growth_gap": 0.0,
+        "accounts_receivable_growth_rate": 0.05,
+        "revenue_growth_rate": 0.05,
+    }
+    comparison = {
+        "gross_margin": {"available": True, "zscore": 2.2, "percentile": 0.91, "gap": 9.0},
+        "ar_turnover": {"available": True, "zscore": -1.8, "percentile": 0.15, "gap_pct": -0.35},
+        "debt_ratio": {"available": False},
+    }
+
+    service._merge_industry_comparison(base_features, comparison)
+    assert base_features["gross_margin_industry_outlier_high"] == 1.0
+    assert base_features["ar_turnover_industry_outlier_low"] == 1.0
+    assert base_features["excess_profit_quality_signal"] == 0.0
+    assert base_features["excess_profit_risk_signal"] == 0.0
+
+    base_features["operating_cf_profit_ratio"] = 0.5
+    service._merge_industry_comparison(base_features, comparison)
+    assert base_features["excess_profit_quality_signal"] == 1.0
+    assert base_features["excess_profit_risk_signal"] == 1.0

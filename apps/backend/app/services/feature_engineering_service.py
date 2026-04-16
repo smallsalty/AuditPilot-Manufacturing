@@ -11,7 +11,8 @@ class FeatureEngineeringService:
         financials: list[FinancialIndicator],
         events: list[ExternalEvent],
         industry_benchmarks: list[IndustryBenchmark],
-    ) -> dict[str, float]:
+        industry_comparison: dict | None = None,
+    ) -> dict:
         rows = [
             {
                 "period_type": item.period_type,
@@ -67,6 +68,9 @@ class FeatureEngineeringService:
         features["gross_margin_volatility"] = abs(delta("gross_margin"))
         features["debt_ratio_delta"] = delta("debt_ratio")
         features["expense_ratio_delta"] = delta("expense_ratio")
+        features["latest_debt_ratio"] = metric(latest_year, "debt_ratio") or 0.0
+        features["latest_gross_margin"] = metric(latest_year, "gross_margin") or 0.0
+        features["latest_ar_turnover"] = metric(latest_year, "ar_turnover") or 0.0
         latest_profit = metric(latest_year, "net_profit") or 0.0
         latest_ocf = metric(latest_year, "operating_cash_flow") or 0.0
         features["operating_cf_profit_ratio"] = latest_ocf / latest_profit if latest_profit else 0.0
@@ -127,5 +131,72 @@ class FeatureEngineeringService:
         features["industry_demand_down_inventory_up"] = (
             1.0 if demand_index < 0 and features["inventory_growth_rate"] > 0 else 0.0
         )
+        self._merge_industry_comparison(features, industry_comparison or {})
         return features
 
+    def _merge_industry_comparison(self, features: dict, industry_comparison: dict) -> None:
+        features["industry_comparison"] = industry_comparison or {}
+        gross_margin = self._comparison_metric(industry_comparison, "gross_margin")
+        ar_turnover = self._comparison_metric(industry_comparison, "ar_turnover")
+        debt_ratio = self._comparison_metric(industry_comparison, "debt_ratio")
+
+        features["industry_benchmark_available"] = 1.0 if gross_margin.get("available") or ar_turnover.get("available") else 0.0
+        features["gross_margin_industry_outlier_high"] = 1.0 if self._gross_margin_high(gross_margin) else 0.0
+        features["ar_turnover_industry_outlier_low"] = 1.0 if self._ar_turnover_low(ar_turnover) else 0.0
+        features["debt_ratio_industry_high"] = 1.0 if self._debt_ratio_high(debt_ratio) else 0.0
+        features["excess_profit_quality_signal"] = 1.0 if self._quality_signal(features) else 0.0
+        features["excess_profit_risk_signal"] = (
+            1.0
+            if features["gross_margin_industry_outlier_high"]
+            and features["ar_turnover_industry_outlier_low"]
+            and features["excess_profit_quality_signal"]
+            else 0.0
+        )
+
+        for metric_name, metric in {
+            "gross_margin": gross_margin,
+            "ar_turnover": ar_turnover,
+            "debt_ratio": debt_ratio,
+        }.items():
+            for key in ("company_value", "industry_mean", "gap", "gap_pct", "zscore", "percentile", "sample_count"):
+                value = metric.get(key)
+                if value is not None:
+                    features[f"{metric_name}_{key}"] = float(value)
+
+    def _comparison_metric(self, comparison: dict, metric: str) -> dict:
+        value = comparison.get(metric) if isinstance(comparison, dict) else {}
+        return value if isinstance(value, dict) else {}
+
+    def _gross_margin_high(self, metric: dict) -> bool:
+        if not metric.get("available"):
+            return False
+        return (
+            self._gte(metric.get("zscore"), 2.0)
+            or self._gte(metric.get("percentile"), 0.90)
+            or self._gte(metric.get("gap"), 8.0)
+        )
+
+    def _ar_turnover_low(self, metric: dict) -> bool:
+        if not metric.get("available"):
+            return False
+        return (
+            self._lte(metric.get("zscore"), -1.5)
+            or self._lte(metric.get("percentile"), 0.20)
+            or self._lte(metric.get("gap_pct"), -0.30)
+        )
+
+    def _debt_ratio_high(self, metric: dict) -> bool:
+        return bool(metric.get("available")) and self._gte(metric.get("industry_mean"), 60.0)
+
+    def _quality_signal(self, features: dict) -> bool:
+        return (
+            features.get("operating_cf_profit_ratio", 0.0) < 0.8
+            or features.get("ar_revenue_growth_gap", 0.0) > 0.15
+            or features.get("accounts_receivable_growth_rate", 0.0) > features.get("revenue_growth_rate", 0.0) + 0.15
+        )
+
+    def _gte(self, value, threshold: float) -> bool:
+        return value is not None and float(value) >= threshold
+
+    def _lte(self, value, threshold: float) -> bool:
+        return value is not None and float(value) <= threshold

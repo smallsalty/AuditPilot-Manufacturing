@@ -64,8 +64,8 @@ def test_run_completes_for_documents_only_enterprise(monkeypatch) -> None:
     monkeypatch.setattr("app.services.risk_analysis_service.EnterpriseRepository.get_external_events", lambda self, enterprise_id, official_only=True: [])
     monkeypatch.setattr("app.services.risk_analysis_service.EnterpriseRepository.get_documents", lambda self, enterprise_id, official_only=True: [document])
     monkeypatch.setattr("app.services.risk_analysis_service.RiskRepository.clear_enterprise_results", lambda self, enterprise_id: None)
-    monkeypatch.setattr(service.feature_engineering_service, "build_features", lambda financials, events, benchmarks: {"latest_year": 2025})
-    monkeypatch.setattr(service.rule_evaluator, "evaluate", lambda rule, features: None)
+    monkeypatch.setattr(service.feature_engineering_service, "build_features", lambda financials, events, benchmarks, industry_comparison=None: {"latest_year": 2025})
+    monkeypatch.setattr(service.rule_evaluator, "evaluate", lambda rule, features, **kwargs: None)
     monkeypatch.setattr(service, "_run_anomaly_detection", lambda enterprise_id, run_id, features, financials: None)
     monkeypatch.setattr(service.document_risk_service, "list_risks", lambda db, enterprise_id: [{"risk_name": "文档风险", "evidence_chain": []}])
 

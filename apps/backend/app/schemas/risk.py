@@ -18,6 +18,9 @@ class RiskResultPayload(BaseModel):
     focus_processes: list[str]
     recommended_procedures: list[str]
     evidence_types: list[str]
+    score_details: dict | None = None
+    industry_comparison: dict | None = None
+    is_baseline_observation: bool = False
 
 
 class RiskAnalysisRunResponse(BaseModel):
@@ -37,4 +40,3 @@ class AuditFocusPayload(BaseModel):
     recommended_procedures: list[str]
     evidence_types: list[str]
     recommendations: list[str]
-
