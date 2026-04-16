@@ -333,7 +333,8 @@ class DocumentService:
             "extract_count": extract_count,
             "analysis_groups": analysis_groups or [],
         }
-        metadata["last_error"] = last_error
+        suppress_last_error = extract_count > 0 and analysis_status in {"succeeded", "partial_fallback"}
+        metadata["last_error"] = None if suppress_last_error else last_error
         document.metadata_json = metadata
 
     def _is_financial_analysis_extract(self, document_type: str | None, extract: dict[str, Any]) -> bool:
@@ -1923,9 +1924,9 @@ class DocumentService:
                 "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
             },
             max_tokens=1024,
-            max_attempts=1,
+            max_attempts=2,
             timeout=30.0,
-            strict_json_instruction=False,
+            strict_json_instruction=True,
         )
         return self._extract_llm_items(result, document_id=document.id)
 

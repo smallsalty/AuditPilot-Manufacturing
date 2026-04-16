@@ -222,3 +222,32 @@ def test_llm_client_returns_raw_payload_markers_when_json_is_unrecoverable(monke
     assert result["parsed_ok"] is False
     assert result["payload_mode"] == "raw_text"
     assert "broken" in result["raw"]
+
+
+def test_llm_client_retries_after_json_decode_failure(monkeypatch) -> None:
+    class DummyMessages:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **_: object) -> object:
+            self.calls += 1
+            text = 'summary: broken payload' if self.calls == 1 else '{"summary":"ok"}'
+            block = type("Block", (), {"text": text})()
+            return type("Response", (), {"content": [block]})()
+
+    class DummyAnthropic:
+        def __init__(self, **_: object) -> None:
+            self.messages = DummyMessages()
+
+    monkeypatch.setattr(llm_client_module.settings, "llm_api_key", "mini-key")
+    monkeypatch.setattr(llm_client_module.settings, "llm_base_url", "https://api.minimax.io/anthropic")
+    monkeypatch.setattr(llm_client_module.settings, "llm_model", "MiniMax-M2.5")
+    monkeypatch.setattr(llm_client_module, "Anthropic", DummyAnthropic)
+    monkeypatch.setattr(llm_client_module.time, "sleep", lambda *_: None)
+
+    client = llm_client_module.LLMClient()
+    result = client.chat_completion("system", "user", json_mode=True, max_attempts=2)
+
+    assert result["parsed_ok"] is True
+    assert result["summary"] == "ok"
+    assert client.client.messages.calls == 2

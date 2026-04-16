@@ -21,6 +21,8 @@ class AuditQAServer:
         "补充获取合同、回款和库存等支持材料",
     ]
     DEFAULT_FALLBACK_ANSWER = "系统已基于当前文档依据和风险结果生成兜底回答，请优先查看证据链并继续核查高风险事项。"
+    CHAT_LLM_TIMEOUT_SECONDS = 18.0
+    CHAT_WAIT_TIMEOUT_SECONDS = 18.5
 
     def __init__(self, llm_client: LLMClient | None = None, retrieval_service: RetrievalService | None = None) -> None:
         self.llm_client = llm_client or LLMClient()
@@ -145,8 +147,8 @@ class AuditQAServer:
             self.llm_client.chat_completion,
             system_prompt,
             user_prompt,
-            True,
-            6.0,
+            json_mode=False,
+            timeout=self.CHAT_LLM_TIMEOUT_SECONDS,
             request_kind="chat",
             metadata={
                 "enterprise_id": enterprise_id,
@@ -154,12 +156,12 @@ class AuditQAServer:
                 "context_variant": context_variant,
                 "llm_input_chars": len(user_prompt),
             },
-            max_attempts=1,
+            max_attempts=2,
             max_tokens=512,
             strict_json_instruction=False,
         )
         try:
-            return future.result(timeout=6.5)
+            return future.result(timeout=self.CHAT_WAIT_TIMEOUT_SECONDS)
         except FuturesTimeoutError:
             logger.warning("chat llm timeout fallback enterprise_id=%s", enterprise_id)
             future.cancel()
@@ -323,6 +325,6 @@ class AuditQAServer:
             f"问题：{question}\n"
             f"当前依据等级：{basis_level}\n"
             f"上下文：\n{context}\n"
-            "请返回 JSON。"
+            "请直接输出中文回答，概括判断、核心依据和下一步关注点，不要返回 JSON、代码块或额外格式说明。"
         )
         return basis_level, system_prompt, user_prompt, context_variant

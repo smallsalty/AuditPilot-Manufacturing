@@ -15,6 +15,7 @@ import {
   formatCanonicalRiskKey,
   formatDocumentType,
   formatEventType,
+  formatKnownLabel,
   formatParseStatus,
   formatRuleCode,
   formatSourceName,
@@ -241,7 +242,7 @@ export default function DocumentsPage() {
       if (activeDocumentId === document.id) {
         await loadExtracts(document, "analyzing");
       }
-      setMessage(`已将文档分类修正为 ${classifiedType}。`);
+      setMessage(`已将文档分类修正为 ${formatDocumentType(classifiedType)}。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文档分类修正失败。");
       setPageAction({ kind: "idle" });
@@ -257,7 +258,7 @@ export default function DocumentsPage() {
       await api.overrideExtractEventType(activeDocumentId, extract.evidence_span_id, eventType);
       const response = await api.getDocumentExtracts(activeDocumentId);
       setExtracts(response.extracts);
-      setMessage(`已将事件类型修正为 ${eventType}。`);
+      setMessage(`已将事件类型修正为 ${formatEventType(eventType)}。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "事件类型修正失败。");
     } finally {
@@ -451,7 +452,7 @@ export default function DocumentsPage() {
                           <div className="flex items-start gap-3">
                             <span className="pt-0.5 text-sm font-semibold text-amber-300">{index + 1}.</span>
                             <div className="min-w-0 flex-1">
-                              <p className="font-medium text-white">{extract.title}</p>
+                              <p className="font-medium text-white">{formatKnownLabel(extract.title)}</p>
                               <p className="mt-2 text-sm text-haze/80">{extract.problem_summary}</p>
                             </div>
                           </div>
@@ -532,7 +533,7 @@ export default function DocumentsPage() {
                 <div className="space-y-3">
                   {financialAnalysis.anomalies.slice(0, 6).map((item) => (
                     <div key={`${item.document_id}-${item.title}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="font-medium text-white">{item.title}</p>
+                      <p className="font-medium text-white">{formatKnownLabel(item.title)}</p>
                       <p className="mt-2 text-sm text-haze/80">{item.summary}</p>
                       <p className="mt-2 text-xs text-haze/65">
                         {item.document_name}

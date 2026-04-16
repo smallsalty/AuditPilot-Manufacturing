@@ -109,6 +109,7 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
         metadata = document.metadata_json or {}
         analysis_meta = metadata.get("analysis_meta") or {}
         last_error = metadata.get("last_error") or {}
+        suppress_last_error = bool(extracts) and metadata.get("analysis_status") == "partial_fallback"
         items.append(
             {
                 "id": document.id,
@@ -127,8 +128,8 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
                 "analysis_version": analysis_meta.get("analysis_version"),
                 "analyzed_at": analysis_meta.get("analyzed_at"),
                 "analysis_groups": [group for group in analysis_meta.get("analysis_groups", []) if group in DocumentService.ANALYSIS_GROUPS],
-                "last_error_message": last_error.get("message"),
-                "last_error_at": last_error.get("last_error_at"),
+                "last_error_message": None if suppress_last_error else last_error.get("message"),
+                "last_error_at": None if suppress_last_error else last_error.get("last_error_at"),
                 "created_at": document.created_at.isoformat() if document.created_at else None,
             }
         )

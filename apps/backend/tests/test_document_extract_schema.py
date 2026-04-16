@@ -431,3 +431,38 @@ def test_llm_extract_records_truncated_json_fallback_when_nothing_recoverable() 
     assert items == []
     assert error_payload is not None
     assert error_payload["error_type"] == "truncated_json_fallback"
+
+
+def test_llm_extract_uses_strict_json_retry_settings() -> None:
+    class FakeLLMClient:
+        config_error = None
+        provider = "minimax"
+        model = "MiniMax-M2.5"
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def chat_completion(self, *args, **kwargs):
+            self.calls.append(kwargs)
+            return {"extracts": []}
+
+    llm_client = FakeLLMClient()
+    service = DocumentService(llm_client=llm_client)
+    document = _document("2024年年度报告", "annual_report", "2024年度")
+
+    service._llm_extract(
+        document,
+        [
+            {
+                "evidence_excerpt": "应收账款增长明显，需要关注收入质量。",
+                "summary": "应收账款增长明显，需要关注收入质量。",
+                "section_title": "管理层讨论与分析",
+            }
+        ],
+        "annual_report",
+    )
+
+    assert llm_client.calls
+    assert llm_client.calls[0]["json_mode"] is True
+    assert llm_client.calls[0]["max_attempts"] == 2
+    assert llm_client.calls[0]["strict_json_instruction"] is True

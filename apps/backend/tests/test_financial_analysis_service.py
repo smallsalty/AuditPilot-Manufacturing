@@ -163,6 +163,32 @@ def test_document_service_analysis_meta_overwrites_old_error_state() -> None:
     assert document.metadata_json["last_error"] is None
 
 
+def test_document_service_partial_fallback_with_extracts_clears_last_error() -> None:
+    service = DocumentService(llm_client=_DummyLLMClient())
+    document = SimpleNamespace(
+        metadata_json={
+            "analysis_status": "failed",
+            "analysis_meta": {"analysis_mode": "rule_only", "analysis_version": "old"},
+            "last_error": {"message": "old error", "last_error_at": "old"},
+        }
+    )
+
+    service._build_analysis_meta(
+        document,
+        analysis_status="partial_fallback",
+        analysis_mode="hybrid_fallback",
+        candidate_count=4,
+        extract_count=2,
+        analysis_groups=["financial_analysis"],
+        analyzed_at="2026-04-16T08:00:00+00:00",
+        last_error={"message": "模型未返回有效的结构化抽取结果。", "last_error_at": "new"},
+    )
+
+    assert document.metadata_json["analysis_status"] == "partial_fallback"
+    assert document.metadata_json["analysis_meta"]["extract_count"] == 2
+    assert document.metadata_json["last_error"] is None
+
+
 def test_document_service_derives_fixed_analysis_groups() -> None:
     service = DocumentService(llm_client=_DummyLLMClient())
     document = SimpleNamespace(classified_type="annual_report", document_type="annual_report")

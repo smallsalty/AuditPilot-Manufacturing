@@ -2,6 +2,8 @@ const ANALYSIS_STATUS_LABELS: Record<string, string> = {
   not_started: "未开始",
   running: "分析中",
   completed: "已完成",
+  succeeded: "已完成",
+  partial_fallback: "回退完成",
   failed: "分析失败",
 };
 
@@ -58,6 +60,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   announcement_event: "公告事件",
   penalty_event: "处罚/问询",
   financial_anomaly: "财务异常",
+  document: "文档证据",
   cninfo: "巨潮资讯",
   upload: "上传文档",
   akshare: "AkShare",
@@ -302,4 +305,28 @@ export function formatCanonicalRiskKey(value: string | null | undefined): string
 
 export function formatRuleCode(value: string | null | undefined): string {
   return formatMappedValue(value, RULE_CODE_LABELS);
+}
+
+const KNOWN_LABEL_GROUPS: Array<Record<string, string>> = [
+  EVENT_TYPE_LABELS,
+  CANONICAL_RISK_LABELS,
+  RULE_CODE_LABELS,
+  SOURCE_TYPE_LABELS,
+  SOURCE_MODE_LABELS,
+  EVIDENCE_TYPE_LABELS,
+  DOCUMENT_TYPE_LABELS,
+  SOURCE_NAME_LABELS,
+  ANALYSIS_STATUS_LABELS,
+];
+
+export function formatKnownLabel(value: string | null | undefined, fallback = "--"): string {
+  if (!value) {
+    return fallback;
+  }
+  for (const labels of KNOWN_LABEL_GROUPS) {
+    if (value in labels) {
+      return labels[value];
+    }
+  }
+  return value;
 }

@@ -12,6 +12,7 @@ import {
   formatEvidenceStatus,
   formatEvidenceType,
   formatEventType,
+  formatKnownLabel,
   formatRiskLevel,
   formatRuleCode,
   formatSeverity,
@@ -121,7 +122,7 @@ export function RiskTable({
                     {risk.evidence_chain.map((evidence, evidenceIndex) => (
                       <div key={`${risk.id}-${evidence.evidence_id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                         <p className="font-medium text-white">
-                          {evidenceIndex + 1}. {evidence.title}
+                          {evidenceIndex + 1}. {formatKnownLabel(evidence.title)}
                         </p>
                         <p className="mt-2 text-haze/75">{evidence.snippet}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/60">

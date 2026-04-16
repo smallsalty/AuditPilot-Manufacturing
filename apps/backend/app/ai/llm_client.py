@@ -182,6 +182,9 @@ class LLMClient:
                             }
                         ),
                     )
+                    if attempt < max_attempts:
+                        time.sleep(self._backoff_seconds(attempt))
+                        continue
                     return parsed
 
                 return content

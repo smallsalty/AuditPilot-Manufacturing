@@ -27,6 +27,7 @@ const BASIS_LEVEL_LABELS: Record<string, string> = {
   official_document: "依据等级：官方文档",
   structured_result: "依据等级：结构化结果",
   insufficient_context: "依据等级：信息不足",
+  fallback_context: "依据等级：回退结果",
 };
 
 export default function ChatPage() {
