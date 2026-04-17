@@ -11,12 +11,11 @@ export function StatCard({
 }) {
   return (
     <Card className="overflow-hidden">
-      <p className="text-sm text-haze/70">{label}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
       <div className="mt-4 flex items-end justify-between gap-4">
-        <span className="text-4xl font-semibold tracking-tight text-white">{value}</span>
-        <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-haze/70">{hint}</span>
+        <span className="text-4xl font-semibold tracking-tight text-foreground">{value}</span>
+        <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">{hint}</span>
       </div>
     </Card>
   );
 }
-

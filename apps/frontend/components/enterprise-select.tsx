@@ -15,14 +15,13 @@ export function EnterpriseSelect({
     <select
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-amber-400/50"
+      className="w-full rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
     >
       {enterprises.map((enterprise) => (
-        <option key={enterprise.id} value={enterprise.id} className="bg-slate text-white">
+        <option key={enterprise.id} value={enterprise.id}>
           {enterprise.name} | {enterprise.ticker}
         </option>
       ))}
     </select>
   );
 }
-

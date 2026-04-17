@@ -123,10 +123,10 @@ export default function RisksPage() {
       <Card>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">风险清单</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white">{pageTitle}</h2>
-            <p className="mt-2 text-haze/75">{actionMessage}</p>
-            {currentEnterpriseId ? <p className="mt-3 text-sm text-haze/65">企业 ID：{currentEnterpriseId}</p> : null}
+            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">风险清单</p>
+            <h2 className="mt-3 text-3xl font-semibold text-foreground">{pageTitle}</h2>
+            <p className="mt-2 text-muted-foreground">{actionMessage}</p>
+            {currentEnterpriseId ? <p className="mt-3 text-sm text-muted-foreground">企业 ID：{currentEnterpriseId}</p> : null}
           </div>
           <Button
             onClick={() => void runAnalysis()}
@@ -143,7 +143,7 @@ export default function RisksPage() {
         </Card>
       ) : !currentEnterpriseId ? (
         <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">当前没有可用企业。</div>
+          <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">当前没有可用企业。</div>
         </Card>
       ) : readinessError ? (
         <Card>
@@ -159,15 +159,15 @@ export default function RisksPage() {
         </Card>
       ) : dashboardLoading || risksLoading ? (
         <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">正在加载风险清单...</div>
+          <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">正在加载风险清单...</div>
         </Card>
       ) : (
         <>
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">财报专项分析</p>
-            <p className="mt-2 text-sm text-haze/75">{financialAnalysis?.summary ?? "当前尚未生成财报专项聚合结果。"}</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">财报专项分析</p>
+            <p className="mt-2 text-sm text-muted-foreground">{financialAnalysis?.summary ?? "当前尚未生成财报专项聚合结果。"}</p>
             {financialAnalysis ? (
-              <div className="mt-3 flex flex-wrap gap-3 text-xs text-haze/65">
+              <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
                 <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
                 <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "MiniMax" : "降级摘要"}</span>
                 <span>返回来源：{formatCacheState(financialAnalysis.cache_state)}</span>
@@ -178,10 +178,10 @@ export default function RisksPage() {
               <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
                 <div className="space-y-3">
                   {financialAnalysis.anomalies.slice(0, 6).map((item) => (
-                    <div key={`${item.document_id}-${item.title}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="font-medium text-white">{getFinancialAnalysisLabel(item.title, item.canonical_risk_key)}</p>
-                      <p className="mt-2 text-sm text-haze/80">{item.summary}</p>
-                      <p className="mt-2 text-xs text-haze/65">
+                    <div key={`${item.document_id}-${item.title}`} className="rounded-xl border bg-muted/20 p-4">
+                      <p className="font-medium text-foreground">{getFinancialAnalysisLabel(item.title, item.canonical_risk_key)}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{item.summary}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
                         {item.document_name}
                         {item.period ? ` | ${item.period}` : ""}
                         {item.metric_name ? ` | ${item.metric_name}` : ""}
@@ -190,19 +190,19 @@ export default function RisksPage() {
                   ))}
                 </div>
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-steel">重点科目</p>
+                  <div className="rounded-xl border bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">重点科目</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {financialAnalysis.focus_accounts.map((item) => (
-                        <span key={item} className="rounded-full bg-black/10 px-3 py-1 text-xs text-haze/80">
+                        <span key={item} className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
                           {item}
                         </span>
                       ))}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-steel">建议程序</p>
-                    <div className="mt-3 space-y-2 text-sm text-haze/80">
+                  <div className="rounded-xl border bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">建议程序</p>
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                       {financialAnalysis.recommended_procedures.map((item) => (
                         <p key={item}>{item}</p>
                       ))}
@@ -211,7 +211,7 @@ export default function RisksPage() {
                 </div>
               </div>
             ) : (
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+              <div className="mt-4 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
                 财报专项区只展示聚合后的异常、重点科目和建议程序，不重复文档明细。
               </div>
             )}
@@ -231,7 +231,7 @@ export default function RisksPage() {
             />
           ) : (
             <Card>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
+              <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
                 当前企业尚无可展示风险项。完成文档抽取后，这里会优先显示文档驱动的风险结果。
               </div>
             </Card>

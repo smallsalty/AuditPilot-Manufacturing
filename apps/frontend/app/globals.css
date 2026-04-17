@@ -3,19 +3,45 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  --background: 210 20% 98%;
+  --foreground: 222.2 47.4% 11.2%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 47.4% 11.2%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 47.4% 11.2%;
+  --primary: 215 32% 27%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 72.2% 50.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 215 32% 27%;
 }
 
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-  background: #09111f;
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-}
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
 
-* {
-  box-sizing: border-box;
+  html,
+  body {
+    margin: 0;
+    min-height: 100%;
+    @apply bg-background text-foreground;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+
+  body {
+    background-image: radial-gradient(circle at top, rgba(148, 163, 184, 0.1), transparent 32%);
+  }
 }
 
 a {
@@ -27,3 +53,6 @@ summary::-webkit-details-marker {
   display: none;
 }
 
+::selection {
+  background: rgba(51, 65, 85, 0.18);
+}

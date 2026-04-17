@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search } from "lucide-react";
+import { Building2, RefreshCw, Search } from "lucide-react";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function EnterpriseSwitcher() {
   const {
@@ -87,46 +90,67 @@ export function EnterpriseSwitcher() {
   }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching, searchKeyword]);
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-      <p className="text-xs uppercase tracking-[0.24em] text-steel">企业上下文</p>
+    <div className="rounded-xl border bg-background p-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-muted p-2 text-muted-foreground">
+          <Building2 className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">企业上下文</p>
+          <p className="mt-1 text-sm text-muted-foreground">按企业名称或股票代码切换当前工作对象。</p>
+        </div>
+      </div>
+
       <div className="relative mt-4">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
-        <input
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
           value={searchKeyword}
           onChange={(event) => setSearchKeyword(event.target.value)}
           placeholder="搜索企业名称或股票代码"
-          className="w-full rounded-2xl border border-white/10 bg-black/10 py-3 pl-10 pr-4 text-sm text-white outline-none transition focus:border-amber-400/50"
+          className="pl-10"
         />
       </div>
-      <div className="mt-3 grid gap-3">
+
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button variant="outline" onClick={reloadEnterprises} disabled={enterpriseLoading || searching}>
           <RefreshCw className="mr-2 h-4 w-4" />
           刷新企业列表
         </Button>
         {searchKeyword.trim() ? (
-          <Button onClick={bootstrap} disabled={bootstrapping}>
+          <Button onClick={bootstrap} disabled={bootstrapping} className="w-full">
             {bootstrapping ? "引入中..." : "引入官方企业"}
           </Button>
         ) : null}
       </div>
+
       {enterpriseOptions.length > 0 ? (
-        <select
-          value={currentEnterpriseId ?? ""}
-          onChange={(event) => selectEnterprise(Number(event.target.value))}
-          className="mt-3 w-full rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white outline-none transition focus:border-amber-400/50"
-        >
-          {enterpriseOptions.map((enterprise) => (
-            <option key={enterprise.id} value={enterprise.id} className="bg-slate text-white">
-              {enterprise.name} | {enterprise.ticker}
-            </option>
-          ))}
-        </select>
+        <div className="mt-3">
+          <Select value={currentEnterpriseId ? String(currentEnterpriseId) : undefined} onValueChange={(value) => selectEnterprise(Number(value))}>
+            <SelectTrigger>
+              <SelectValue placeholder="请选择企业" />
+            </SelectTrigger>
+            <SelectContent>
+              {enterpriseOptions.map((enterprise) => (
+                <SelectItem key={enterprise.id} value={String(enterprise.id)}>
+                  {enterprise.name} | {enterprise.ticker}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       ) : (
-        <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/75">
+        <div className="mt-3 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
           暂无可选企业
         </div>
       )}
-      <p className="mt-3 text-xs text-haze/65">{helperText}</p>
+
+      <Alert
+        variant={enterpriseError || searchError ? "destructive" : "default"}
+        className="mt-3 border-dashed bg-muted/30 text-xs"
+      >
+        <AlertTitle>当前状态</AlertTitle>
+        <AlertDescription>{helperText}</AlertDescription>
+      </Alert>
     </div>
   );
 }

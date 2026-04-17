@@ -107,13 +107,13 @@ export default function ChatPage() {
   return (
     <div className="space-y-6 pb-10">
       <Card>
-        <p className="text-xs uppercase tracking-[0.24em] text-steel">智能问答</p>
-        <h2 className="mt-3 text-3xl font-semibold text-white">
+        <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">智能问答</p>
+        <h2 className="mt-3 text-3xl font-semibold text-foreground">
           {currentEnterprise ? `${currentEnterprise.name} 风险问答` : "风险问答"}
         </h2>
-        <p className="mt-2 text-haze/75">{pageState.message}</p>
+        <p className="mt-2 text-muted-foreground">{pageState.message}</p>
         {currentEnterprise ? (
-          <p className="mt-3 text-sm text-haze/65">
+          <p className="mt-3 text-sm text-muted-foreground">
             企业代码：{currentEnterprise.ticker} | 官方文档 {readiness?.official_doc_count ?? 0} 份
           </p>
         ) : null}
@@ -123,7 +123,7 @@ export default function ChatPage() {
               <button
                 key={item}
                 onClick={() => void send(item)}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-haze/85 transition hover:bg-white/10"
+                className="rounded-full border border-border bg-muted/30 px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
               >
                 {item}
               </button>
@@ -134,7 +134,7 @@ export default function ChatPage() {
 
       {pageState.kind === "loading" || pageState.kind === "empty" ? (
         <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">{pageState.message}</div>
+          <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">{pageState.message}</div>
         </Card>
       ) : pageState.kind === "error" ? (
         <Card>
@@ -155,8 +155,8 @@ export default function ChatPage() {
                     <div
                       className={
                         message.role === "user"
-                          ? "rounded-[24px] bg-ember px-5 py-4 text-white"
-                          : "rounded-[24px] border border-white/10 bg-white/5 px-5 py-4 text-haze/85"
+                          ? "rounded-[24px] bg-primary px-5 py-4 text-primary-foreground"
+                          : "rounded-[24px] border border-border bg-muted/20 px-5 py-4 text-foreground"
                       }
                     >
                       <div
@@ -178,14 +178,14 @@ export default function ChatPage() {
                               [messageKey]: !expanded,
                             }))
                           }
-                          className="mt-3 text-sm text-amber-300 transition hover:text-amber-200"
+                          className="mt-3 text-sm text-primary transition hover:text-primary/80"
                         >
                           {expanded ? "收起" : "展开全文"}
                         </button>
                       ) : null}
                     </div>
                     {message.role === "assistant" && message.basisLevel ? (
-                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-steel">
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                         {BASIS_LEVEL_LABELS[message.basisLevel] ?? `依据等级：${message.basisLevel}`}
                       </p>
                     ) : null}
@@ -194,11 +194,11 @@ export default function ChatPage() {
                         {message.citations.map((citation, citationIndex) => (
                           <div
                             key={`${citation.title}-${citation.source_type}-${citationIndex}`}
-                            className="rounded-2xl border border-white/10 bg-black/10 p-4 text-sm text-haze/75"
+                            className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground"
                           >
-                            <p className="font-medium text-white">{citation.title}</p>
+                            <p className="font-medium text-foreground">{citation.title}</p>
                             <p className="mt-2">{citation.content}</p>
-                            <p className="mt-2 text-xs uppercase tracking-[0.2em] text-steel">
+                            <p className="mt-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
                               {formatSourceType(citation.source_type)}
                             </p>
                           </div>
@@ -208,7 +208,7 @@ export default function ChatPage() {
                     {message.suggested_actions?.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {message.suggested_actions.map((action) => (
-                          <span key={action} className="rounded-full bg-white/5 px-3 py-1 text-xs text-haze/80">
+                          <span key={action} className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
                             {action}
                           </span>
                         ))}
@@ -218,7 +218,7 @@ export default function ChatPage() {
                 );
               })
             ) : (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">
+              <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
                 当前还没有问答记录。可以直接点击推荐问题，或输入自定义问题。
               </div>
             )}
@@ -236,7 +236,7 @@ export default function ChatPage() {
               onChange={(event) => setQuestion(event.target.value)}
               rows={3}
               placeholder="请输入问题，例如：为什么判定收入确认风险较高？"
-              className="flex-1 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-amber-400/50"
+              className="flex-1 rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
             />
             <Button onClick={() => void send()} disabled={loading || pageState.kind !== "ready"} className="h-fit lg:self-end">
               {loading ? "生成中..." : "发送问题"}

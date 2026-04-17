@@ -3,24 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DocumentExtractItem, DocumentListItem } from "@auditpilot/shared-types";
 
+import { DocumentDetailPanel } from "@/components/documents/document-detail-panel";
+import { DocumentFinancialPanel } from "@/components/documents/document-financial-panel";
+import { DocumentsTable } from "@/components/documents/documents-table";
+import { DocumentsToolbar } from "@/components/documents/documents-toolbar";
 import { useEnterpriseContext } from "@/components/enterprise-provider";
-import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
-import {
-  formatAnalysisGroup,
-  formatAnalysisMode,
-  formatAnalysisStatus,
-  formatCacheState,
-  formatCanonicalRiskKey,
-  formatDocumentType,
-  formatEventType,
-  formatKnownLabel,
-  getFinancialAnalysisLabel,
-  formatParseStatus,
-  formatRuleCode,
-  formatSourceName,
-} from "@/lib/display-labels";
 import { useDocumentsResource, useFinancialAnalysisResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 const CLASSIFICATION_OPTIONS = [
@@ -57,40 +48,6 @@ type PageAction =
   | { kind: "reading"; message: string }
   | { kind: "analyzing"; message: string };
 
-function renderStructuredFields(extract: DocumentExtractItem) {
-  const rows: string[] = [];
-  if (extract.metric_name) {
-    rows.push(`数值：${extract.metric_name} ${extract.metric_value ?? "-"} ${extract.metric_unit ?? ""}`.trim());
-  }
-  if (extract.event_type) {
-    rows.push(`事件：${formatEventType(extract.event_type)}`);
-  }
-  if (extract.amount != null) {
-    rows.push(`金额：${extract.amount}`);
-  }
-  if (extract.counterparty) {
-    rows.push(`对手方：${extract.counterparty}`);
-  }
-  if (extract.opinion_type) {
-    rows.push(`意见：${extract.opinion_type}`);
-  }
-  if (extract.conclusion) {
-    rows.push(`结论：${extract.conclusion}`);
-  }
-  return rows;
-}
-
-function formatTimestamp(value?: string | null): string {
-  if (!value) {
-    return "暂无";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("zh-CN", { hour12: false });
-}
-
 export default function DocumentsPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources } = useEnterpriseContext();
   const {
@@ -114,6 +71,8 @@ export default function DocumentsPage() {
   const [message, setMessage] = useState("支持 PDF 或文本文件。文档需手动解析，解析结果会显示规则命中、结构化字段和财报专项结果。");
   const [syncGapRetryCount, setSyncGapRetryCount] = useState(0);
   const [pageAction, setPageAction] = useState<PageAction>({ kind: "idle" });
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   useEffect(() => {
     setActiveDocumentId(null);
@@ -121,6 +80,8 @@ export default function DocumentsPage() {
     setFile(null);
     setSyncGapRetryCount(0);
     setPageAction({ kind: "idle" });
+    setUploadDialogOpen(false);
+    setDetailSheetOpen(false);
   }, [currentEnterpriseId]);
 
   useEffect(() => {
@@ -181,7 +142,11 @@ export default function DocumentsPage() {
 
   const refreshAll = async () => {
     setPageAction({ kind: "reading", message: "正在读取当前企业的文档与财报专项结果..." });
-    await Promise.allSettled([refreshReadiness({ force: true }), refreshDocuments({ force: true }), refreshFinancialAnalysis({ force: true })]);
+    await Promise.allSettled([
+      refreshReadiness({ force: true }),
+      refreshDocuments({ force: true }),
+      refreshFinancialAnalysis({ force: true }),
+    ]);
     setPageAction({ kind: "idle" });
   };
 
@@ -192,6 +157,7 @@ export default function DocumentsPage() {
       const response = await api.getDocumentExtracts(document.id);
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
+      setDetailSheetOpen(true);
       setMessage(`已加载 ${document.document_name} 的抽取结果。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "抽取结果加载失败。");
@@ -209,6 +175,8 @@ export default function DocumentsPage() {
       const result = await api.uploadDocument(currentEnterpriseId, file);
       invalidateEnterpriseResources(currentEnterpriseId, ["documents", "readiness", "financialAnalysis"]);
       await refreshAll();
+      setUploadDialogOpen(false);
+      setFile(null);
       setMessage(`文档 ${result.document_name} 上传成功，待手动解析。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文档上传失败。");
@@ -223,9 +191,14 @@ export default function DocumentsPage() {
       await api.parseDocument(document.id);
       const response = await api.getDocumentExtracts(document.id);
       invalidateEnterpriseResources(currentEnterpriseId ?? 0, ["documents", "readiness", "financialAnalysis"]);
-      await Promise.allSettled([refreshReadiness({ force: true }), refreshDocuments({ force: true }), refreshFinancialAnalysis({ force: true })]);
+      await Promise.allSettled([
+        refreshReadiness({ force: true }),
+        refreshDocuments({ force: true }),
+        refreshFinancialAnalysis({ force: true }),
+      ]);
       setActiveDocumentId(document.id);
       setExtracts(response.extracts);
+      setDetailSheetOpen(true);
       setMessage(`已生成 ${response.extracts.length} 条结构化抽取结果。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文档解析失败。");
@@ -239,11 +212,15 @@ export default function DocumentsPage() {
     try {
       await api.overrideDocumentClassification(document.id, classifiedType);
       invalidateEnterpriseResources(currentEnterpriseId ?? 0, ["documents", "financialAnalysis", "readiness"]);
-      await Promise.allSettled([refreshDocuments({ force: true }), refreshFinancialAnalysis({ force: true }), refreshReadiness({ force: true })]);
+      await Promise.allSettled([
+        refreshDocuments({ force: true }),
+        refreshFinancialAnalysis({ force: true }),
+        refreshReadiness({ force: true }),
+      ]);
       if (activeDocumentId === document.id) {
         await loadExtracts(document, "analyzing");
       }
-      setMessage(`已将文档分类修正为 ${formatDocumentType(classifiedType)}。`);
+      setMessage(`已将文档分类修正为 ${classifiedType}。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文档分类修正失败。");
       setPageAction({ kind: "idle" });
@@ -259,7 +236,7 @@ export default function DocumentsPage() {
       await api.overrideExtractEventType(activeDocumentId, extract.evidence_span_id, eventType);
       const response = await api.getDocumentExtracts(activeDocumentId);
       setExtracts(response.extracts);
-      setMessage(`已将事件类型修正为 ${formatEventType(eventType)}。`);
+      setMessage(`已将事件类型修正为 ${eventType || "未指定"}。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "事件类型修正失败。");
     } finally {
@@ -269,13 +246,16 @@ export default function DocumentsPage() {
 
   const topStatus = useMemo(() => {
     if (pageAction.kind === "analyzing") {
-      return { label: "分析中", message: pageAction.message, tone: "border-amber-300/30 bg-amber-300/10 text-amber-100" };
+      return { label: "分析中", message: pageAction.message, variant: "warning" as const };
     }
     if (pageAction.kind === "reading" || documentsLoading || readinessLoading || financialAnalysisLoading) {
       return {
         label: "读取中",
-        message: pageAction.kind === "reading" ? pageAction.message : "正在读取当前企业的文档、就绪状态和财报专项结果...",
-        tone: "border-sky-300/30 bg-sky-300/10 text-sky-100",
+        message:
+          pageAction.kind === "reading"
+            ? pageAction.message
+            : "正在读取当前企业的文档、就绪状态和财报专项结果...",
+        variant: "default" as const,
       };
     }
     if (readiness?.manual_parse_required) {
@@ -283,20 +263,20 @@ export default function DocumentsPage() {
       return {
         label: "已同步，待手动解析",
         message: count > 0 ? `已同步 ${count} 份待解析文档，请手动点击“解析”或“查看抽取”。` : "官方文档已同步，待手动解析。",
-        tone: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
+        variant: "default" as const,
       };
     }
     if (hasSyncGap) {
       return {
         label: "同步/刷新中",
         message: syncGapRetryCount === 0 ? "官方文档已存在，列表正在同步刷新..." : "同步仍在收尾，请手动刷新。",
-        tone: "border-white/20 bg-white/10 text-haze/80",
+        variant: "default" as const,
       };
     }
     return {
       label: "空闲",
       message,
-      tone: "border-white/10 bg-white/5 text-haze/75",
+      variant: "default" as const,
     };
   }, [
     documentsLoading,
@@ -313,263 +293,142 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-6 pb-10">
       <Card>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">文档中心</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white">
-              {currentEnterprise ? `${currentEnterprise.name} 文档中心` : "文档中心"}
-            </h2>
-            <p className="mt-2 text-haze/75">{message}</p>
-            {currentEnterprise ? (
-              <p className="mt-3 text-sm text-haze/65">
-                企业 ID：{currentEnterpriseId} | 官方文档 {readiness?.official_doc_count ?? 0} 份
-              </p>
-            ) : null}
-          </div>
-          <div className="flex flex-col gap-3 lg:flex-row">
-            <input
-              type="file"
-              accept=".pdf,.txt"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-haze/75"
-            />
-            <Button variant="outline" onClick={() => void refreshAll()} disabled={pageAction.kind !== "idle"}>
-              刷新文档
-            </Button>
-            <Button onClick={() => void upload()} disabled={!file || !currentEnterpriseId || pageAction.kind !== "idle"}>
-              上传文档
-            </Button>
-          </div>
-        </div>
+        <DocumentsToolbar
+          enterpriseName={currentEnterprise?.name}
+          currentEnterpriseId={currentEnterpriseId}
+          officialDocCount={readiness?.official_doc_count ?? 0}
+          message={message}
+          uploadOpen={uploadDialogOpen}
+          onUploadOpenChange={setUploadDialogOpen}
+          fileName={file?.name ?? null}
+          onFileChange={setFile}
+          onRefresh={() => void refreshAll()}
+          onUpload={() => void upload()}
+          disabled={pageAction.kind !== "idle"}
+          uploadDisabled={!file || !currentEnterpriseId || pageAction.kind !== "idle"}
+        />
       </Card>
 
-      <Card>
-        <div className={`rounded-2xl border px-4 py-4 text-sm ${topStatus.tone}`}>
-          <p className="text-xs uppercase tracking-[0.2em]">{topStatus.label}</p>
-          <p className="mt-2">{topStatus.message}</p>
-        </div>
-      </Card>
+      <Alert variant={topStatus.variant}>
+        <AlertTitle>{topStatus.label}</AlertTitle>
+        <AlertDescription>{topStatus.message}</AlertDescription>
+      </Alert>
 
       {enterpriseError ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">{enterpriseError}</div>
-        </Card>
+        <Alert variant="destructive">
+          <AlertTitle>企业上下文不可用</AlertTitle>
+          <AlertDescription>{enterpriseError}</AlertDescription>
+        </Alert>
       ) : !currentEnterpriseId ? (
-        <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">请先选择企业。</div>
-        </Card>
+        <Alert>
+          <AlertTitle>请先选择企业</AlertTitle>
+          <AlertDescription>当前没有可用企业。</AlertDescription>
+        </Alert>
       ) : documentsError || readinessError || financialAnalysisError ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            {documentsError ?? readinessError ?? financialAnalysisError}
-          </div>
-        </Card>
+        <Alert variant="destructive">
+          <AlertTitle>文档中心加载失败</AlertTitle>
+          <AlertDescription>{documentsError ?? readinessError ?? financialAnalysisError}</AlertDescription>
+        </Alert>
       ) : (
         <>
-          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">文档列表</p>
-              {documents && documents.length > 0 ? (
-                <div className="mt-4 space-y-3">
-                  {documents.map((document) => (
-                    <div key={document.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex flex-col gap-3">
-                        <div>
-                          <p className="font-medium text-white">{document.document_name}</p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-steel">
-                            {formatDocumentType(document.classified_type ?? document.document_type)} |{" "}
-                            {formatParseStatus(document.parse_status)} | {formatSourceName(document.source)}
-                          </p>
-                          <p className="mt-2 text-xs text-haze/65">
-                            分析状态：{formatAnalysisStatus(document.analysis_status)} | {formatAnalysisMode(document.analysis_mode)}
-                          </p>
-                          {document.analysis_groups?.length ? (
-                            <p className="mt-2 text-xs text-haze/65">
-                              分析分组：{document.analysis_groups.map((item) => formatAnalysisGroup(item)).join(" / ")}
-                            </p>
-                          ) : null}
-                          {document.last_error_message ? (
-                            <p className="mt-2 text-xs text-amber-200">
-                              最近错误：{document.last_error_message}
-                              {document.last_error_at ? ` | ${formatTimestamp(document.last_error_at)}` : ""}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                          <select
-                            className="rounded-2xl border border-white/10 bg-black/10 px-3 py-2 text-sm text-haze/80"
-                            value={document.classified_type ?? document.document_type}
-                            onChange={(event) => void updateClassification(document, event.target.value)}
-                            disabled={pageAction.kind !== "idle"}
-                          >
-                            {CLASSIFICATION_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {formatDocumentType(option)}
-                              </option>
-                            ))}
-                          </select>
-                          <Button variant="outline" onClick={() => void loadExtracts(document)} disabled={pageAction.kind !== "idle"}>
-                            查看抽取
-                          </Button>
-                          <Button
-                            onClick={() => void parse(document)}
-                            disabled={pageAction.kind !== "idle" || document.parse_status === "parsing"}
-                          >
-                            {document.parse_status === "parsed" ? "重新解析" : "解析"}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                  <p>{readinessEmptyMessage}</p>
-                  {readiness?.manual_parse_required ? (
-                    <p className="mt-2 text-xs text-haze/60">
-                      已同步 {readiness.documents_pending_parse} 份官方文档，待手动解析。
-                    </p>
-                  ) : null}
-                  {readiness?.last_sync_diagnostics?.initial_window ? (
-                    <p className="mt-2 text-xs text-haze/60">
-                      最近同步窗口：{readiness.last_sync_diagnostics.initial_window.date_from} ~{" "}
-                      {readiness.last_sync_diagnostics.initial_window.date_to}
-                    </p>
-                  ) : null}
-                </div>
-              )}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">官方文档</p>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{readiness?.official_doc_count ?? 0}</p>
+              <p className="mt-2 text-sm text-muted-foreground">同步后进入当前企业文档池的文档数量。</p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">待手动解析</p>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{readiness?.documents_pending_parse ?? 0}</p>
+              <p className="mt-2 text-sm text-muted-foreground">仍需手动点击“解析”的文档数量。</p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">已读取列表</p>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{documents?.length ?? 0}</p>
+              <p className="mt-2 text-sm text-muted-foreground">当前文档列表中的可操作文档数量。</p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">同步状态</p>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{readiness?.sync_status ?? "暂无"}</p>
+              <p className="mt-2 text-sm text-muted-foreground">最近同步：{readiness?.last_sync_at ?? "暂无"}</p>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+            <Card className="p-0">
+              <div className="border-b px-6 py-5">
+                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">文档主列表</p>
+                <p className="mt-2 text-sm text-muted-foreground">优先查看分类、解析状态和抽取入口。</p>
+              </div>
+              <div className="p-6">
+                {documents && documents.length > 0 ? (
+                  <DocumentsTable
+                    documents={documents}
+                    activeDocumentId={activeDocumentId}
+                    busy={pageAction.kind !== "idle"}
+                    onView={(document) => void loadExtracts(document)}
+                    onParse={(document) => void parse(document)}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                    <p>{readinessEmptyMessage}</p>
+                    {readiness?.manual_parse_required ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        已同步 {readiness.documents_pending_parse} 份官方文档，待手动解析。
+                      </p>
+                    ) : null}
+                    {readiness?.last_sync_diagnostics?.initial_window ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        最近同步窗口：{readiness.last_sync_diagnostics.initial_window.date_from} ~{" "}
+                        {readiness.last_sync_diagnostics.initial_window.date_to}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             </Card>
 
-            <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">抽取明细</p>
-              {activeDocument ? <p className="mt-2 text-sm text-haze/70">当前文档：{activeDocument.document_name}</p> : null}
-              {extracts.length > 0 ? (
-                <div className="mt-4 space-y-3">
-                  {extracts.map((extract, index) => {
-                    const structuredRows = renderStructuredFields(extract);
-                    return (
-                      <details key={extract.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <summary className="list-none cursor-pointer">
-                          <div className="flex items-start gap-3">
-                            <span className="pt-0.5 text-sm font-semibold text-amber-300">{index + 1}.</span>
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-white">{formatKnownLabel(extract.title)}</p>
-                              <p className="mt-2 text-sm text-haze/80">{extract.problem_summary}</p>
-                            </div>
-                          </div>
-                        </summary>
-                        <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
-                          <section>
-                            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">规则与风险键</p>
-                            <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
-                              {extract.applied_rules.length ? (
-                                <p>规则：{extract.applied_rules.map((item) => formatRuleCode(item)).join(" / ")}</p>
-                              ) : (
-                                <p>规则：未命中</p>
-                              )}
-                              {extract.canonical_risk_key ? (
-                                <p className="mt-2">风险键：{formatCanonicalRiskKey(extract.canonical_risk_key)}</p>
-                              ) : null}
-                            </div>
-                          </section>
-                          <section>
-                            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">证据摘要</p>
-                            <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-haze/80">
-                              {extract.evidence_excerpt}
-                            </div>
-                          </section>
-                          {structuredRows.length ? (
-                            <section>
-                              <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">结构化字段</p>
-                              <div className="space-y-2 text-sm text-haze/80">
-                                {structuredRows.map((row) => (
-                                  <p key={row}>{row}</p>
-                                ))}
-                              </div>
-                            </section>
-                          ) : null}
-                          {extract.evidence_span_id ? (
-                            <section>
-                              <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">事件修正</p>
-                              <select
-                                className="rounded-2xl border border-white/10 bg-black/10 px-3 py-2 text-sm text-haze/80"
-                                value={extract.event_type ?? ""}
-                                onChange={(event) => void updateEventType(extract, event.target.value)}
-                                disabled={pageAction.kind !== "idle"}
-                              >
-                                <option value="">请选择事件类型</option>
-                                {EVENT_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>
-                                    {formatEventType(option)}
-                                  </option>
-                                ))}
-                              </select>
-                            </section>
-                          ) : null}
-                        </div>
-                      </details>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                  当前未读取任何文档抽取结果。点击“查看抽取”后才会读取，不会自动展开。
-                </div>
-              )}
+            <Card className="hidden min-h-[720px] xl:block">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">文档详情</p>
+              <p className="mt-2 text-sm text-muted-foreground">查看当前文档的抽取结果和人工修正入口。</p>
+              <div className="mt-5">
+                <DocumentDetailPanel
+                  document={activeDocument}
+                  extracts={extracts}
+                  busy={pageAction.kind !== "idle"}
+                  classificationOptions={CLASSIFICATION_OPTIONS}
+                  eventOptions={EVENT_OPTIONS}
+                  onUpdateClassification={(document, classifiedType) => void updateClassification(document, classifiedType)}
+                  onUpdateEventType={(extract, eventType) => void updateEventType(extract, eventType)}
+                />
+              </div>
             </Card>
+          </div>
+
+          <div className="xl:hidden">
+            <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
+              <SheetContent side="right" className="w-full overflow-y-auto p-6 sm:max-w-2xl">
+                <SheetHeader>
+                  <SheetTitle>文档详情</SheetTitle>
+                  <SheetDescription>查看抽取结果与人工修正入口。</SheetDescription>
+                </SheetHeader>
+                <div className="mt-4">
+                  <DocumentDetailPanel
+                    document={activeDocument}
+                    extracts={extracts}
+                    busy={pageAction.kind !== "idle"}
+                    classificationOptions={CLASSIFICATION_OPTIONS}
+                    eventOptions={EVENT_OPTIONS}
+                    onUpdateClassification={(document, classifiedType) => void updateClassification(document, classifiedType)}
+                    onUpdateEventType={(extract, eventType) => void updateEventType(extract, eventType)}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
 
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">财报专项分析</p>
-            <p className="mt-2 text-sm text-haze/75">{financialAnalysis?.summary ?? "当前尚未生成财报专项聚合结果。"}</p>
-            {financialAnalysis ? (
-              <div className="mt-3 flex flex-wrap gap-3 text-xs text-haze/65">
-                <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
-                <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "MiniMax" : "降级摘要"}</span>
-                <span>返回来源：{formatCacheState(financialAnalysis.cache_state)}</span>
-              </div>
-            ) : null}
-            {financialAnalysis?.anomalies?.length ? (
-              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
-                <div className="space-y-3">
-                  {financialAnalysis.anomalies.slice(0, 6).map((item) => (
-                    <div key={`${item.document_id}-${item.title}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="font-medium text-white">{getFinancialAnalysisLabel(item.title, item.canonical_risk_key)}</p>
-                      <p className="mt-2 text-sm text-haze/80">{item.summary}</p>
-                      <p className="mt-2 text-xs text-haze/65">
-                        {item.document_name}
-                        {item.period ? ` | ${item.period}` : ""}
-                        {item.metric_name ? ` | ${item.metric_name}` : ""}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-steel">重点科目</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {financialAnalysis.focus_accounts.map((item) => (
-                        <span key={item} className="rounded-full bg-black/10 px-3 py-1 text-xs text-haze/80">
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-steel">建议程序</p>
-                    <div className="mt-3 space-y-2 text-sm text-haze/80">
-                      {financialAnalysis.recommended_procedures.map((item) => (
-                        <p key={item}>{item}</p>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
-                财报专项区只展示聚合后的异常、重点科目和建议程序，不自动展开文档明细。
-              </div>
-            )}
+            <DocumentFinancialPanel financialAnalysis={financialAnalysis} loading={financialAnalysisLoading} />
           </Card>
         </>
       )}

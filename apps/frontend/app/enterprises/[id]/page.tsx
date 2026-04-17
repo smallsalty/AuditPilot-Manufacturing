@@ -122,20 +122,20 @@ export default function EnterpriseDetailPage() {
       <Card>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-steel">企业审计概览</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white">
+            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">企业审计概览</p>
+            <h2 className="mt-3 text-3xl font-semibold text-foreground">
               {state.profile?.company.name ?? "企业审计概览"}
             </h2>
-            <p className="mt-2 text-haze/75">
+            <p className="mt-2 text-muted-foreground">
               {state.profile
                 ? `${state.profile.company.ticker} | ${state.profile.company.industry_tag} | ${formatExchange(state.profile.company.exchange)}`
                 : "查看企业主数据、公告时间线、监管信号和同步状态。"}
             </p>
-            {syncMessage ? <p className="mt-3 text-sm text-amber-200">{syncMessage}</p> : null}
+            {syncMessage ? <p className="mt-3 text-sm text-amber-700">{syncMessage}</p> : null}
             {syncSummary && (syncSummary.warnings.length > 0 || syncSummary.errors.length > 0) ? (
               <div className="mt-3 space-y-2 text-sm">
                 {syncSummary.warnings.map((item) => (
-                  <p key={item} className="text-amber-100">
+                  <p key={item} className="text-amber-700">
                     提示：{item}
                   </p>
                 ))}
@@ -160,7 +160,7 @@ export default function EnterpriseDetailPage() {
 
       {state.loading ? (
         <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">正在加载审计概览...</div>
+          <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">正在加载审计概览...</div>
         </Card>
       ) : state.error ? (
         <Card>
@@ -168,47 +168,47 @@ export default function EnterpriseDetailPage() {
         </Card>
       ) : !state.profile ? (
         <Card>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-haze/75">当前企业暂无审计概览数据。</div>
+          <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">当前企业暂无审计概览数据。</div>
         </Card>
       ) : (
         <>
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">同步状态</p>
-              <p className="mt-3 text-2xl font-semibold text-white">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">同步状态</p>
+              <p className="mt-3 text-2xl font-semibold text-foreground">
                 {formatSyncStatus(state.readiness?.sync_status ?? state.profile.sync_status)}
               </p>
-              <p className="mt-2 text-sm text-haze/75">
+              <p className="mt-2 text-sm text-muted-foreground">
                 最近同步：{state.readiness?.last_sync_at ?? state.profile.latest_sync_at ?? "尚未同步"}
               </p>
             </Card>
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">官方文档</p>
-              <p className="mt-3 text-2xl font-semibold text-white">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">官方文档</p>
+              <p className="mt-3 text-2xl font-semibold text-foreground">
                 {state.readiness?.official_doc_count ?? state.profile.document_count}
               </p>
-              <p className="mt-2 text-sm text-haze/75">最近文档：{state.profile.latest_document_date ?? "暂无"}</p>
+              <p className="mt-2 text-sm text-muted-foreground">最近文档：{state.profile.latest_document_date ?? "暂无"}</p>
             </Card>
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">监管事件</p>
-              <p className="mt-3 text-2xl font-semibold text-white">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">监管事件</p>
+              <p className="mt-3 text-2xl font-semibold text-foreground">
                 {state.readiness?.official_event_count ?? state.profile.penalty_count}
               </p>
-              <p className="mt-2 text-sm text-haze/75">最近事件：{state.profile.latest_penalty_date ?? "暂无"}</p>
+              <p className="mt-2 text-sm text-muted-foreground">最近事件：{state.profile.latest_penalty_date ?? "暂无"}</p>
             </Card>
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">风险分析状态</p>
-              <p className="mt-3 text-2xl font-semibold text-white">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">风险分析状态</p>
+              <p className="mt-3 text-2xl font-semibold text-foreground">
                 {formatAnalysisStatus(state.readiness?.risk_analysis_status ?? state.profile.data_sources?.risk_analysis_status)}
               </p>
-              <p className="mt-2 text-sm text-haze/75">问答可用：{state.readiness?.qa_ready ? "是" : "否"}</p>
+              <p className="mt-2 text-sm text-muted-foreground">问答可用：{state.readiness?.qa_ready ? "是" : "否"}</p>
             </Card>
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">企业主数据</p>
-              <div className="mt-4 space-y-3 text-sm text-haze/80">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">企业主数据</p>
+              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
                 <p>企业名称：{state.profile.company.name}</p>
                 <p>股票代码：{state.profile.company.ticker}</p>
                 <p>行业：{state.profile.company.industry_tag}</p>
@@ -217,23 +217,23 @@ export default function EnterpriseDetailPage() {
                   所在地：{state.profile.company.province ?? "--"} / {state.profile.company.city ?? "--"}
                 </p>
                 <p>上市日期：{state.profile.company.listed_date ?? "--"}</p>
-                <p className="pt-2 text-haze/70">{state.profile.company.description ?? "暂无企业描述。"}</p>
+                <p className="pt-2 text-muted-foreground">{state.profile.company.description ?? "暂无企业描述。"}</p>
               </div>
             </Card>
 
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">数据来源与状态</p>
-              <div className="mt-4 space-y-3 text-sm text-haze/80">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">数据来源与状态</p>
+              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                <div className="rounded-xl border bg-muted/20 p-4">
                   企业主数据来源：{formatSourceName(state.profile.data_sources?.profile ?? "akshare_fast")}
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="rounded-xl border bg-muted/20 p-4">
                   公告与文档来源：{formatSourceName(state.profile.data_sources?.documents ?? "cninfo / upload")}
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="rounded-xl border bg-muted/20 p-4">
                   事件来源：{formatSourceName(state.profile.data_sources?.events ?? "cninfo / upload")}
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="rounded-xl border bg-muted/20 p-4">
                   当前风险分析状态：{formatAnalysisStatus(state.profile.data_sources?.risk_analysis_status)}
                 </div>
               </div>
@@ -242,19 +242,19 @@ export default function EnterpriseDetailPage() {
 
           <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">时间线</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">时间线</p>
               {timelineItems.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {timelineItems.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div key={item.id} className="rounded-xl border bg-muted/20 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="font-medium text-white">{item.title}</p>
-                        <span className="text-xs uppercase tracking-[0.2em] text-steel">
+                        <p className="font-medium text-foreground">{item.title}</p>
+                        <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                           {formatTimelineItemType(item.item_type)} | {item.date ?? "未知日期"}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-haze/75">{item.summary}</p>
-                      <p className="mt-2 text-xs text-steel">
+                      <p className="mt-2 text-sm text-muted-foreground">{item.summary}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
                         {formatSourceName(item.source)} | {formatStatus(item.status)}
                         {item.severity ? ` | ${formatSeverity(item.severity)}` : ""}
                       </p>
@@ -262,30 +262,30 @@ export default function EnterpriseDetailPage() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+                <div className="mt-4 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
                   当前暂无官方文档或监管事件时间线。
                 </div>
               )}
             </Card>
 
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-steel">风险摘要</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">风险摘要</p>
               {state.riskSummary ? (
                 <div className="mt-4 space-y-3">
                   {state.riskSummary.highlights.length ? (
                     state.riskSummary.highlights.map((item) => (
-                      <div key={item} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/80">
+                      <div key={item} className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
                         {item}
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+                    <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
                       当前暂无可展示的风险摘要。
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">
+                <div className="mt-4 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
                   当前暂无结构化风险摘要。
                 </div>
               )}

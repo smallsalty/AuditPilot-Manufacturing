@@ -2,15 +2,19 @@ import { cn } from "@/lib/utils";
 import { formatRiskLevel } from "@/lib/display-labels";
 
 const palette = {
-  HIGH: "bg-red-500/20 text-red-200 border-red-400/30",
-  MEDIUM: "bg-amber-500/20 text-amber-100 border-amber-300/30",
-  LOW: "bg-emerald-500/20 text-emerald-100 border-emerald-300/30",
-  rule: "bg-sky-500/20 text-sky-100 border-sky-300/30",
-  model: "bg-fuchsia-500/20 text-fuchsia-100 border-fuchsia-300/30",
-  default: "bg-white/10 text-haze border-white/15",
+  HIGH: "border-red-200 bg-red-50 text-red-700",
+  MEDIUM: "border-amber-200 bg-amber-50 text-amber-700",
+  LOW: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  rule: "border-blue-200 bg-blue-50 text-blue-700",
+  model: "border-violet-200 bg-violet-50 text-violet-700",
+  default: "border-border bg-muted text-muted-foreground",
 };
 
 export function Badge({ value, label }: { value: string; label?: string }) {
   const style = palette[value as keyof typeof palette] ?? palette.default;
-  return <span className={cn("rounded-full border px-3 py-1 text-xs font-medium", style)}>{label ?? formatRiskLevel(value)}</span>;
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium", style)}>
+      {label ?? formatRiskLevel(value)}
+    </span>
+  );
 }

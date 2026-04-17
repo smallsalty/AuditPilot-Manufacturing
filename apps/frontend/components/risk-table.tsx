@@ -65,12 +65,12 @@ export function RiskTable({
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-amber-300">{index + 1}.</span>
-                    <h3 className="text-lg font-semibold text-white">{risk.risk_name}</h3>
+                    <span className="text-sm font-semibold text-primary">{index + 1}.</span>
+                    <h3 className="text-lg font-semibold text-foreground">{risk.risk_name}</h3>
                     <Badge value={risk.risk_level} label={formatRiskLevel(risk.risk_level)} />
                   </div>
-                  <p className="mt-3 text-sm text-haze/80">{risk.summary ?? risk.llm_summary ?? risk.reasons.join("；")}</p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/65">
+                  <p className="mt-3 text-sm text-muted-foreground">{risk.summary ?? risk.llm_summary ?? risk.reasons.join("；")}</p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span>
                       {risk.evidence_status
                         ? formatEvidenceStatus(risk.evidence_status)
@@ -85,13 +85,13 @@ export function RiskTable({
                 </div>
               </div>
             </summary>
-            <div className="mt-5 space-y-5 border-t border-white/10 pt-5 text-sm text-haze/85">
+            <div className="mt-5 space-y-5 border-t border-border pt-5 text-sm text-muted-foreground">
               {risk.source_rules?.length ? (
                 <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">规则补充</p>
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">规则补充</p>
                   <ol className="space-y-2">
                     {risk.source_rules.map((rule, ruleIndex) => (
-                      <li key={rule} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <li key={rule} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
                         {ruleIndex + 1}. {formatRuleCode(rule)}
                       </li>
                     ))}
@@ -101,10 +101,10 @@ export function RiskTable({
 
               {risk.source_events?.length ? (
                 <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">事件来源</p>
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">事件来源</p>
                   <ol className="space-y-2">
                     {risk.source_events.map((event, eventIndex) => (
-                      <li key={`${risk.id}-${eventIndex}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <li key={`${risk.id}-${eventIndex}`} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
                         {eventIndex + 1}.{" "}
                         {[formatEventType(event.event_type), event.subject, event.event_date, formatSeverity(event.severity)]
                           .filter(Boolean)
@@ -116,16 +116,16 @@ export function RiskTable({
               ) : null}
 
               <section>
-                <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">证据索引</p>
+                <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">证据索引</p>
                 {risk.evidence_chain.length > 0 ? (
                   <div className="space-y-3">
                     {risk.evidence_chain.map((evidence, evidenceIndex) => (
-                      <div key={`${risk.id}-${evidence.evidence_id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="font-medium text-white">
+                      <div key={`${risk.id}-${evidence.evidence_id}`} className="rounded-xl border border-border bg-muted/20 p-4">
+                        <p className="font-medium text-foreground">
                           {evidenceIndex + 1}. {formatKnownLabel(evidence.title)}
                         </p>
-                        <p className="mt-2 text-haze/75">{evidence.snippet}</p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-haze/60">
+                        <p className="mt-2 text-muted-foreground">{evidence.snippet}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                           <span>{formatEvidenceType(evidence.evidence_type)}</span>
                           {evidence.source_label ? <span>{evidence.source_label}</span> : null}
                           {evidence.published_at ? <span>{evidence.published_at}</span> : null}
@@ -137,16 +137,16 @@ export function RiskTable({
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-haze/75">暂无直接证据。</div>
+                  <div className="rounded-xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">暂无直接证据。</div>
                 )}
               </section>
 
               {risk.source_documents?.length ? (
                 <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">来源文档</p>
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">来源文档</p>
                   <ol className="space-y-2">
                     {risk.source_documents.map((document, documentIndex) => (
-                      <li key={`${document.document_id}-${document.document_name}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <li key={`${document.document_id}-${document.document_name}`} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
                         {documentIndex + 1}. {document.document_name}
                       </li>
                     ))}
@@ -156,10 +156,10 @@ export function RiskTable({
 
               {risk.recommended_procedures.length ? (
                 <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-steel">建议动作</p>
+                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">建议动作</p>
                   <ol className="space-y-2">
                     {risk.recommended_procedures.map((procedure, procedureIndex) => (
-                      <li key={procedure} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <li key={procedure} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
                         {procedureIndex + 1}. {procedure}
                       </li>
                     ))}
@@ -172,7 +172,7 @@ export function RiskTable({
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                     <button
                       type="button"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-haze/80 disabled:opacity-50"
+                      className="rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground disabled:opacity-50"
                       disabled={busyKey === risk.canonical_risk_key}
                       onClick={(event) => {
                         event.preventDefault();
@@ -182,7 +182,7 @@ export function RiskTable({
                       {busyKey === risk.canonical_risk_key ? "处理中..." : "忽略该风险"}
                     </button>
                     <select
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-haze/80"
+                      className="rounded-lg border border-input bg-background px-3 py-3 text-sm text-foreground"
                       value={mergeValues[risk.canonical_risk_key] ?? ""}
                       onChange={(event) =>
                         setMergeValues((current) => ({ ...current, [risk.canonical_risk_key as string]: event.target.value }))
@@ -197,7 +197,7 @@ export function RiskTable({
                     </select>
                     <button
                       type="button"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-haze/80 disabled:opacity-50"
+                      className="rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground disabled:opacity-50"
                       disabled={busyKey === risk.canonical_risk_key || !mergeValues[risk.canonical_risk_key]}
                       onClick={(event) => {
                         event.preventDefault();
