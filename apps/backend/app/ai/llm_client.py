@@ -108,6 +108,9 @@ class LLMClient:
             "request_kind": request_kind,
             "enterprise_id": metadata.get("enterprise_id"),
             "document_id": metadata.get("document_id"),
+            "classified_type": metadata.get("classified_type"),
+            "prompt_template": metadata.get("prompt_template"),
+            "schema_name": metadata.get("schema_name"),
             "model": self.model or "<unset>",
             "base_url": self.base_url or "<unset>",
             "status_code": None,
@@ -148,6 +151,8 @@ class LLMClient:
                 if json_mode:
                     parsed = self._parse_json_response(content)
                     if parsed.get("parsed_ok"):
+                        parsed["retry_attempts"] = attempt
+                        parsed["response_chars"] = len(content)
                         if parsed.get("payload_mode") in {"extracted_dict", "extracted_list"}:
                             logger.info(
                                 "llm json extract recovered %s",
@@ -185,6 +190,8 @@ class LLMClient:
                     if attempt < max_attempts:
                         time.sleep(self._backoff_seconds(attempt))
                         continue
+                    parsed["retry_attempts"] = attempt
+                    parsed["response_chars"] = len(content)
                     return parsed
 
                 return content

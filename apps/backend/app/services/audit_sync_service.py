@@ -504,6 +504,9 @@ class AuditSyncService:
             "source_payload": payload.get("raw_payload"),
             "source_provider": provider_name,
             "sync_diagnostics": payload.get("diagnostics"),
+            "title_matches": payload.get("title_matches") or [],
+            "primary_title_match": payload.get("primary_title_match"),
+            "normalized_title": payload.get("normalized_title"),
         }
         file_url = payload.get("document_url")
         document.file_url = file_url

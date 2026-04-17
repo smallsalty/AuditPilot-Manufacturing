@@ -163,31 +163,6 @@
 - `apps/backend/app/utils/documents.py`：文档处理通用工具，辅助解析、页码、文本提取等逻辑。
 - `apps/backend/app/utils/embeddings.py`：嵌入或向量相关的通用工具函数。
 
-### tests
-
-- `apps/backend/tests/test_akshare_financial_provider.py`：验证 AkShare 财务 provider 的字段映射和税务指标采集。
-- `apps/backend/tests/test_announcement_risk_service.py`：验证公告标题匹配、主事件选择、时间衰减和重复事件加重逻辑。
-- `apps/backend/tests/test_audit_qa_server.py`：验证问答主服务的回答生成、清洗和引用行为。
-- `apps/backend/tests/test_audit_qa_server_light_context.py`：验证轻上下文模式下的问答降级和输出稳定性。
-- `apps/backend/tests/test_backfill_clean_display_fields.py`：验证显示字段回填脚本的清洗和迁移结果。
-- `apps/backend/tests/test_chat_fallback_route.py`：验证问答接口在上下文不足或模型不可用时的降级路径。
-- `apps/backend/tests/test_dashboard_service.py`：验证总览页评分、Top 风险和风险分桶逻辑。
-- `apps/backend/tests/test_display_text.py`：验证显示文本清洗工具的规范化行为。
-- `apps/backend/tests/test_document_extract_schema.py`：验证文档抽取结果结构和字段约束。
-- `apps/backend/tests/test_document_risk_tax_mapping.py`：验证税务规则码到最终风险 key 的映射结果。
-- `apps/backend/tests/test_enterprises_documents_route.py`：验证企业文档相关路由的返回结构和筛选逻辑。
-- `apps/backend/tests/test_feature_engineering.py`：验证特征工程生成的派生指标和风险信号。
-- `apps/backend/tests/test_financial_analysis_service.py`：验证财报专项分析服务的摘要、异常和证据聚合。
-- `apps/backend/tests/test_industry_benchmark_service.py`：验证行业基准比较和行业分组匹配逻辑。
-- `apps/backend/tests/test_ingestion_route.py`：验证上传入库接口的基本行为。
-- `apps/backend/tests/test_llm_client.py`：验证 LLM 客户端的请求参数和响应处理。
-- `apps/backend/tests/test_risk_analysis_service.py`：验证风险分析主流程，包括文档模式、税务风险和公告风险接入。
-- `apps/backend/tests/test_risk_context_weighting.py`：验证规则命中时的上下文加权逻辑。
-- `apps/backend/tests/test_rule_engine.py`：验证规则引擎基础命中行为和条件判断。
-- `apps/backend/tests/test_rule_engine_context_weight.py`：验证规则引擎在上下文权重参与时的得分变化。
-- `apps/backend/tests/test_sync_service.py`：验证企业同步窗口、补抓逻辑、空结果原因和标题命中公告转事件。
-- `apps/backend/tests/test_tax_risk_service.py`：验证税务风险四类规则的命中、跳过和解释口径。
-- `apps/backend/tests/test_tax_risks_route.py`：验证税务风险路由的返回结构。
 
 ## apps/frontend
 

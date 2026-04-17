@@ -35,7 +35,7 @@ async def upload_document(
 def parse_document(document_id: int, db: Session = Depends(get_db)) -> dict:
     try:
         document = DocumentService().parse_document(db, document_id)
-        return {"id": document.id, "document_name": clean_document_title(document.document_name), "parse_status": document.parse_status}
+        return _serialize_document_state(document)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -76,7 +76,18 @@ def override_document_classification(
     )
     db.commit()
     document = DocumentService().parse_document(db, document.id)
-    return {"document_id": document.id, "classified_type": document.classified_type}
+    serialized = _serialize_document_state(document)
+    return {
+        "document_id": document.id,
+        "classified_type": serialized.get("classified_type"),
+        "classification_source": serialized.get("classification_source"),
+        "classification_reason": serialized.get("classification_reason"),
+        "analysis_status": serialized.get("analysis_status"),
+        "analysis_mode": serialized.get("analysis_mode"),
+        "last_error_code": serialized.get("last_error_code"),
+        "last_error_message": serialized.get("last_error_message"),
+        "llm_diagnostics": serialized.get("llm_diagnostics"),
+    }
 
 
 @router.patch("/documents/{document_id}/extracts/{evidence_span_id}/event-type")
@@ -172,4 +183,30 @@ def _serialize_extract(extract: DocumentExtractResult, feature: DocumentEventFea
         "affected_scope": feature.affected_scope if feature and feature.affected_scope else extract.affected_scope,
         "auditor_or_board_source": feature.auditor_or_board_source if feature and feature.auditor_or_board_source else extract.auditor_or_board_source,
         "canonical_risk_key": extract.canonical_risk_key,
+    }
+
+
+def _serialize_document_state(document) -> dict:
+    metadata = dict(document.metadata_json or {})
+    analysis_meta = dict(metadata.get("analysis_meta") or {})
+    classification_meta = dict(metadata.get("classification_meta") or {})
+    cleaning_meta = dict(metadata.get("cleaning_meta") or {})
+    last_error = dict(metadata.get("last_error") or {})
+    return {
+        "id": document.id,
+        "document_name": clean_document_title(document.document_name),
+        "parse_status": document.parse_status,
+        "classified_type": document.classified_type or document.document_type,
+        "classification_source": document.classification_source,
+        "classification_reason": classification_meta.get("classification_reason"),
+        "classification_signals": classification_meta.get("classification_signals") or [],
+        "analysis_status": metadata.get("analysis_status"),
+        "analysis_mode": analysis_meta.get("analysis_mode"),
+        "cleaning_summary": cleaning_meta,
+        "last_error_code": last_error.get("code") or last_error.get("error_type"),
+        "last_error_message": last_error.get("message"),
+        "llm_diagnostics": analysis_meta.get("llm_diagnostics"),
+        "financial_section_detected": cleaning_meta.get("financial_section_detected"),
+        "financial_section_count": cleaning_meta.get("financial_section_count"),
+        "sub_analysis_modes": cleaning_meta.get("sub_analysis_modes") or [],
     }

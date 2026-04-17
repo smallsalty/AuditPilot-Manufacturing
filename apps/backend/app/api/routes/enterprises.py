@@ -109,14 +109,18 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
         features = document_repo.list_event_features(document.id)
         metadata = document.metadata_json or {}
         analysis_meta = metadata.get("analysis_meta") or {}
+        classification_meta = metadata.get("classification_meta") or {}
+        cleaning_meta = metadata.get("cleaning_meta") or {}
         last_error = metadata.get("last_error") or {}
-        suppress_last_error = bool(extracts) and metadata.get("analysis_status") == "partial_fallback"
         items.append(
             {
                 "id": document.id,
                 "document_name": clean_document_title(document.document_name),
                 "document_type": document.document_type,
                 "classified_type": document.classified_type or document.document_type,
+                "classification_source": document.classification_source,
+                "classification_reason": classification_meta.get("classification_reason"),
+                "classification_signals": classification_meta.get("classification_signals") or [],
                 "parse_status": document.parse_status,
                 "source": document.source,
                 "supports_deep_dive": (document.classified_type or document.document_type) in {"annual_report", "annual_summary", "audit_report", "internal_control_report"},
@@ -129,8 +133,14 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
                 "analysis_version": analysis_meta.get("analysis_version"),
                 "analyzed_at": analysis_meta.get("analyzed_at"),
                 "analysis_groups": [group for group in analysis_meta.get("analysis_groups", []) if group in DocumentService.ANALYSIS_GROUPS],
-                "last_error_message": None if suppress_last_error else last_error.get("message"),
-                "last_error_at": None if suppress_last_error else last_error.get("last_error_at"),
+                "cleaning_summary": cleaning_meta,
+                "last_error_code": last_error.get("code") or last_error.get("error_type"),
+                "last_error_message": last_error.get("message"),
+                "last_error_at": last_error.get("last_error_at"),
+                "llm_diagnostics": analysis_meta.get("llm_diagnostics"),
+                "financial_section_detected": cleaning_meta.get("financial_section_detected"),
+                "financial_section_count": cleaning_meta.get("financial_section_count"),
+                "sub_analysis_modes": cleaning_meta.get("sub_analysis_modes") or [],
                 "created_at": document.created_at.isoformat() if document.created_at else None,
             }
         )

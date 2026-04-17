@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent
 from app.repositories.document_repository import DocumentRepository
+from app.services.document_analysis_pipeline import DocumentAnalysisPipeline
 from app.services.document_classify_service import DocumentClassifyService
 from app.services.document_feature_service import DocumentFeatureService
 from app.services.knowledge_index_service import KnowledgeIndexService
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentService:
-    EXTRACT_VERSION = "document-extract:v3"
+    EXTRACT_VERSION = "document-extract:v4"
     ANALYSIS_GROUPS = (
         "financial_analysis",
         "announcement_events",
@@ -320,10 +321,15 @@ class DocumentService:
         analysis_groups: list[str] | None = None,
         analyzed_at: str | None = None,
         last_error: dict[str, Any] | None = None,
+        classification_meta: dict[str, Any] | None = None,
+        cleaning_meta: dict[str, Any] | None = None,
+        llm_diagnostics: dict[str, Any] | None = None,
     ) -> None:
         metadata = dict(document.metadata_json or {})
         metadata["analysis_status"] = analysis_status
-        metadata["analysis_meta"] = {
+        analysis_meta = dict(metadata.get("analysis_meta") or {})
+        analysis_meta.update(
+            {
             "analysis_version": self.EXTRACT_VERSION,
             "analyzed_at": analyzed_at,
             "analysis_mode": analysis_mode,
@@ -332,9 +338,16 @@ class DocumentService:
             "candidate_count": candidate_count,
             "extract_count": extract_count,
             "analysis_groups": analysis_groups or [],
-        }
-        suppress_last_error = extract_count > 0 and analysis_status in {"succeeded", "partial_fallback"}
-        metadata["last_error"] = None if suppress_last_error else last_error
+            }
+        )
+        if llm_diagnostics is not None:
+            analysis_meta["llm_diagnostics"] = llm_diagnostics
+        metadata["analysis_meta"] = analysis_meta
+        if classification_meta is not None:
+            metadata["classification_meta"] = classification_meta
+        if cleaning_meta is not None:
+            metadata["cleaning_meta"] = cleaning_meta
+        metadata["last_error"] = last_error
         document.metadata_json = metadata
 
     def _is_financial_analysis_extract(self, document_type: str | None, extract: dict[str, Any]) -> bool:
@@ -385,6 +398,7 @@ class DocumentService:
             last_error=None,
         )
         db.commit()
+        classification_meta: dict[str, Any] = {}
         try:
             text = document.content_text or parse_document_text(document.file_path or "")
             document.content_text = text
@@ -2062,3 +2076,120 @@ class DocumentService:
             items.append(payload)
             index = end
         return items
+
+    def _parse_document_record(self, db: Session, document: DocumentMeta) -> DocumentMeta:
+        if not document.file_path and not document.content_text:
+            raise ValueError("文档缺少文件路径和正文内容。")
+
+        document.parse_status = "parsing"
+        self._build_analysis_meta(
+            document,
+            analysis_status="running",
+            analysis_mode=None,
+            candidate_count=0,
+            extract_count=0,
+            analysis_groups=[],
+            analyzed_at=None,
+            last_error=None,
+            classification_meta={},
+            cleaning_meta={},
+            llm_diagnostics=None,
+        )
+        db.commit()
+
+        try:
+            text = document.content_text or parse_document_text(document.file_path or "")
+            document.content_text = text
+            pipeline = DocumentAnalysisPipeline(self)
+            override = self._latest_override(db, document_id=document.id, scope="classification")
+            classification = self.classify_service.classify(document, text, override)
+
+            document.classified_type = classification.classified_type
+            document.classification_version = self.classify_service.CLASSIFICATION_VERSION
+            document.classification_source = classification.classification_source
+            document.parse_status = "parsed"
+            document.parser_version = self.EXTRACT_VERSION
+            if document.sync_status == "parse_queued":
+                document.sync_status = "stored"
+
+            self._retire_current_rows(db, document.id)
+            analysis_result = pipeline.run(
+                document=document,
+                text=text,
+                classified_type=classification.classified_type,
+            )
+            extracts = self._apply_extract_overrides(db, document.id, analysis_result["extracts"])
+            self._last_extraction_trace = analysis_result
+
+            if extracts:
+                features = self.feature_service.build_features(
+                    extracts,
+                    enterprise_id=document.enterprise_id,
+                    document_id=document.id,
+                )
+                extract_rows = self._persist_extracts(db, document, extracts)
+                self._persist_features(db, document, features, extract_rows)
+
+            self.knowledge_index_service.replace_document_chunks(
+                db,
+                enterprise_id=document.enterprise_id,
+                document_id=document.id,
+                document_name=clean_document_title(document.document_name) or document.document_name,
+                version=self.EXTRACT_VERSION,
+                extracts=extracts,
+            )
+
+            classification_meta = pipeline.build_classification_meta(
+                document=document,
+                text=text,
+                classification=classification,
+            )
+            self._build_analysis_meta(
+                document,
+                analysis_status=str(analysis_result.get("analysis_status") or "failed"),
+                analysis_mode=str(analysis_result.get("analysis_mode") or "failed"),
+                candidate_count=int(analysis_result.get("candidate_count_after_trim") or 0),
+                extract_count=len(extracts),
+                analysis_groups=self._derive_analysis_groups(document, extracts),
+                analyzed_at=datetime.now(timezone.utc).isoformat(),
+                last_error=analysis_result.get("last_error"),
+                classification_meta=classification_meta,
+                cleaning_meta=analysis_result.get("cleaning_meta"),
+                llm_diagnostics=analysis_result.get("llm_diagnostics"),
+            )
+
+            if not extracts:
+                document.parse_status = "failed"
+                document.sync_status = "parse_failed"
+
+            db.commit()
+            db.refresh(document)
+            return document
+        except Exception as exc:
+            db.rollback()
+            document = db.get(DocumentMeta, document.id)
+            if document is not None:
+                document.parse_status = "failed"
+                document.sync_status = "parse_failed"
+                pipeline = DocumentAnalysisPipeline(self)
+                self.knowledge_index_service.replace_document_chunks(
+                    db,
+                    enterprise_id=document.enterprise_id,
+                    document_id=document.id,
+                    document_name=clean_document_title(document.document_name) or document.document_name,
+                    version=self.EXTRACT_VERSION,
+                    extracts=[],
+                )
+                self._build_analysis_meta(
+                    document,
+                    analysis_status="failed",
+                    analysis_mode="failed",
+                    candidate_count=0,
+                    extract_count=0,
+                    analysis_groups=[],
+                    analyzed_at=datetime.now(timezone.utc).isoformat(),
+                    last_error=pipeline.exception_to_error_payload(exc),
+                    classification_meta=classification_meta,
+                )
+                db.commit()
+            raise
