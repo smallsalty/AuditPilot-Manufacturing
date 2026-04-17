@@ -1,5 +1,9 @@
 # AuditPilot-Manufacturing
 
+## 项目构成说明
+
+完整的逐文件项目构成说明见 [docs/project-structure.md](./docs/project-structure.md)。
+
 制造业上市公司审计风险识别与审计重点提示系统。
 
 ## 当前运行态
