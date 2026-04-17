@@ -132,3 +132,40 @@ def test_dashboard_respects_filtered_final_risks_after_overrides(monkeypatch) ->
         }
     ]
     assert payload["trend"] == [{"report_period": "T1", "risk_score": 88.0}]
+
+
+def test_dashboard_scores_announcement_event_risks_in_existing_buckets(monkeypatch) -> None:
+    enterprise = SimpleNamespace(id=4, name="测试企业", ticker="600000.SH", industry_tag="制造业", report_year=2026)
+    final_risks = [
+        {
+            "id": 501,
+            "risk_name": "公告监管处罚与诉讼仲裁风险",
+            "canonical_risk_key": "announcement_regulatory_litigation",
+            "risk_category": "document_risk",
+            "risk_level": "HIGH",
+            "risk_score": 82,
+            "source_type": "event",
+        },
+        {
+            "id": 502,
+            "risk_name": "公告债务逾期与流动性风险",
+            "canonical_risk_key": "announcement_debt_liquidity",
+            "risk_category": "document_risk",
+            "risk_level": "HIGH",
+            "risk_score": 76,
+            "source_type": "event",
+        },
+    ]
+
+    monkeypatch.setattr("app.services.dashboard_service.EnterpriseRepository.get_by_id", lambda self, enterprise_id: enterprise)
+    monkeypatch.setattr(
+        "app.services.dashboard_service.RiskAnalysisService.get_analysis_state",
+        lambda self, db, enterprise_id: {"analysis_status": "completed", "last_run_at": None, "last_error": None},
+    )
+    monkeypatch.setattr("app.services.dashboard_service.DocumentRiskService.list_risks", lambda self, db, enterprise_id: final_risks)
+
+    payload = DashboardService().build_dashboard(_FakeDB(), enterprise_id=4)
+
+    assert payload["score"]["financial"] == 76.0
+    assert payload["score"]["compliance"] == 82.0
+    assert payload["top_risks"][0]["source_type"] == "event"

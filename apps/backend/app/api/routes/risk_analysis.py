@@ -21,6 +21,14 @@ def run_risk_analysis(enterprise_id: int, db: Session = Depends(get_db)) -> dict
                 "summary": result["summary"],
             },
             "results": result["results"],
+            "announcement_risks": result.get("announcement_risks", []),
+            "announcement_risk_score": result.get("announcement_risk_score", 0.0),
+            "announcement_risk_level": result.get("announcement_risk_level", "low"),
+            "matched_event_count": result.get("matched_event_count", 0),
+            "high_risk_event_count": result.get("high_risk_event_count", 0),
+            "category_breakdown": result.get("category_breakdown", []),
+            "announcement_summary": result.get("announcement_summary"),
+            "audit_focus": result.get("audit_focus"),
         }
     except ValueError as exc:
         status = 404 if str(exc) == "企业不存在。" else 400

@@ -99,6 +99,27 @@ def _make_other_item(source_object_id: str, title: str) -> dict:
     }
 
 
+def _make_matched_other_item(source_object_id: str, title: str) -> dict:
+    item = _make_other_item(source_object_id, title)
+    item["title_matches"] = [
+        {
+            "category_code": "fund_occupation_related_party_guarantee",
+            "category_name": "资金占用、关联交易与担保",
+            "matched_keywords": ["担保"],
+            "title": title,
+        }
+    ]
+    item["primary_title_match"] = {
+        "category_code": "fund_occupation_related_party_guarantee",
+        "event_code": "ANNOUNCEMENT_FUND_OCCUPATION_GUARANTEE",
+        "risk_level": "high",
+        "matched_keywords": ["担保"],
+    }
+    item["event_type"] = "announcement_fund_occupation_guarantee"
+    item["severity"] = "high"
+    return item
+
+
 def test_bootstrap_sets_previous_year_as_default_report_year(monkeypatch) -> None:
     class _DummyDateTime:
         @classmethod
@@ -212,6 +233,37 @@ def test_initial_sync_marks_provider_returned_only_other_when_no_documents(monke
     assert result["documents_found"] == 0
     assert result["empty_reason"] == service.EMPTY_REASON_PROVIDER_RETURNED_ONLY_OTHER
     assert enterprise.portrait["last_sync_empty_reason"] == service.EMPTY_REASON_PROVIDER_RETURNED_ONLY_OTHER
+
+
+def test_initial_sync_promotes_title_matched_other_announcements_into_events(monkeypatch) -> None:
+    service = AuditSyncService()
+    enterprise = _make_enterprise(report_year=2025)
+    db = _DummyDb()
+    service.providers = {
+        "akshare_fast": _DummyProvider(provider_name="akshare_fast"),
+        "cninfo": _DummyProvider(
+            provider_name="cninfo",
+            generic_items=[_make_matched_other_item("other-2", "关于为关联方提供担保的公告")],
+            annual_items={2025: [], 2024: []},
+        ),
+    }
+
+    monkeypatch.setattr("app.services.audit_sync_service.EnterpriseRepository.get_by_id", lambda self, company_id: enterprise)
+    monkeypatch.setattr(
+        "app.services.audit_sync_service.EnterpriseRepository.has_recent_successful_sync",
+        lambda self, company_id, minutes: False,
+    )
+    monkeypatch.setattr(service, "_is_initial_sync", lambda db, enterprise: True)
+    monkeypatch.setattr(service, "_apply_profile", lambda *args, **kwargs: None)
+    monkeypatch.setattr(service, "_upsert_document", lambda **kwargs: (SimpleNamespace(sync_status=service.SYNC_PARSE_QUEUED), True))
+    monkeypatch.setattr(service, "_upsert_event", lambda **kwargs: (SimpleNamespace(sync_status=service.SYNC_PARSE_QUEUED), True))
+
+    result = service.sync_company(db, company_id=enterprise.id)
+
+    assert result["events_found"] == 1
+    assert result["events_inserted"] == 1
+    assert result["other_found"] == 0
+    assert result["empty_reason"] is None
 
 
 def test_initial_sync_marks_annual_package_not_published_when_everything_is_empty(monkeypatch) -> None:

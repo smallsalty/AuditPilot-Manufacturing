@@ -40,6 +40,13 @@ class DocumentRiskService:
         "TAX_CASHFLOW_MISMATCH": "tax_cashflow_mismatch",
         "DEFERRED_TAX_VOLATILITY": "deferred_tax_volatility",
         "TAX_PAYABLE_ACCRUAL": "tax_payable_accrual",
+        "ANNOUNCEMENT_REGULATORY_LITIGATION": "announcement_regulatory_litigation",
+        "ANNOUNCEMENT_ACCOUNTING_AUDIT": "announcement_accounting_audit",
+        "ANNOUNCEMENT_FUND_OCCUPATION_GUARANTEE": "announcement_related_party_guarantee",
+        "ANNOUNCEMENT_DEBT_LIQUIDITY_DEFAULT": "announcement_debt_liquidity",
+        "ANNOUNCEMENT_EQUITY_CONTROL_PLEDGE": "announcement_equity_control_pledge",
+        "ANNOUNCEMENT_PERFORMANCE_IMPAIRMENT": "announcement_performance_revision_impairment",
+        "ANNOUNCEMENT_GOVERNANCE_INTERNAL_CONTROL": "announcement_governance_internal_control",
     }
     RISK_TITLES = {
         "revenue_recognition": "收入确认与收入真实性风险",
@@ -56,6 +63,13 @@ class DocumentRiskService:
         "tax_cashflow_mismatch": "税费现金流匹配异常风险",
         "deferred_tax_volatility": "递延所得税波动风险",
         "tax_payable_accrual": "应交税费挂账异常风险",
+        "announcement_regulatory_litigation": "公告监管处罚与诉讼仲裁风险",
+        "announcement_accounting_audit": "公告会计差错与审计意见风险",
+        "announcement_related_party_guarantee": "公告资金占用、关联交易与担保风险",
+        "announcement_debt_liquidity": "公告债务逾期与流动性风险",
+        "announcement_equity_control_pledge": "公告股权变动与控制权风险",
+        "announcement_performance_revision_impairment": "公告业绩修正与减值风险",
+        "announcement_governance_internal_control": "公告治理异常与内控风险",
         "governance_instability": "治理结构与高管稳定性风险",
         "market_signal_conflict": "市场信号背离风险",
         "uncategorized": "文档发现风险",
@@ -291,12 +305,21 @@ class DocumentRiskService:
     def _normalize_rule_evidence(self, evidence_chain: list[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized = []
         for index, evidence in enumerate(evidence_chain, start=1):
+            source = evidence.get("source")
+            evidence_type = evidence.get("evidence_type")
+            if not evidence_type:
+                if source == "cninfo":
+                    evidence_type = "announcement"
+                elif source == "upload":
+                    evidence_type = "uploaded_document"
+                else:
+                    evidence_type = "financial_indicator"
             normalized.append(
                 {
                     "evidence_id": evidence.get("evidence_id") or f"R{index}",
-                    "evidence_type": "financial_indicator",
-                    "source": evidence.get("source"),
-                    "source_label": evidence.get("source_label") or "财务指标",
+                    "evidence_type": evidence_type,
+                    "source": source,
+                    "source_label": evidence.get("source_label") or ("巨潮资讯" if source == "cninfo" else "财务指标"),
                     "published_at": evidence.get("published_at") or evidence.get("report_period"),
                     "title": evidence.get("title") or f"规则证据 {index}",
                     "snippet": evidence.get("snippet") or evidence.get("content") or "",

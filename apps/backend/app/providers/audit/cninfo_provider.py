@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import date, datetime
 from functools import lru_cache
 import math
-import re
 import time
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
+from app.providers.audit.announcement_event_matcher import AnnouncementEventMatcher
 from app.providers.audit.base import BaseAuditProvider
 
 
@@ -21,45 +21,16 @@ class CninfoProvider(BaseAuditProvider):
     max_retries = 3
     page_size = 50
     max_pages = 20
-
-    DOCUMENT_KEYWORDS = (
-        "\u5e74\u5ea6\u62a5\u544a",
-        "\u5e74\u62a5",
-        "\u5e74\u5ea6\u62a5\u544a\u6458\u8981",
-        "\u5ba1\u8ba1\u62a5\u544a",
-        "\u5185\u90e8\u63a7\u5236\u5ba1\u8ba1\u62a5\u544a",
-        "\u5185\u90e8\u63a7\u5236\u8bc4\u4ef7\u62a5\u544a",
-        "\u5185\u63a7\u5ba1\u8ba1\u62a5\u544a",
-        "\u5185\u63a7\u8bc4\u4ef7\u62a5\u544a",
-        "\u534a\u5e74\u5ea6\u62a5\u544a",
-        "\u534a\u5e74\u62a5",
-        "\u5b63\u5ea6\u62a5\u544a",
-        "\u7b2c\u4e00\u5b63\u5ea6\u62a5\u544a",
-        "\u7b2c\u4e09\u5b63\u5ea6\u62a5\u544a",
-        "\u8d22\u52a1\u51b3\u7b97\u62a5\u544a",
-        "\u52df\u96c6\u8d44\u91d1\u4e13\u9879\u5ba1\u6838",
-        "\u975e\u7ecf\u8425\u6027\u8d44\u91d1\u5360\u7528\u4e13\u9879\u8bf4\u660e",
-        "\u4e13\u9879\u5ba1\u6838\u62a5\u544a",
-        "\u4e13\u9879\u5ba1\u8ba1\u62a5\u544a",
-    )
-    PENALTY_KEYWORDS = (
-        "\u5904\u7f5a",
-        "\u76d1\u7ba1",
-        "\u8b66\u793a\u51fd",
-        "\u95ee\u8be2\u51fd",
-        "\u76d1\u7ba1\u51fd",
-        "\u7eaa\u5f8b\u5904\u5206",
-        "\u7acb\u6848",
-    )
     ANNUAL_PACKAGE_KEYWORDS = (
-        "{year}\u5e74\u5e74\u5ea6\u62a5\u544a",
-        "{year}\u5e74\u5e74\u5ea6\u62a5\u544a\u6458\u8981",
-        "{year}\u5e74\u5ea6\u5ba1\u8ba1\u62a5\u544a",
-        "{year}\u5e74\u5ea6\u5185\u90e8\u63a7\u5236\u8bc4\u4ef7\u62a5\u544a",
-        "{year}\u5e74\u5ea6\u5185\u90e8\u63a7\u5236\u5ba1\u8ba1\u62a5\u544a",
-        "{year}\u5e74\u5ea6\u975e\u7ecf\u8425\u6027\u8d44\u91d1\u5360\u7528",
-        "{year}\u5e74\u4e13\u9879\u5ba1\u8ba1\u62a5\u544a",
+        "{year}年年度报告",
+        "{year}年年度报告摘要",
+        "{year}年度审计报告",
+        "{year}年度内部控制评价报告",
+        "{year}年度内部控制审计报告",
+        "{year}年度非经营性资金占用",
+        "{year}年专项审计报告",
     )
+    PENALTY_CATEGORY_CODES = {"regulatory_litigation"}
 
     def __init__(self) -> None:
         self.enabled = settings.cninfo_enable
@@ -75,6 +46,7 @@ class CninfoProvider(BaseAuditProvider):
             "Referer": "https://www.cninfo.com.cn/",
         }
         self.timeout = httpx.Timeout(connect=10.0, read=60.0, write=20.0, pool=20.0)
+        self.matcher = AnnouncementEventMatcher()
 
     def fetch_company_profile(self, ticker: str) -> dict[str, Any] | None:
         if not self.enabled:
@@ -92,7 +64,7 @@ class CninfoProvider(BaseAuditProvider):
 
         stock_param = self._build_stock_param(ticker)
         if not stock_param:
-            raise ValueError(f"\u65e0\u6cd5\u89e3\u6790 {ticker} \u5bf9\u5e94\u7684\u5de8\u6f6e\u8bc1\u5238\u7f16\u7801\u3002")
+            raise ValueError(f"无法解析 {ticker} 对应的巨潮证券编码。")
 
         return self._fetch_with_search(ticker, stock_param, date_from, date_to, searchkey="")
 
@@ -102,7 +74,7 @@ class CninfoProvider(BaseAuditProvider):
 
         stock_param = self._build_stock_param(ticker)
         if not stock_param:
-            raise ValueError(f"\u65e0\u6cd5\u89e3\u6790 {ticker} \u5bf9\u5e94\u7684\u5de8\u6f6e\u8bc1\u5238\u7f16\u7801\u3002")
+            raise ValueError(f"无法解析 {ticker} 对应的巨潮证券编码。")
 
         date_from = date(fiscal_year, 1, 1)
         date_to = date(fiscal_year + 1, 12, 31)
@@ -116,9 +88,12 @@ class CninfoProvider(BaseAuditProvider):
                 item["diagnostics"]["searchkey"] = keyword
                 item["diagnostics"]["fiscal_year"] = fiscal_year
                 item["diagnostics"]["sync_path"] = "annual_package"
-                dedupe_key = str(item.get("source_object_id") or "") or self._dedupe_key_from_item(item)
+                dedupe_key = str(item.get("source_object_id") or "").strip() or self._dedupe_key_from_item(item)
                 documents[dedupe_key] = item
         return list(documents.values())
+
+    def match_title_categories(self, title: str) -> list[dict[str, Any]]:
+        return self.matcher.match_title_categories(title)
 
     def _fetch_with_search(
         self,
@@ -146,7 +121,13 @@ class CninfoProvider(BaseAuditProvider):
         pages_fetched = 0
         for page_num in range(1, self.max_pages + 1):
             payload = {**base_payload, "pageNum": page_num}
-            data = self._request_json_with_retry("POST", self.query_url, headers=self.headers, timeout=self.timeout, data=payload)
+            data = self._request_json_with_retry(
+                "POST",
+                self.query_url,
+                headers=self.headers,
+                timeout=self.timeout,
+                data=payload,
+            )
             rows = data.get("announcements") or []
             total_record_num = int(data.get("totalRecordNum") or total_record_num or 0)
             pages_fetched = page_num
@@ -184,9 +165,31 @@ class CninfoProvider(BaseAuditProvider):
         title = str(row.get("announcementTitle") or row.get("announcementTitleCn") or "").strip()
         if not title:
             return None
-        normalized_title = self._normalize_title(title)
-        category = self._classify_title(normalized_title)
+
+        normalized_title = self.matcher.normalize_text(title)
+        title_matches = self.matcher.match_title_categories(title)
+        primary_title_match = self.matcher.select_primary_match(title, title_matches)
+        category = self._classify_title(normalized_title, title_matches)
+        document_type = self._infer_document_type(normalized_title) if category == "document" else None
         document_url = self._build_document_url(row.get("adjunctUrl"))
+
+        diagnostics = {
+            "stock": stock_param,
+            "page_num": page_num,
+            "seDate": se_date,
+            "totalRecordNum": total_record_num,
+            "title_matches": title_matches,
+            "primary_title_match": primary_title_match,
+        }
+        event_type = None
+        severity = None
+        if primary_title_match is not None and category != "document":
+            event_type = primary_title_match["event_code"].lower()
+            severity = primary_title_match["risk_level"]
+        elif category == "penalty":
+            event_type = "regulatory_penalty"
+            severity = "high"
+
         return {
             "source": self.provider_name,
             "source_object_id": str(row.get("announcementId") or "").strip() or None,
@@ -198,17 +201,39 @@ class CninfoProvider(BaseAuditProvider):
             "content_text": None,
             "raw_payload": row,
             "category": category,
-            "document_type": self._infer_document_type(normalized_title) if category == "document" else None,
-            "event_type": "regulatory_penalty" if category == "penalty" else None,
+            "document_type": document_type,
+            "event_type": event_type,
+            "severity": severity,
             "summary": title,
             "regulator": "cninfo",
-            "diagnostics": {
-                "stock": stock_param,
-                "page_num": page_num,
-                "seDate": se_date,
-                "totalRecordNum": total_record_num,
-            },
+            "title_matches": title_matches,
+            "primary_title_match": primary_title_match,
+            "diagnostics": diagnostics,
         }
+
+    def _classify_title(self, normalized_title: str, title_matches: list[dict[str, Any]]) -> str:
+        if any(match["category_code"] in self.PENALTY_CATEGORY_CODES for match in title_matches):
+            return "penalty"
+        if self._infer_document_type(normalized_title):
+            return "document"
+        return "other"
+
+    def _infer_document_type(self, normalized_title: str) -> str | None:
+        if "内部控制审计报告" in normalized_title or "内控审计报告" in normalized_title:
+            return "internal_control_report"
+        if "内部控制评价报告" in normalized_title or "内控评价报告" in normalized_title:
+            return "internal_control_report"
+        if "审计报告" in normalized_title:
+            return "audit_report"
+        if "半年度报告" in normalized_title or "半年报" in normalized_title:
+            return "interim_report"
+        if "第一季度报告" in normalized_title or "第三季度报告" in normalized_title or "季度报告" in normalized_title:
+            return "quarter_report"
+        if any(keyword in normalized_title for keyword in ("专项审核", "专项审计", "资金占用专项说明", "财务决算报告")):
+            return "special_report"
+        if "年度报告" in normalized_title or "年报" in normalized_title:
+            return "annual_report"
+        return None
 
     def _dedupe_key_from_item(self, item: dict[str, Any]) -> str:
         return "|".join(
@@ -241,47 +266,6 @@ class CninfoProvider(BaseAuditProvider):
             return datetime.utcfromtimestamp(float(raw_value) / 1000).date().isoformat()
         except Exception:
             return None
-
-    def _normalize_title(self, title: str) -> str:
-        normalized = title.strip().upper()
-        normalized = normalized.replace("\uff08", "(").replace("\uff09", ")")
-        normalized = normalized.replace("\u3010", "[").replace("\u3011", "]")
-        normalized = re.sub(r"\s+", "", normalized)
-        return normalized
-
-    def _classify_title(self, normalized_title: str) -> str:
-        if any(keyword in normalized_title for keyword in self.PENALTY_KEYWORDS):
-            return "penalty"
-        if any(keyword in normalized_title for keyword in self.DOCUMENT_KEYWORDS):
-            return "document"
-        return "other"
-
-    def _infer_document_type(self, normalized_title: str) -> str:
-        if "\u5185\u90e8\u63a7\u5236\u5ba1\u8ba1\u62a5\u544a" in normalized_title or "\u5185\u63a7\u5ba1\u8ba1\u62a5\u544a" in normalized_title:
-            return "internal_control_report"
-        if "\u5185\u90e8\u63a7\u5236\u8bc4\u4ef7\u62a5\u544a" in normalized_title or "\u5185\u63a7\u8bc4\u4ef7\u62a5\u544a" in normalized_title:
-            return "internal_control_report"
-        if "\u5ba1\u8ba1\u62a5\u544a" in normalized_title:
-            return "audit_report"
-        if "\u534a\u5e74\u5ea6\u62a5\u544a" in normalized_title or "\u534a\u5e74\u62a5" in normalized_title:
-            return "interim_report"
-        if (
-            "\u7b2c\u4e00\u5b63\u5ea6\u62a5\u544a" in normalized_title
-            or "\u7b2c\u4e09\u5b63\u5ea6\u62a5\u544a" in normalized_title
-            or "\u5b63\u5ea6\u62a5\u544a" in normalized_title
-        ):
-            return "quarter_report"
-        if any(
-            keyword in normalized_title
-            for keyword in (
-                "\u4e13\u9879\u5ba1\u6838",
-                "\u4e13\u9879\u5ba1\u8ba1",
-                "\u8d44\u91d1\u5360\u7528\u4e13\u9879\u8bf4\u660e",
-                "\u8d22\u52a1\u51b3\u7b97\u62a5\u544a",
-            )
-        ):
-            return "special_report"
-        return "annual_report"
 
     @classmethod
     @lru_cache(maxsize=1)

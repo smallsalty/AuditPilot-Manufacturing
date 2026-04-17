@@ -206,6 +206,39 @@ export type TaxRiskPayload = {
   tax_risks: TaxRiskItem[];
 };
 
+export type AnnouncementRiskItem = {
+  event_code: string;
+  event_category: string;
+  event_name: string;
+  matched_keywords: string[];
+  risk_level: "low" | "medium" | "high" | string;
+  risk_score: number;
+  summary?: string | null;
+  explanation: string;
+  source_title: string;
+  source_date?: string | null;
+  source_url?: string | null;
+  canonical_risk_key?: string;
+  risk_category?: string;
+};
+
+export type AnnouncementRiskCategoryBreakdown = {
+  event_category: string;
+  count: number;
+  high_risk_count: number;
+  score: number;
+};
+
+export type AnnouncementRiskSummary = {
+  announcement_risks: AnnouncementRiskItem[];
+  announcement_risk_score: number;
+  announcement_risk_level: "low" | "medium" | "high" | string;
+  matched_event_count: number;
+  high_risk_event_count: number;
+  category_breakdown: AnnouncementRiskCategoryBreakdown[];
+  announcement_summary: string;
+};
+
 export type AuditFocusPayload = {
   enterprise_id: number;
   analysis_status: AnalysisStatus;
@@ -219,6 +252,7 @@ export type AuditFocusPayload = {
   recommendation_items?: {
     text: string;
     sources: string[];
+    rationale?: string;
   }[];
   items?: {
     id: string;
@@ -231,6 +265,23 @@ export type AuditFocusPayload = {
       items: string[];
     }[];
   }[];
+};
+
+export type RiskAnalysisRunPayload = {
+  run: {
+    run_id: number;
+    status: AnalysisStatus | string;
+    summary: string;
+  };
+  results: RiskResultPayload[];
+  announcement_risks: AnnouncementRiskItem[];
+  announcement_risk_score: number;
+  announcement_risk_level: "low" | "medium" | "high" | string;
+  matched_event_count: number;
+  high_risk_event_count: number;
+  category_breakdown: AnnouncementRiskCategoryBreakdown[];
+  announcement_summary?: string | null;
+  audit_focus?: AuditFocusPayload | null;
 };
 
 export type DocumentListItem = {

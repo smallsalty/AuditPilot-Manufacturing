@@ -202,7 +202,7 @@ class AuditSyncService:
                             annual_package_inserted += 1
                     if document.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
-                elif category == "penalty":
+                elif category == "penalty" or item.get("title_matches"):
                     events_found += 1
                     source_events_found += 1
                     event, created = self._upsert_event(
@@ -555,19 +555,25 @@ class AuditSyncService:
         created = existing is None
         event = existing or ExternalEvent(
             enterprise_id=enterprise.id,
-            event_type="regulatory_penalty",
+            event_type=str(payload.get("event_type") or "announcement_title_match"),
             severity="medium",
             title=str(payload.get("title") or "\u672a\u547d\u540d\u4e8b\u4ef6"),
             summary=str(payload.get("summary") or payload.get("title") or ""),
         )
-        event.event_type = str(payload.get("event_type") or "regulatory_penalty")
+        event_payload = {
+            "source_payload": payload.get("raw_payload"),
+            "title_matches": payload.get("title_matches") or [],
+            "primary_title_match": payload.get("primary_title_match"),
+            "diagnostics": payload.get("diagnostics") or {},
+        }
+        event.event_type = str(payload.get("event_type") or "announcement_title_match")
         event.severity = str(payload.get("severity") or self._guess_severity(event.title))
         event.title = str(payload.get("title") or event.title)
         event.event_date = announcement_date
         event.announcement_date = announcement_date
         event.source = provider_name
         event.summary = str(payload.get("summary") or payload.get("title") or event.summary)
-        event.payload = payload.get("raw_payload")
+        event.payload = event_payload
         event.source_url = payload.get("source_url")
         event.source_priority = provider_priority
         event.sync_status = self.SYNC_PARSE_QUEUED
