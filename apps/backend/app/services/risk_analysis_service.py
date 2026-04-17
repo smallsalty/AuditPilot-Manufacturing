@@ -24,6 +24,7 @@ from app.services.document_risk_service import DocumentRiskService
 from app.services.feature_engineering_service import FeatureEngineeringService
 from app.services.industry_benchmark_service import IndustryBenchmarkService
 from app.services.industry_classifier_service import IndustryClassifierService
+from app.services.tax_risk_service import TaxRiskService
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class RiskAnalysisService:
         self.rule_evaluator = RuleEvaluator()
         self.explainer = RiskExplanationService()
         self.document_risk_service = DocumentRiskService()
+        self.tax_risk_service = TaxRiskService()
         self.industry_classifier = IndustryClassifierService()
         self.industry_benchmark_service = IndustryBenchmarkService(self.industry_classifier)
 
@@ -346,6 +348,10 @@ class RiskAnalysisService:
                     )
                 )
 
+            self._persist_tax_risks(db, enterprise_id, run.id)
+
+            self._persist_tax_risks(db, enterprise_id, run.id)
+
             anomaly = self._run_anomaly_detection(enterprise_id, run.id, features, financials)
             if anomaly:
                 db.add(anomaly)
@@ -479,6 +485,60 @@ class RiskAnalysisService:
         if evidence_type == "derived_risk_result":
             return "模型结果"
         return "财务指标"
+
+    def _persist_tax_risks(self, db: Session, enterprise_id: int, run_id: int) -> None:
+        tax_payload = self.tax_risk_service.build_tax_risks(db, enterprise_id)
+        for item in tax_payload.get("tax_risks", []):
+            result = RiskIdentificationResult(
+                enterprise_id=enterprise_id,
+                run_id=run_id,
+                rule_id=None,
+                rule_code=item["rule_code"],
+                risk_name=item["risk_name"],
+                risk_category=item["risk_category"],
+                risk_level=item["risk_level"],
+                risk_score=float(item["risk_score"]),
+                source_type="rule",
+                reasons=list(item.get("reasons") or []),
+                evidence_chain=list(item.get("evidence_chain") or []),
+                feature_snapshot={
+                    "tax_risk": item,
+                    "tax_diagnostics": tax_payload.get("diagnostics") or {},
+                },
+                llm_summary=item.get("summary"),
+                llm_explanation=self._serialize_llm_explanation(
+                    {
+                        "summary": item.get("summary"),
+                        "metrics": item.get("metrics") or [],
+                    }
+                ),
+            )
+            db.add(result)
+            db.flush()
+            db.add(
+                AuditRecommendation(
+                    enterprise_id=enterprise_id,
+                    run_id=run_id,
+                    risk_result_id=result.id,
+                    priority=str(item.get("risk_level") or "medium").lower(),
+                    focus_accounts=list(item.get("focus_accounts") or []),
+                    focus_processes=list(item.get("focus_processes") or []),
+                    recommended_procedures=list(item.get("recommended_procedures") or []),
+                    evidence_types=["risk_rule", "tax_analysis", "financial_indicator"],
+                    recommendation_text=f"{item['risk_name']}：优先关注 {'、'.join(item.get('focus_accounts') or ['相关税务科目'])}。",
+                )
+            )
+            db.add(
+                RiskAlertRecord(
+                    enterprise_id=enterprise_id,
+                    run_id=run_id,
+                    alert_type=item["risk_category"],
+                    severity=item["risk_level"],
+                    title=item["risk_name"],
+                    content=item.get("summary") or "",
+                    payload={"rule_code": item["rule_code"], "reasons": item.get("reasons") or []},
+                )
+            )
 
     @staticmethod
     def get_analysis_readiness(enterprise, financials: list, events: list, documents: list) -> dict:
@@ -624,6 +684,8 @@ class RiskAnalysisService:
                         payload={"reasons": hit.reasons},
                     )
                 )
+
+            self._persist_tax_risks(db, enterprise_id, run.id)
 
             anomaly = self._run_anomaly_detection(enterprise_id, run.id, features, financials)
             if anomaly:

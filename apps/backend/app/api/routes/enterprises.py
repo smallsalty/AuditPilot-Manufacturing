@@ -9,6 +9,7 @@ from app.services.dashboard_service import DashboardService
 from app.services.document_service import DocumentService
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 from app.services.financial_analysis_service import FinancialAnalysisService
+from app.services.tax_risk_service import TaxRiskService
 from app.utils.display_text import clean_document_title
 
 
@@ -140,5 +141,13 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
 def get_financial_analysis(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
     try:
         return FinancialAnalysisService().build_analysis(db, enterprise_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/enterprises/{enterprise_id}/tax-risks")
+def get_tax_risks(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
+    try:
+        return TaxRiskService().build_tax_risks(db, enterprise_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

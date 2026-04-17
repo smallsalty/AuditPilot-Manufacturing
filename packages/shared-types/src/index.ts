@@ -158,6 +158,54 @@ export type RiskResultPayload = {
   is_baseline_observation?: boolean;
 };
 
+export type TaxRiskMetricPayload = {
+  metric_code: string;
+  metric_name: string;
+  value: number;
+  unit?: string | null;
+  report_period: string;
+};
+
+export type TaxRiskItem = {
+  rule_code: string;
+  canonical_risk_key: string;
+  risk_name: string;
+  risk_category: string;
+  risk_level: string;
+  risk_score: number;
+  summary: string;
+  reasons: string[];
+  report_period: string;
+  period_type: string;
+  metrics: TaxRiskMetricPayload[];
+  evidence_chain: {
+    type?: string;
+    title: string;
+    content: string;
+    source?: string | null;
+    report_period?: string | null;
+  }[];
+  focus_accounts: string[];
+  focus_processes: string[];
+  recommended_procedures: string[];
+};
+
+export type TaxRiskPayload = {
+  enterprise_id: number;
+  as_of_period?: string | null;
+  evaluation_basis: "latest_annual" | "latest_report" | string;
+  diagnostics: {
+    evaluated_rules: string[];
+    skipped_rules: {
+      rule_code: string;
+      reason: string;
+      missing_indicators?: string[];
+    }[];
+    missing_indicators: string[];
+  };
+  tax_risks: TaxRiskItem[];
+};
+
 export type AuditFocusPayload = {
   enterprise_id: number;
   analysis_status: AnalysisStatus;

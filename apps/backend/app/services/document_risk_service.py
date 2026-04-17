@@ -36,6 +36,10 @@ class DocumentRiskService:
         "GM_EXPENSE_ANOMALY": "cashflow_quality",
         "EXCESS_PROFIT_INDUSTRY_OUTLIER": "revenue_recognition",
         "DEBT_PRESSURE_HIGH": "financing_pressure",
+        "TAX_ETR_ABNORMAL": "tax_effective_rate_anomaly",
+        "TAX_CASHFLOW_MISMATCH": "tax_cashflow_mismatch",
+        "DEFERRED_TAX_VOLATILITY": "deferred_tax_volatility",
+        "TAX_PAYABLE_ACCRUAL": "tax_payable_accrual",
     }
     RISK_TITLES = {
         "revenue_recognition": "收入确认与收入真实性风险",
@@ -48,6 +52,10 @@ class DocumentRiskService:
         "audit_opinion_issue": "审计意见异常风险",
         "going_concern": "持续经营与审计意见风险",
         "financing_pressure": "融资与资金压力风险",
+        "tax_effective_rate_anomaly": "企业所得税有效税率异常风险",
+        "tax_cashflow_mismatch": "税费现金流匹配异常风险",
+        "deferred_tax_volatility": "递延所得税波动风险",
+        "tax_payable_accrual": "应交税费挂账异常风险",
         "governance_instability": "治理结构与高管稳定性风险",
         "market_signal_conflict": "市场信号背离风险",
         "uncategorized": "文档发现风险",
