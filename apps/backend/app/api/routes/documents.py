@@ -14,6 +14,16 @@ from app.utils.display_text import clean_document_title
 
 router = APIRouter()
 
+LITIGATION_KEYWORDS = ("诉讼", "仲裁", "立案", "原告", "被告", "案号", "裁决", "判决")
+PENALTY_KEYWORDS = ("处罚", "问询", "监管", "警示", "立案调查", "责令", "整改", "行政监管")
+REPURCHASE_KEYWORDS = ("回购", "购回", "股份回购")
+CONVERTIBLE_BOND_KEYWORDS = ("可转债", "转股", "赎回", "下修", "债券")
+GUARANTEE_KEYWORDS = ("担保", "保证", "连带责任", "担保方", "被担保")
+EXECUTIVE_CHANGE_KEYWORDS = ("董事", "监事", "高管", "辞职", "聘任", "换届", "离任", "任职")
+RELATED_PARTY_KEYWORDS = ("关联交易", "关联方", "关联方资金", "资金占用")
+AUDIT_OPINION_KEYWORDS = ("保留意见", "否定意见", "无法表示意见", "强调事项", "关键审计事项", "审计意见")
+INTERNAL_CONTROL_KEYWORDS = ("内控", "内部控制", "重大缺陷", "重要缺陷", "整改")
+
 
 @router.post("/ingestion/documents/upload")
 async def upload_document(
@@ -126,6 +136,76 @@ def override_extract_event_type(
     return {"document_id": document_id, "evidence_span_id": evidence_span_id, "event_type": event_type}
 
 
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _build_extract_text(title: str | None, summary: str | None, evidence_excerpt: str | None) -> str:
+    return " ".join(part.strip() for part in (title, summary, evidence_excerpt) if part and str(part).strip())
+
+
+def _infer_event_type_from_text(text: str) -> str | None:
+    if not text:
+        return None
+    if _contains_any(text, AUDIT_OPINION_KEYWORDS):
+        return "audit_opinion_issue"
+    if _contains_any(text, INTERNAL_CONTROL_KEYWORDS):
+        return "internal_control_issue"
+    if _contains_any(text, RELATED_PARTY_KEYWORDS):
+        return "related_party_transaction"
+    if _contains_any(text, REPURCHASE_KEYWORDS):
+        return "share_repurchase"
+    if _contains_any(text, CONVERTIBLE_BOND_KEYWORDS):
+        return "convertible_bond"
+    if _contains_any(text, GUARANTEE_KEYWORDS):
+        return "guarantee"
+    if _contains_any(text, LITIGATION_KEYWORDS):
+        return "litigation"
+    if _contains_any(text, PENALTY_KEYWORDS):
+        return "penalty_or_inquiry"
+    if _contains_any(text, EXECUTIVE_CHANGE_KEYWORDS):
+        return "executive_change"
+    return None
+
+
+def _infer_event_type(
+    *,
+    current_event_type: str | None,
+    opinion_type: str | None,
+    defect_level: str | None,
+    canonical_risk_key: str | None,
+    title: str | None,
+    summary: str | None,
+    evidence_excerpt: str | None,
+) -> str | None:
+    if current_event_type:
+        return current_event_type
+    if opinion_type:
+        return "audit_opinion_issue"
+    if defect_level:
+        return "internal_control_issue"
+
+    text = _build_extract_text(title, summary, evidence_excerpt)
+    if canonical_risk_key == "governance_instability":
+        return "executive_change"
+    if canonical_risk_key == "related_party_transaction":
+        return "related_party_transaction"
+    if canonical_risk_key == "litigation_compliance":
+        if _contains_any(text, LITIGATION_KEYWORDS):
+            return "litigation"
+        if _contains_any(text, PENALTY_KEYWORDS):
+            return "penalty_or_inquiry"
+    if canonical_risk_key == "financing_pressure":
+        if _contains_any(text, REPURCHASE_KEYWORDS):
+            return "share_repurchase"
+        if _contains_any(text, CONVERTIBLE_BOND_KEYWORDS):
+            return "convertible_bond"
+        if _contains_any(text, GUARANTEE_KEYWORDS):
+            return "guarantee"
+
+    return _infer_event_type_from_text(text)
+
+
 def _serialize_extract(extract: DocumentExtractResult, feature: DocumentEventFeature | None = None) -> dict:
     payload: dict = {}
     try:
@@ -134,19 +214,30 @@ def _serialize_extract(extract: DocumentExtractResult, feature: DocumentEventFea
             payload = {}
     except Exception:
         payload = {}
-    event_type = feature.event_type if feature and feature.event_type else extract.event_type
+    raw_event_type = feature.event_type if feature and feature.event_type else extract.event_type
     opinion_type = feature.opinion_type if feature and feature.opinion_type else extract.opinion_type
+    summary = extract.problem_summary or payload.get("problem_summary") or extract.content
+    evidence_excerpt = extract.evidence_excerpt or payload.get("evidence_excerpt") or extract.content
+    event_type = _infer_event_type(
+        current_event_type=raw_event_type,
+        opinion_type=opinion_type,
+        defect_level=feature.defect_level if feature and feature.defect_level else extract.defect_level,
+        canonical_risk_key=extract.canonical_risk_key,
+        title=extract.title,
+        summary=summary,
+        evidence_excerpt=evidence_excerpt,
+    )
     return {
         "id": extract.id,
         "extract_type": extract.extract_type,
         "extract_version": extract.extract_version,
         "extract_family": extract.extract_family or "general",
         "title": clean_document_title(extract.title),
-        "summary": extract.problem_summary or extract.content,
-        "problem_summary": extract.problem_summary or extract.content,
+        "summary": summary,
+        "problem_summary": summary,
         "parameters": extract.parameters or payload.get("parameters") or {},
         "applied_rules": extract.applied_rules or [],
-        "evidence_excerpt": extract.evidence_excerpt or extract.content,
+        "evidence_excerpt": evidence_excerpt,
         "page_number": extract.page_number,
         "page_start": extract.page_start,
         "page_end": extract.page_end,

@@ -232,16 +232,11 @@ export function DocumentDetailPanel({
                     <p className="text-sm font-medium text-foreground">{formatKnownLabel(extract.title)}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{extract.problem_summary}</p>
                     <div className="mt-3">
-                      <Select
-                        value={extract.event_type ?? "__empty__"}
-                        onValueChange={(value) => onUpdateEventType(extract, value === "__empty__" ? "" : value)}
-                        disabled={busy}
-                      >
+                      <Select value={extract.event_type ?? undefined} onValueChange={(value) => onUpdateEventType(extract, value)} disabled={busy}>
                         <SelectTrigger>
                           <SelectValue placeholder="请选择事件类型" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__empty__">请选择事件类型</SelectItem>
                           {eventOptions.map((option) => (
                             <SelectItem key={option} value={option}>
                               {formatEventType(option)}
