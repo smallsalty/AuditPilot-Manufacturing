@@ -84,12 +84,18 @@ export function DocumentsTable({
                 </TableCell>
                 <TableCell className="align-top">
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button variant="outline" onClick={() => onView(document)} disabled={busy}>
+                    <Button
+                      variant="outline"
+                      onClick={() => onView(document)}
+                      disabled={busy}
+                      className="min-w-[6.75rem] whitespace-nowrap"
+                    >
                       查看抽取
                     </Button>
                     <Button
                       onClick={() => onParse(document)}
                       disabled={busy || document.parse_status === "parsing"}
+                      className="min-w-[6.75rem] whitespace-nowrap"
                     >
                       {document.parse_status === "parsed" ? "重新解析" : "解析"}
                     </Button>

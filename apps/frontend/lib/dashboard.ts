@@ -71,13 +71,19 @@ export function buildRadarOption(radarInput: unknown): object | null {
   if (radarData.length < 3) {
     return null;
   }
+  const radarLineColor = "#2563eb";
+  const radarFillColor = "rgba(59, 130, 246, 0.08)";
+  const radarTextColor = "#1d4ed8";
+  const radarAreaColor = "rgba(37, 99, 235, 0.18)";
+  const radarStrokeColor = "#1e40af";
   return {
     radar: {
       radius: "65%",
       splitNumber: 4,
-      axisName: { color: "#cbd5e1" },
-      splitArea: { areaStyle: { color: ["rgba(255,255,255,0.02)"] } },
-      splitLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
+      axisName: { color: radarTextColor },
+      axisLine: { lineStyle: { color: radarLineColor, width: 1 } },
+      splitArea: { areaStyle: { color: [radarFillColor] } },
+      splitLine: { lineStyle: { color: radarLineColor, width: 1.2 } },
       indicator: radarData.map((item) => ({ name: item.name, max: 100 })),
     },
     series: [
@@ -86,9 +92,9 @@ export function buildRadarOption(radarInput: unknown): object | null {
         data: [
           {
             value: radarData.map((item) => item.value),
-            areaStyle: { color: "rgba(217,119,6,0.28)" },
-            lineStyle: { color: "#f59e0b" },
-            itemStyle: { color: "#f59e0b" },
+            areaStyle: { color: radarAreaColor },
+            lineStyle: { color: radarStrokeColor, width: 2.5 },
+            itemStyle: { color: radarStrokeColor },
           },
         ],
       },

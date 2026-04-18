@@ -18,3 +18,9 @@
  ○ Compiling / ...
  ✓ Compiled / in 4.4s (1909 modules)
  GET / 200 in 4516ms
+ ✓ Compiled /risks in 494ms (1307 modules)
+ GET /risks 200 in 676ms
+ ✓ Compiled /audit-focus in 227ms (1313 modules)
+ GET /audit-focus 200 in 319ms
+ ✓ Compiled /documents in 51ms (373 modules)
+ GET /documents 200 in 142ms

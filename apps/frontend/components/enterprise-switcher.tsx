@@ -112,12 +112,17 @@ export function EnterpriseSwitcher() {
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Button variant="outline" onClick={reloadEnterprises} disabled={enterpriseLoading || searching}>
+        <Button
+          variant="outline"
+          onClick={reloadEnterprises}
+          disabled={enterpriseLoading || searching}
+          className="min-w-[9rem] whitespace-nowrap"
+        >
           <RefreshCw className="mr-2 h-4 w-4" />
           刷新企业列表
         </Button>
         {searchKeyword.trim() ? (
-          <Button onClick={bootstrap} disabled={bootstrapping} className="w-full">
+          <Button onClick={bootstrap} disabled={bootstrapping} className="min-w-[9rem] whitespace-nowrap">
             {bootstrapping ? "引入中..." : "引入官方企业"}
           </Button>
         ) : null}
