@@ -185,7 +185,23 @@ class AuditSyncService:
 
             for item in merged_announcements:
                 category = item.get("category") or "other"
-                if category == "document":
+                is_event_item = category == "penalty" or bool(item.get("title_matches"))
+                if is_event_item:
+                    events_found += 1
+                    source_events_found += 1
+                    event, created = self._upsert_event(
+                        db=db,
+                        enterprise=enterprise,
+                        provider_name=provider.provider_name,
+                        provider_priority=provider.priority,
+                        official=provider.is_official_source,
+                        payload=item,
+                    )
+                    if created:
+                        events_inserted += 1
+                    if event.sync_status == self.SYNC_PARSE_QUEUED:
+                        parse_queued += 1
+                elif category == "document":
                     documents_found += 1
                     source_documents_found += 1
                     document, created = self._upsert_document(
@@ -201,21 +217,6 @@ class AuditSyncService:
                         if self._is_annual_package_item(item):
                             annual_package_inserted += 1
                     if document.sync_status == self.SYNC_PARSE_QUEUED:
-                        parse_queued += 1
-                elif category == "penalty" or item.get("title_matches"):
-                    events_found += 1
-                    source_events_found += 1
-                    event, created = self._upsert_event(
-                        db=db,
-                        enterprise=enterprise,
-                        provider_name=provider.provider_name,
-                        provider_priority=provider.priority,
-                        official=provider.is_official_source,
-                        payload=item,
-                    )
-                    if created:
-                        events_inserted += 1
-                    if event.sync_status == self.SYNC_PARSE_QUEUED:
                         parse_queued += 1
                 else:
                     other_found += 1
