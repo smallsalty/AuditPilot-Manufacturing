@@ -40,11 +40,11 @@ class DocumentAnalysisPipeline:
         text: str,
         classified_type: str,
     ) -> dict[str, Any]:
-        cleaned_entries, cleaning_meta = self.clean_entries(text, classified_type)
+        cleaned_entries, cleaning_meta, cleaning_error = self.clean_entries(document, text, classified_type)
         if not cleaned_entries:
             error = self.make_error_payload(
-                "cleaning_empty_content",
-                "清洗后没有可分析的正文内容。",
+                str((cleaning_error or {}).get("code") or "cleaning_empty_content"),
+                str((cleaning_error or {}).get("message") or "清洗后没有可分析的正文内容。"),
             )
             return {
                 "extracts": [],
@@ -312,8 +312,48 @@ class DocumentAnalysisPipeline:
             "llm_diagnostics": llm_diagnostics,
         }
 
-    def clean_entries(self, text: str, classified_type: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def clean_entries(
+        self,
+        document: DocumentMeta,
+        text: str,
+        classified_type: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, str] | None]:
+        body_source_kind = self.resolve_body_source_kind(document)
+        cleaning_meta = {
+            "body_source_kind": body_source_kind,
+            "body_parse_status": "parsed",
+            "raw_entry_count": 0,
+            "cleaned_entry_count": 0,
+            "kept_section_titles": [],
+            "dropped_noise_count": 0,
+            "financial_section_detected": False,
+            "financial_section_count": 0,
+            "sub_analysis_modes": [],
+        }
+
+        if body_source_kind == "none":
+            cleaning_meta["body_parse_status"] = "unavailable"
+            return [], cleaning_meta, {
+                "code": "document_body_unavailable",
+                "message": "文档缺少正文内容和文件来源，无法启动正文分析。",
+            }
+
+        if not str(text or "").strip():
+            cleaning_meta["body_parse_status"] = "parse_empty"
+            return [], cleaning_meta, {
+                "code": "document_body_parse_empty",
+                "message": "文档存在正文来源，但解析结果为空，无法形成可分析内容。",
+            }
+
         raw_entries = self.service._split_entries(text)
+        cleaning_meta["raw_entry_count"] = len(raw_entries)
+        if not raw_entries:
+            cleaning_meta["body_parse_status"] = "split_empty"
+            return [], cleaning_meta, {
+                "code": "document_entry_split_empty",
+                "message": "文档正文存在，但切段后未形成可分析条目。",
+            }
+
         entries: list[dict[str, Any]] = []
         seen_hashes: set[str] = set()
         section_title = ""
@@ -347,17 +387,33 @@ class DocumentAnalysisPipeline:
 
         filtered = [entry for entry in entries if self.service._passes_type_signal(entry, classified_type)]
         kept = (filtered or entries)[:120]
-        return kept, {
-            "raw_entry_count": len(raw_entries),
-            "cleaned_entry_count": len(kept),
-            "kept_section_titles": self.service._dedupe_strings(
-                [str(entry.get("section_title") or "").strip() for entry in kept if entry.get("section_title")]
-            )[:12],
-            "dropped_noise_count": dropped_noise_count,
-            "financial_section_detected": False,
-            "financial_section_count": 0,
-            "sub_analysis_modes": [],
-        }
+        cleaning_meta.update(
+            {
+                "cleaned_entry_count": len(kept),
+                "kept_section_titles": self.service._dedupe_strings(
+                    [str(entry.get("section_title") or "").strip() for entry in kept if entry.get("section_title")]
+                )[:12],
+                "dropped_noise_count": dropped_noise_count,
+            }
+        )
+        if not kept:
+            cleaning_meta["body_parse_status"] = "cleaned_empty"
+            return [], cleaning_meta, {
+                "code": "cleaning_empty_content",
+                "message": "文档正文切段后被清洗规则全部过滤，未保留可分析内容。",
+            }
+        return kept, cleaning_meta, None
+
+    def resolve_body_source_kind(self, document: DocumentMeta) -> str:
+        has_content_text = bool(str(document.content_text or "").strip())
+        has_file_path = bool(str(document.file_path or "").strip())
+        if has_content_text and has_file_path:
+            return "content_text+file_path"
+        if has_content_text:
+            return "content_text"
+        if has_file_path:
+            return "file_path"
+        return "none"
 
     def extract_financial_entries(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         section_keywords = (
