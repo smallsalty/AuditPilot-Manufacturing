@@ -11,6 +11,7 @@ from sklearn.ensemble import IsolationForest
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.ai.evidence_summary_service import EvidenceSummaryService
 from app.ai.risk_explanation_service import RiskExplanationService
 from app.models import (
     AnalysisRun,
@@ -39,11 +40,43 @@ class RiskAnalysisService:
         self.feature_engineering_service = FeatureEngineeringService()
         self.rule_evaluator = RuleEvaluator()
         self.explainer = RiskExplanationService()
+        self.evidence_summary_service = EvidenceSummaryService()
         self.document_risk_service = DocumentRiskService()
         self.tax_risk_service = TaxRiskService()
         self.announcement_risk_service = AnnouncementRiskService()
         self.industry_classifier = IndustryClassifierService()
         self.industry_benchmark_service = IndustryBenchmarkService(self.industry_classifier)
+
+    def _summarize_evidence_chain(
+        self,
+        evidence_chain: list[dict[str, Any]] | None,
+        *,
+        default_title: str,
+        default_type: str,
+    ) -> list[dict[str, Any]]:
+        summarized: list[dict[str, Any]] = []
+        for evidence in evidence_chain or []:
+            item = dict(evidence or {})
+            source_text = (
+                item.get("snippet")
+                or item.get("content")
+                or item.get("summary")
+                or item.get("title")
+                or default_title
+            )
+            summary = self.evidence_summary_service.summarize_evidence(
+                title=str(item.get("title") or default_title),
+                text=str(source_text or ""),
+                evidence_type=str(item.get("evidence_type") or item.get("type") or default_type),
+                report_period=str(item.get("report_period") or ""),
+                context=str(default_title or ""),
+            )
+            if summary:
+                item["content"] = summary
+                if item.get("snippet") is not None or item.get("evidence_type") is not None:
+                    item["snippet"] = summary
+            summarized.append(item)
+        return summarized
 
     def _with_builtin_context_rules(self, rules: list[AuditRule]) -> list[AuditRule]:
         existing = {rule.code for rule in rules}
@@ -323,6 +356,11 @@ class RiskAnalysisService:
                 explanation = self.explainer.explain_risk(enterprise.name, payload)
                 audit_focus = self._normalize_to_list(explanation.get("audit_focus"))
                 procedures = self._normalize_to_list(explanation.get("procedures"))
+                summarized_evidence_chain = self._summarize_evidence_chain(
+                    hit.evidence_chain,
+                    default_title=rule.name,
+                    default_type="risk_rule",
+                )
 
                 result = RiskIdentificationResult(
                     enterprise_id=enterprise_id,
@@ -335,7 +373,7 @@ class RiskAnalysisService:
                     risk_score=hit.score,
                     source_type="rule",
                     reasons=hit.reasons,
-                    evidence_chain=hit.evidence_chain,
+                    evidence_chain=summarized_evidence_chain,
                     feature_snapshot=self._feature_snapshot_for_hit(features, hit),
                     llm_summary=explanation.get("summary", ""),
                     llm_explanation=self._serialize_llm_explanation(explanation.get("explanation", "")),
@@ -521,6 +559,11 @@ class RiskAnalysisService:
     def _persist_tax_risks(self, db: Session, enterprise_id: int, run_id: int) -> None:
         tax_payload = self.tax_risk_service.build_tax_risks(db, enterprise_id)
         for item in tax_payload.get("tax_risks", []):
+            summarized_evidence_chain = self._summarize_evidence_chain(
+                list(item.get("evidence_chain") or []),
+                default_title=item["risk_name"],
+                default_type="tax_analysis",
+            )
             result = RiskIdentificationResult(
                 enterprise_id=enterprise_id,
                 run_id=run_id,
@@ -532,7 +575,7 @@ class RiskAnalysisService:
                 risk_score=float(item["risk_score"]),
                 source_type="rule",
                 reasons=list(item.get("reasons") or []),
-                evidence_chain=list(item.get("evidence_chain") or []),
+                evidence_chain=summarized_evidence_chain,
                 feature_snapshot={
                     "tax_risk": item,
                     "tax_diagnostics": tax_payload.get("diagnostics") or {},
@@ -575,19 +618,23 @@ class RiskAnalysisService:
     def _persist_announcement_risks(self, db: Session, enterprise_id: int, run_id: int) -> dict[str, Any]:
         payload = self.announcement_risk_service.build_announcement_risks(db, enterprise_id)
         for item in payload.get("announcement_risks", []):
-            evidence_chain = [
-                {
-                    "evidence_id": f"A-{item['event_code']}",
-                    "evidence_type": "announcement",
-                    "source": "cninfo",
-                    "source_label": "巨潮资讯",
-                    "published_at": item.get("source_date"),
-                    "report_period": item.get("source_date"),
-                    "title": item.get("source_title"),
-                    "snippet": item.get("explanation"),
-                    "content": item.get("explanation"),
-                }
-            ]
+            evidence_chain = self._summarize_evidence_chain(
+                [
+                    {
+                        "evidence_id": f"A-{item['event_code']}",
+                        "evidence_type": "announcement",
+                        "source": "cninfo",
+                        "source_label": "巨潮资讯",
+                        "published_at": item.get("source_date"),
+                        "report_period": item.get("source_date"),
+                        "title": item.get("source_title"),
+                        "snippet": item.get("explanation"),
+                        "content": item.get("explanation"),
+                    }
+                ],
+                default_title=item["event_name"],
+                default_type="announcement_event",
+            )
             result = RiskIdentificationResult(
                 enterprise_id=enterprise_id,
                 run_id=run_id,
@@ -682,16 +729,20 @@ class RiskAnalysisService:
             risk_score=68.0,
             source_type="model",
             reasons=["IsolationForest 识别出最新年度财务结构与历史样本差异较大。"],
-            evidence_chain=[
-                {
-                    "type": "model",
-                    "title": "IsolationForest 异常检测",
-                    "content": "模型识别到最新年度关键财务指标存在异常波动。",
-                    "source": "isolation_forest",
-                    "report_period": str(int(features.get("latest_year", 0))),
-                    "metadata": {"features": matrix[-1]},
-                }
-            ],
+            evidence_chain=self._summarize_evidence_chain(
+                [
+                    {
+                        "type": "model",
+                        "title": "IsolationForest 异常检测",
+                        "content": "模型识别到最新年度关键财务指标存在异常波动。",
+                        "source": "isolation_forest",
+                        "report_period": str(int(features.get("latest_year", 0))),
+                        "metadata": {"features": matrix[-1]},
+                    }
+                ],
+                default_title="数值异常波动风险",
+                default_type="financial_anomaly",
+            ),
             feature_snapshot=features,
             llm_summary="模型检测到最新年度关键指标与历史轨迹偏离，建议结合经营背景复核。",
             llm_explanation="该异常并不直接等同于错报，但提示需要对收入、存货和现金流的组合变化执行进一步分析。",

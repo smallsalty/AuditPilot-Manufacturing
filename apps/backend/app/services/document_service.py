@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.ai.evidence_summary_service import EvidenceSummaryService
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent
 from app.repositories.document_repository import DocumentRepository
@@ -214,6 +215,7 @@ class DocumentService:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.embedding_service = HashingEmbeddingService()
         self.llm_client = llm_client or LLMClient()
+        self.evidence_summary_service = EvidenceSummaryService(self.llm_client)
         self.classify_service = DocumentClassifyService()
         self.feature_service = DocumentFeatureService()
         self.knowledge_index_service = KnowledgeIndexService()
@@ -1723,13 +1725,20 @@ class DocumentService:
         )
         if not summary:
             summary = display_name
-        evidence_excerpt = self._clean_summary_like_text(payload.get("evidence_excerpt") or summary)
         title = self._clean_summary_like_text(payload.get("title") or f"{display_name}-extract-{index}") or f"{display_name}-extract-{index}"
+        raw_evidence_excerpt = self._clean_summary_like_text(payload.get("evidence_excerpt") or summary)
         paragraph_hash = str(payload.get("paragraph_hash") or hashlib.sha1(summary.encode("utf-8")).hexdigest())
         event_type = payload.get("event_type")
         opinion_type = payload.get("opinion_type")
         metric_name = payload.get("metric_name")
-        evidence_excerpt = self._trim_evidence_safe(evidence_excerpt)
+        evidence_excerpt = self.evidence_summary_service.summarize_evidence(
+            title=title,
+            text=raw_evidence_excerpt or summary,
+            evidence_type="document_extract",
+            report_period=str(payload.get("period") or document.report_period_label or ""),
+            context=summary,
+        )
+        evidence_excerpt = self._trim_evidence_safe(evidence_excerpt or raw_evidence_excerpt or summary)
         risk_points = self._dedupe_strings(list(payload.get("risk_points") or []))
         applied_rules, canonical_risk_key = self._resolve_extract_rules(
             payload=payload,
