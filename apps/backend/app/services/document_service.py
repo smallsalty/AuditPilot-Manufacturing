@@ -1729,6 +1729,17 @@ class DocumentService:
         event_type = payload.get("event_type")
         opinion_type = payload.get("opinion_type")
         metric_name = payload.get("metric_name")
+        evidence_excerpt = self._trim_evidence_safe(evidence_excerpt)
+        risk_points = self._dedupe_strings(list(payload.get("risk_points") or []))
+        applied_rules, canonical_risk_key = self._resolve_extract_rules(
+            payload=payload,
+            title=title,
+            summary=summary,
+            evidence_excerpt=evidence_excerpt,
+            event_type=event_type,
+            opinion_type=opinion_type,
+            risk_points=risk_points,
+        )
         extract_family = self._resolve_extract_family(
             document=document,
             payload=payload,
@@ -1743,8 +1754,8 @@ class DocumentService:
             "summary": summary,
             "problem_summary": summary,
             "parameters": self._normalize_parameters(payload.get("parameters")),
-            "applied_rules": self._dedupe_strings(list(payload.get("applied_rules") or [])),
-            "evidence_excerpt": self._trim_evidence_safe(evidence_excerpt),
+            "applied_rules": applied_rules,
+            "evidence_excerpt": evidence_excerpt,
             "detail_level": str(payload.get("detail_level") or "general"),
             "fact_tags": self._dedupe_strings(list(payload.get("fact_tags") or [])),
             "page_number": payload.get("page_number"),
@@ -1756,7 +1767,7 @@ class DocumentService:
             "keywords": self._dedupe_strings(list(payload.get("keywords") or [])),
             "financial_topics": self._dedupe_strings(list(payload.get("financial_topics") or [])),
             "note_refs": self._dedupe_strings(list(payload.get("note_refs") or [])),
-            "risk_points": self._dedupe_strings(list(payload.get("risk_points") or [])),
+            "risk_points": risk_points,
             "metric_name": metric_name,
             "metric_value": self._coerce_float(payload.get("metric_value")),
             "metric_unit": payload.get("metric_unit"),
@@ -1778,8 +1789,46 @@ class DocumentService:
             "conclusion": self._clean_summary_like_text(payload.get("conclusion")),
             "affected_scope": payload.get("affected_scope"),
             "auditor_or_board_source": self._clean_summary_like_text(payload.get("auditor_or_board_source")),
-            "canonical_risk_key": payload.get("canonical_risk_key"),
+            "canonical_risk_key": canonical_risk_key,
         }
+
+    def _resolve_extract_rules(
+        self,
+        *,
+        payload: dict[str, Any],
+        title: str,
+        summary: str,
+        evidence_excerpt: str,
+        event_type: Any,
+        opinion_type: Any,
+        risk_points: list[str],
+    ) -> tuple[list[str], str | None]:
+        applied_rules = self._dedupe_strings(list(payload.get("applied_rules") or []))
+        canonical_risk_key = str(payload.get("canonical_risk_key") or "").strip() or None
+        if not canonical_risk_key:
+            canonical_risk_key = DocumentFeatureService.EVENT_TO_RISK_KEY.get(
+                str(event_type or opinion_type or "").strip()
+            )
+        if not applied_rules and canonical_risk_key:
+            applied_rules = [canonical_risk_key]
+        if not applied_rules:
+            fallback_text = " ".join(
+                part for part in [title, summary, evidence_excerpt, " ".join(risk_points)] if part
+            )
+            applied_rules = self._match_rule_groups(fallback_text)
+            if not canonical_risk_key and applied_rules:
+                canonical_risk_key = applied_rules[0]
+        return self._dedupe_strings(applied_rules), canonical_risk_key
+
+    def _match_rule_groups(self, text: str) -> list[str]:
+        normalized_text = str(text or "").strip()
+        if not normalized_text:
+            return []
+        return [
+            name
+            for name, keywords in self.RULE_GROUPS.items()
+            if any(keyword in normalized_text for keyword in keywords)
+        ]
 
     def _resolve_extract_family(
         self,
@@ -1827,6 +1876,17 @@ class DocumentService:
                     opinion_type=extract.get("opinion_type"),
                     metric_name=extract.get("metric_name"),
                 )
+                applied_rules, canonical_risk_key = self._resolve_extract_rules(
+                    payload=extract,
+                    title=str(extract.get("title") or ""),
+                    summary=str(extract.get("summary") or extract.get("problem_summary") or ""),
+                    evidence_excerpt=str(extract.get("evidence_excerpt") or ""),
+                    event_type=extract.get("event_type"),
+                    opinion_type=extract.get("opinion_type"),
+                    risk_points=self._dedupe_strings(list(extract.get("risk_points") or [])),
+                )
+                extract["applied_rules"] = applied_rules
+                extract["canonical_risk_key"] = canonical_risk_key
         return extracts
 
     def _build_structured_extracts(self, document: DocumentMeta, entries: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:

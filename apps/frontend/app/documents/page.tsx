@@ -39,8 +39,8 @@ const EVENT_OPTIONS = [
 ];
 
 const EMPTY_REASON_LABELS: Record<string, string> = {
-  no_sync_run: "该企业还没有执行过官方同步，请先手动同步或上传文档。",
-  generic_window_no_documents: "当前同步窗口内没有命中官方文档，建议手动刷新或重新同步。",
+  no_sync_run: "该企业还没有执行过官方同步，请先点击“重新收集巨潮资讯”或上传文档。",
+  generic_window_no_documents: "当前同步窗口内没有命中官方文档，建议点击“重新收集巨潮资讯”。",
   annual_package_not_published: "最近一套年报包尚未披露，或当前检索窗口内尚未命中。",
   provider_returned_only_other: "当前窗口只抓到非文档公告，尚未抓到年报、审计报告或内控报告。",
   provider_error: "官方同步过程中出现上游错误，本次未产出文档。",
@@ -148,7 +148,7 @@ export default function DocumentsPage() {
   const readinessEmptyMessage =
     readiness?.empty_reason && EMPTY_REASON_LABELS[readiness.empty_reason]
       ? EMPTY_REASON_LABELS[readiness.empty_reason]
-      : "当前企业暂无文档。可先同步官方公告或上传 PDF。";
+      : "当前企业暂无文档。可先点击“重新收集巨潮资讯”或上传 PDF。";
 
   const eventRiskSummary = enterpriseEvents?.risk_summary ?? null;
   const announcementRisks = eventRiskSummary?.announcement_risks ?? [];
@@ -163,6 +163,30 @@ export default function DocumentsPage() {
       refreshFinancialAnalysis({ force: true }),
     ]);
     setPageAction({ kind: "idle" });
+  };
+
+  const triggerCninfoSync = async () => {
+    if (!currentEnterpriseId) {
+      return;
+    }
+    setPageAction({ kind: "reading", message: "正在重新收集巨潮资讯公告、文档和事件..." });
+    try {
+      const result = await api.syncCompany(currentEnterpriseId, ["cninfo"]);
+      invalidateEnterpriseResources(currentEnterpriseId, ["readiness", "documents", "events", "financialAnalysis"]);
+      await Promise.allSettled([
+        refreshReadiness({ force: true }),
+        refreshDocuments({ force: true }),
+        refreshEvents({ force: true }),
+        refreshFinancialAnalysis({ force: true }),
+      ]);
+      setMessage(
+        `本次重新收集巨潮资讯公告 ${result.announcements_fetched} 条，新增文档 ${result.documents_inserted}/${result.documents_found} 条，新增事件 ${result.events_inserted}/${result.events_found} 条，待解析 ${result.parse_queued} 条。`,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "重新收集巨潮资讯失败。");
+    } finally {
+      setPageAction({ kind: "idle" });
+    }
   };
 
   const focusAnnouncementRisk = (risk: AnnouncementRiskItem) => {
@@ -268,7 +292,7 @@ export default function DocumentsPage() {
     if (pageAction.kind === "analyzing") {
       return { label: "分析中", message: pageAction.message, variant: "warning" as const };
     }
-    if (pageAction.kind === "reading" || documentsLoading || readinessLoading || financialAnalysisLoading) {
+    if (pageAction.kind === "reading" || documentsLoading || readinessLoading || financialAnalysisLoading || eventsLoading) {
       return {
         label: "读取中",
         message:
@@ -300,6 +324,7 @@ export default function DocumentsPage() {
     };
   }, [
     documentsLoading,
+    eventsLoading,
     financialAnalysisLoading,
     hasSyncGap,
     message,
@@ -323,6 +348,7 @@ export default function DocumentsPage() {
           fileName={file?.name ?? null}
           onFileChange={setFile}
           onRefresh={() => void refreshAll()}
+          onSyncCninfo={() => void triggerCninfoSync()}
           onUpload={() => void upload()}
           disabled={pageAction.kind !== "idle"}
           uploadDisabled={!file || !currentEnterpriseId || pageAction.kind !== "idle"}

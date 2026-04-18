@@ -24,6 +24,7 @@ export function DocumentsToolbar({
   fileName,
   onFileChange,
   onRefresh,
+  onSyncCninfo,
   onUpload,
   disabled,
   uploadDisabled,
@@ -37,6 +38,7 @@ export function DocumentsToolbar({
   fileName: string | null;
   onFileChange: (file: File | null) => void;
   onRefresh: () => void;
+  onSyncCninfo: () => void;
   onUpload: () => void;
   disabled: boolean;
   uploadDisabled: boolean;
@@ -61,6 +63,9 @@ export function DocumentsToolbar({
       <div className="flex flex-col gap-3 sm:flex-row">
         <Button variant="outline" onClick={onRefresh} disabled={disabled}>
           刷新文档
+        </Button>
+        <Button variant="outline" onClick={onSyncCninfo} disabled={disabled}>
+          重新收集巨潮资讯
         </Button>
         <Dialog open={uploadOpen} onOpenChange={onUploadOpenChange}>
           <DialogTrigger asChild>
