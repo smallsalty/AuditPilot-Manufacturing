@@ -88,6 +88,7 @@ class AnnouncementRiskService:
                 "event_code": definition.event_code,
                 "event_category": definition.category_name,
                 "event_name": definition.event_name,
+                "source_event_id": item.get("source_event_id"),
                 "matched_keywords": item["matched_keywords"],
                 "risk_level": item["risk_level"],
                 "risk_score": round(score, 1),
@@ -154,6 +155,7 @@ class AnnouncementRiskService:
             primary_match = payload.get("primary_title_match") if isinstance(payload, dict) else None
             title_matches = payload.get("title_matches") if isinstance(payload, dict) else None
             row = self._build_source_row(
+                source_event_id=getattr(event, "id", None),
                 title=getattr(event, "title", None),
                 source_date=getattr(event, "announcement_date", None) or getattr(event, "event_date", None),
                 source_url=getattr(event, "source_url", None),
@@ -171,6 +173,7 @@ class AnnouncementRiskService:
             metadata_json = getattr(document, "metadata_json", None) or {}
             diagnostics = metadata_json.get("sync_diagnostics") if isinstance(metadata_json, dict) else {}
             row = self._build_source_row(
+                source_event_id=None,
                 title=getattr(document, "document_name", None),
                 source_date=getattr(document, "announcement_date", None),
                 source_url=getattr(document, "source_url", None),
@@ -186,6 +189,7 @@ class AnnouncementRiskService:
     def _build_source_row(
         self,
         *,
+        source_event_id: Any,
         title: Any,
         source_date: Any,
         source_url: Any,
@@ -204,6 +208,7 @@ class AnnouncementRiskService:
             return None
         parsed_date = self._coerce_date(source_date)
         return {
+            "source_event_id": int(source_event_id) if source_event_id is not None else None,
             "category_code": selected["category_code"],
             "matched_keywords": list(selected.get("matched_keywords") or []),
             "risk_level": str(selected.get("risk_level") or "medium").lower(),

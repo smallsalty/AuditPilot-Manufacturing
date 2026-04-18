@@ -210,6 +210,7 @@ export type AnnouncementRiskItem = {
   event_code: string;
   event_category: string;
   event_name: string;
+  source_event_id?: number | null;
   matched_keywords: string[];
   risk_level: "low" | "medium" | "high" | string;
   risk_score: number;
@@ -227,6 +228,39 @@ export type AnnouncementRiskCategoryBreakdown = {
   count: number;
   high_risk_count: number;
   score: number;
+};
+
+export type EnterpriseEventItem = {
+  id: number;
+  title: string;
+  event_type: string;
+  severity: string;
+  event_date?: string | null;
+  summary: string;
+  source_url?: string | null;
+  title_matches: Array<{
+    category_code: string;
+    category_name: string;
+    matched_keywords: string[];
+    title: string;
+  }>;
+  primary_title_match?: Record<string, unknown> | null;
+};
+
+export type EnterpriseEventsRiskSummary = {
+  announcement_risks: AnnouncementRiskItem[];
+  announcement_risk_score: number;
+  announcement_risk_level: "low" | "medium" | "high" | string;
+  matched_event_count: number;
+  high_risk_event_count: number;
+  category_breakdown: AnnouncementRiskCategoryBreakdown[];
+  summary: string;
+};
+
+export type EnterpriseEventsPayload = {
+  enterprise_id: number;
+  risk_summary: EnterpriseEventsRiskSummary;
+  raw_events: EnterpriseEventItem[];
 };
 
 export type AnnouncementRiskSummary = {

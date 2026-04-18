@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { DocumentExtractItem, DocumentListItem } from "@auditpilot/shared-types";
+import type { AnnouncementRiskItem, DocumentExtractItem, DocumentListItem } from "@auditpilot/shared-types";
 
+import { AnnouncementRawEventsTable } from "@/components/documents/announcement-raw-events-table";
+import { AnnouncementRiskList } from "@/components/documents/announcement-risk-list";
+import { AnnouncementRiskSummaryPanel } from "@/components/documents/announcement-risk-summary-panel";
 import { DocumentDetailPanel } from "@/components/documents/document-detail-panel";
 import { DocumentFinancialPanel } from "@/components/documents/document-financial-panel";
 import { DocumentsTable } from "@/components/documents/documents-table";
@@ -12,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
-import { useDocumentsResource, useFinancialAnalysisResource, useReadinessResource } from "@/lib/enterprise-resources";
+import { useDocumentsResource, useEventsResource, useFinancialAnalysisResource, useReadinessResource } from "@/lib/enterprise-resources";
 
 const CLASSIFICATION_OPTIONS = [
   "annual_report",
@@ -64,9 +67,13 @@ export default function DocumentsPage() {
     error: financialAnalysisError,
     refresh: refreshFinancialAnalysis,
   } = useFinancialAnalysisResource(currentEnterpriseId);
+  const { data: enterpriseEvents, loading: eventsLoading, error: eventsError, refresh: refreshEvents } =
+    useEventsResource(currentEnterpriseId);
 
   const [file, setFile] = useState<File | null>(null);
   const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
+  const [activeEventId, setActiveEventId] = useState<number | null>(null);
+  const [activeEventFallbackKey, setActiveEventFallbackKey] = useState<string | null>(null);
   const [extracts, setExtracts] = useState<DocumentExtractItem[]>([]);
   const [message, setMessage] = useState("支持 PDF 或文本文件。文档需手动解析，解析结果会显示规则命中、结构化字段和财报专项结果。");
   const [syncGapRetryCount, setSyncGapRetryCount] = useState(0);
@@ -76,6 +83,8 @@ export default function DocumentsPage() {
 
   useEffect(() => {
     setActiveDocumentId(null);
+    setActiveEventId(null);
+    setActiveEventFallbackKey(null);
     setExtracts([]);
     setFile(null);
     setSyncGapRetryCount(0);
@@ -101,7 +110,7 @@ export default function DocumentsPage() {
     const timer = window.setTimeout(() => {
       setSyncGapRetryCount(1);
       setPageAction({ kind: "reading", message: "官方文档已同步，正在刷新列表..." });
-      void Promise.allSettled([refreshReadiness(), refreshDocuments(), refreshFinancialAnalysis()]).finally(() => {
+      void Promise.allSettled([refreshReadiness(), refreshDocuments(), refreshEvents(), refreshFinancialAnalysis()]).finally(() => {
         setPageAction((current) => (current.kind === "reading" ? { kind: "idle" } : current));
       });
     }, 1500);
@@ -116,6 +125,7 @@ export default function DocumentsPage() {
     readinessError,
     readinessLoading,
     refreshDocuments,
+    refreshEvents,
     refreshFinancialAnalysis,
     refreshReadiness,
     syncGapRetryCount,
@@ -140,14 +150,24 @@ export default function DocumentsPage() {
       ? EMPTY_REASON_LABELS[readiness.empty_reason]
       : "当前企业暂无文档。可先同步官方公告或上传 PDF。";
 
+  const eventRiskSummary = enterpriseEvents?.risk_summary ?? null;
+  const announcementRisks = eventRiskSummary?.announcement_risks ?? [];
+  const rawEvents = enterpriseEvents?.raw_events ?? [];
+
   const refreshAll = async () => {
     setPageAction({ kind: "reading", message: "正在读取当前企业的文档与财报专项结果..." });
     await Promise.allSettled([
       refreshReadiness({ force: true }),
       refreshDocuments({ force: true }),
+      refreshEvents({ force: true }),
       refreshFinancialAnalysis({ force: true }),
     ]);
     setPageAction({ kind: "idle" });
+  };
+
+  const focusAnnouncementRisk = (risk: AnnouncementRiskItem) => {
+    setActiveEventId(risk.source_event_id ?? null);
+    setActiveEventFallbackKey(`${risk.source_title}::${risk.source_date ?? ""}`);
   };
 
   const loadExtracts = async (document: DocumentListItem, mode: PageAction["kind"] = "reading") => {
@@ -426,6 +446,79 @@ export default function DocumentsPage() {
               </SheetContent>
             </Sheet>
           </div>
+
+          <Card>
+            <div className="space-y-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">公告事件</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  展示已同步公告事件的解释结果和原始事件明细，不改现有评分与风险主链路。
+                </p>
+              </div>
+
+              {eventsError ? (
+                <Alert variant="destructive">
+                  <AlertTitle>公告事件加载失败</AlertTitle>
+                  <AlertDescription>公告事件加载失败，请稍后刷新</AlertDescription>
+                </Alert>
+              ) : eventsLoading ? (
+                <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                  正在读取已同步公告事件...
+                </div>
+              ) : rawEvents.length === 0 && announcementRisks.length === 0 ? (
+                <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                  当前企业暂无已同步公告事件
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {announcementRisks.length > 0 && eventRiskSummary ? (
+                    <>
+                      <AnnouncementRiskSummaryPanel riskSummary={eventRiskSummary} />
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">事件解释层</p>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            基于现有公告匹配、分层评分和解释逻辑生成，用于说明为什么该事件值得审计关注。
+                          </p>
+                        </div>
+                        <AnnouncementRiskList
+                          risks={announcementRisks}
+                          activeEventId={activeEventId}
+                          activeFallbackKey={activeEventFallbackKey}
+                          onSelectRisk={focusAnnouncementRisk}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <Alert>
+                      <AlertTitle>事件解释暂未生成</AlertTitle>
+                      <AlertDescription>已同步公告事件，运行风险分析后生成事件解释</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">原始事件层</p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        按同步结果展示原始公告事件，用于核对标题命中、严重程度和来源链接。
+                      </p>
+                    </div>
+                    {rawEvents.length > 0 ? (
+                      <AnnouncementRawEventsTable
+                        events={rawEvents}
+                        activeEventId={activeEventId}
+                        activeFallbackKey={activeEventFallbackKey}
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                        当前企业暂无已同步公告事件
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
 
           <Card>
             <DocumentFinancialPanel financialAnalysis={financialAnalysis} loading={financialAnalysisLoading} />

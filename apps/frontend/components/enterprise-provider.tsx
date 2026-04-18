@@ -15,6 +15,7 @@ import type {
   DashboardPayload,
   DocumentListItem,
   EnterpriseContextState,
+  EnterpriseEventsPayload,
   EnterpriseReadinessPayload,
   EnterpriseSearchItem,
   FinancialAnalysisPayload,
@@ -27,7 +28,7 @@ import { api } from "@/lib/api";
 const ENTERPRISE_STORAGE_KEY = "auditpilot.currentEnterpriseId";
 const SEARCH_CACHE_TTL = 30_000;
 
-type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness" | "financialAnalysis";
+type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "events" | "readiness" | "financialAnalysis";
 
 type EnterpriseContextValue = EnterpriseContextState & {
   selectEnterprise: (enterpriseId: number) => void;
@@ -75,6 +76,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     riskResults: Map<number, RiskResultPayload[]>;
     auditFocus: Map<number, AuditFocusPayload>;
     documents: Map<number, DocumentListItem[]>;
+    events: Map<number, EnterpriseEventsPayload>;
     readiness: Map<number, EnterpriseReadinessPayload>;
     financialAnalysis: Map<number, FinancialAnalysisPayload>;
   }>({
@@ -82,6 +84,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     riskResults: new Map(),
     auditFocus: new Map(),
     documents: new Map(),
+    events: new Map(),
     readiness: new Map(),
     financialAnalysis: new Map(),
   });
@@ -92,7 +95,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   );
 
   const invalidateEnterpriseResources = useCallback((enterpriseId: number, kinds?: ResourceKind[]) => {
-    const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "readiness", "financialAnalysis"];
+    const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "events", "readiness", "financialAnalysis"];
     for (const kind of targets) {
       resourceCacheRef.current[kind].delete(enterpriseId);
     }
@@ -270,6 +273,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         if (result.documents_inserted > 0 || result.events_inserted > 0 || result.announcements_fetched > 0) {
           invalidateEnterpriseResources(enterpriseId, [
             "documents",
+            "events",
             "dashboard",
             "auditFocus",
             "riskResults",

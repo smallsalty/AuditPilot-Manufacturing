@@ -9,6 +9,7 @@ import type {
   DocumentListItem,
   EnterpriseBootstrapPayload,
   EnterpriseDetail,
+  EnterpriseEventsPayload,
   EnterpriseReadinessPayload,
   EnterpriseSearchItem,
   FinancialAnalysisPayload,
@@ -186,6 +187,8 @@ export const api = {
     request<EnterpriseReadinessPayload>(`/companies/${enterpriseId}/readiness`, { signal: options?.signal }),
   getEnterpriseDocuments: (enterpriseId: number, options?: ApiRequestOptions) =>
     request<DocumentListItem[]>(`/enterprises/${enterpriseId}/documents`, { signal: options?.signal }),
+  getEnterpriseEvents: (enterpriseId: number, options?: ApiRequestOptions) =>
+    request<EnterpriseEventsPayload>(`/enterprises/${enterpriseId}/events`, { signal: options?.signal }),
   getFinancialAnalysis,
   syncCompany: (enterpriseId: number, sources: string[] = ["akshare_fast", "cninfo"], options?: ApiRequestOptions) =>
     request<SyncCompanyPayload>(`/sync/company`, {

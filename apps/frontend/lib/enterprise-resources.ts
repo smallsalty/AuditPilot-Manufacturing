@@ -5,6 +5,7 @@ import type {
   AuditFocusPayload,
   DashboardPayload,
   DocumentListItem,
+  EnterpriseEventsPayload,
   EnterpriseReadinessPayload,
   FinancialAnalysisPayload,
   RiskResultPayload,
@@ -13,7 +14,7 @@ import type {
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { api, type ApiRequestOptions } from "@/lib/api";
 
-type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "readiness" | "financialAnalysis";
+type ResourceKind = "dashboard" | "riskResults" | "auditFocus" | "documents" | "events" | "readiness" | "financialAnalysis";
 
 type ResourceState<T> = {
   data: T | null;
@@ -158,6 +159,10 @@ export function useAuditFocusResource(enterpriseId: number | null) {
 
 export function useDocumentsResource(enterpriseId: number | null) {
   return useCachedEnterpriseResource<DocumentListItem[]>("documents", enterpriseId, api.getEnterpriseDocuments);
+}
+
+export function useEventsResource(enterpriseId: number | null) {
+  return useCachedEnterpriseResource<EnterpriseEventsPayload>("events", enterpriseId, api.getEnterpriseEvents);
 }
 
 export function useReadinessResource(enterpriseId: number | null) {

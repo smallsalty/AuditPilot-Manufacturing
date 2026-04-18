@@ -576,6 +576,11 @@ class DocumentAnalysisPipeline:
 
     def _resolve_stage_max_tokens(self, prompt_template: str, schema_name: str) -> int:
         if (
+            prompt_template == "document_extract:annual_report"
+            or schema_name == "annual_report_extract_v1"
+        ):
+            return 2048
+        if (
             prompt_template == "document_extract:annual_financial_subanalysis"
             or schema_name == "annual_financial_subanalysis_v1"
         ):

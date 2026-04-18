@@ -7,6 +7,7 @@ from app.repositories.enterprise_repository import EnterpriseRepository
 from app.schemas.enterprise import EnterpriseBootstrapRequest
 from app.services.dashboard_service import DashboardService
 from app.services.document_service import DocumentService
+from app.services.announcement_risk_service import AnnouncementRiskService
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 from app.services.financial_analysis_service import FinancialAnalysisService
 from app.services.tax_risk_service import TaxRiskService
@@ -145,6 +146,46 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
             }
         )
     return items
+
+
+@router.get("/enterprises/{enterprise_id}/events")
+def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
+    repo = EnterpriseRepository(db)
+    enterprise = repo.get_by_id(enterprise_id)
+    if enterprise is None:
+        raise HTTPException(status_code=404, detail="企业不存在")
+
+    risk_payload = AnnouncementRiskService().build_announcement_risks(db, enterprise_id)
+    raw_events = []
+    for event in repo.get_external_events(enterprise_id, official_only=True):
+        payload = event.payload or {}
+        raw_events.append(
+            {
+                "id": event.id,
+                "title": clean_document_title(event.title),
+                "event_type": event.event_type,
+                "severity": event.severity,
+                "event_date": event.event_date.isoformat() if event.event_date else None,
+                "summary": event.summary,
+                "source_url": event.source_url,
+                "title_matches": payload.get("title_matches") or [],
+                "primary_title_match": payload.get("primary_title_match"),
+            }
+        )
+
+    return {
+        "enterprise_id": enterprise_id,
+        "risk_summary": {
+            "announcement_risks": risk_payload.get("announcement_risks") or [],
+            "announcement_risk_score": risk_payload.get("announcement_risk_score") or 0.0,
+            "announcement_risk_level": risk_payload.get("announcement_risk_level") or "low",
+            "matched_event_count": risk_payload.get("matched_event_count") or 0,
+            "high_risk_event_count": risk_payload.get("high_risk_event_count") or 0,
+            "category_breakdown": risk_payload.get("category_breakdown") or [],
+            "summary": risk_payload.get("announcement_summary") or "",
+        },
+        "raw_events": raw_events,
+    }
 
 
 @router.get("/enterprises/{enterprise_id}/financial-analysis")
