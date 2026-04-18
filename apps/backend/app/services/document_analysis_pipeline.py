@@ -190,6 +190,10 @@ class DocumentAnalysisPipeline:
             len(str(item.get("evidence_excerpt") or ""))
             for item in trimmed_candidates[: self.service.LLM_EXTRACT_CANDIDATE_LIMIT]
         )
+        stage_max_tokens = self._resolve_stage_max_tokens(
+            prompt_bundle["prompt_template"],
+            prompt_bundle["schema_name"],
+        )
 
         if self.service.llm_client.config_error:
             error = self.make_error_payload(
@@ -219,6 +223,7 @@ class DocumentAnalysisPipeline:
                     llm_input_chars=llm_input_chars,
                     payload_mode="config_error",
                     retry_attempts=0,
+                    max_tokens=stage_max_tokens,
                     raw_preview=None,
                 ),
             }
@@ -237,7 +242,7 @@ class DocumentAnalysisPipeline:
                 "prompt_template": prompt_bundle["prompt_template"],
                 "schema_name": prompt_bundle["schema_name"],
             },
-            max_tokens=1024,
+            max_tokens=stage_max_tokens,
             max_attempts=2,
             timeout=30.0,
             strict_json_instruction=True,
@@ -252,6 +257,7 @@ class DocumentAnalysisPipeline:
             required_any_of=prompt_bundle["required_any_of"],
             candidate_count=min(len(trimmed_candidates), self.service.LLM_EXTRACT_CANDIDATE_LIMIT),
             llm_input_chars=llm_input_chars,
+            max_tokens=stage_max_tokens,
         )
 
         if items:
@@ -402,6 +408,7 @@ class DocumentAnalysisPipeline:
         required_any_of: tuple[str, ...],
         candidate_count: int,
         llm_input_chars: int,
+        max_tokens: int,
     ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
         if not isinstance(result, dict):
             llm_diagnostics = self.build_llm_diagnostics(
@@ -412,6 +419,7 @@ class DocumentAnalysisPipeline:
                 llm_input_chars=llm_input_chars,
                 payload_mode="empty",
                 retry_attempts=None,
+                max_tokens=max_tokens,
                 raw_preview=None,
             )
             error = self.make_error_payload(
@@ -437,6 +445,7 @@ class DocumentAnalysisPipeline:
             llm_input_chars=llm_input_chars,
             payload_mode=payload_mode,
             retry_attempts=retry_attempts,
+            max_tokens=max_tokens,
             raw_preview=raw_preview,
         )
 
@@ -515,6 +524,7 @@ class DocumentAnalysisPipeline:
         llm_input_chars: int,
         payload_mode: str | None,
         retry_attempts: int | None,
+        max_tokens: int,
         raw_preview: str | None,
     ) -> dict[str, Any]:
         return {
@@ -528,6 +538,7 @@ class DocumentAnalysisPipeline:
             "retry_attempts": retry_attempts,
             "candidate_count": candidate_count,
             "llm_input_chars": llm_input_chars,
+            "max_tokens": max_tokens,
             "payload_mode": payload_mode,
             "raw_preview": raw_preview,
         }
@@ -545,6 +556,7 @@ class DocumentAnalysisPipeline:
         payload_mode = next((item.get("payload_mode") for item in reversed(stage_diagnostics) if item.get("payload_mode")), None)
         retry_attempts = max([int(item.get("retry_attempts") or 0) for item in stage_diagnostics], default=0)
         llm_input_chars = sum(int(item.get("llm_input_chars") or 0) for item in stage_diagnostics)
+        max_tokens = max([int(item.get("max_tokens") or 0) for item in stage_diagnostics], default=0)
         return {
             "model": self.service.llm_client.model,
             "request_kind": "document_extract",
@@ -556,10 +568,19 @@ class DocumentAnalysisPipeline:
             "retry_attempts": retry_attempts,
             "candidate_count": candidate_count,
             "llm_input_chars": llm_input_chars,
+            "max_tokens": max_tokens,
             "payload_mode": payload_mode,
             "raw_preview": raw_preview,
             "stages": stage_diagnostics,
         }
+
+    def _resolve_stage_max_tokens(self, prompt_template: str, schema_name: str) -> int:
+        if (
+            prompt_template == "document_extract:annual_financial_subanalysis"
+            or schema_name == "annual_financial_subanalysis_v1"
+        ):
+            return 2048
+        return 1024
 
     def apply_stage_defaults(
         self,
