@@ -76,22 +76,15 @@ class AnnouncementRiskService:
                 repeat_count=len(prior_same_category),
                 base_weight=definition.base_weight,
             )
-            explanation = self._build_explanation(
-                definition=definition,
-                matched_keywords=item["matched_keywords"],
-                source_title=item["source_title"],
-                secondary_categories=item["secondary_categories"],
-                repeat_count=len(prior_same_category),
-            )
-            summary = f"{definition.category_name}信号，标题命中“{'、'.join(item['matched_keywords'])}”。"
             event_analysis = item.get("event_analysis")
             analysis_summary = self._analysis_summary(event_analysis)
             analysis_detail = self._analysis_detail_text(event_analysis)
+            analysis_status = self._analysis_status(event_analysis, item.get("sync_status"))
+            analysis_risk_points = self._analysis_list(event_analysis, "risk_points")
             analysis_audit_focus = self._analysis_list(event_analysis, "audit_focus")
-            if analysis_summary:
-                summary = analysis_summary
-            if analysis_detail:
-                explanation = analysis_detail
+            evidence_excerpt = self._analysis_evidence(event_analysis)
+            summary = analysis_summary or "公告已识别为风险事件，正文分析尚未完成。"
+            explanation = analysis_detail or self._pending_explanation(analysis_status)
             risk_item = {
                 "event_code": definition.event_code,
                 "event_category": definition.category_name,
@@ -116,6 +109,9 @@ class AnnouncementRiskService:
                 "event_analysis": event_analysis if isinstance(event_analysis, dict) else None,
                 "body_analysis_summary": analysis_summary,
                 "audit_focus": analysis_audit_focus,
+                "risk_points": analysis_risk_points,
+                "evidence_excerpt": evidence_excerpt,
+                "analysis_status": analysis_status,
             }
             announcement_risks.append(risk_item)
 
@@ -174,6 +170,7 @@ class AnnouncementRiskService:
                 primary_match=primary_match,
                 title_matches=title_matches,
                 event_analysis=payload.get("event_analysis") if isinstance(payload, dict) else None,
+                sync_status=getattr(event, "sync_status", None),
             )
             if row and row["dedupe_key"] not in seen:
                 seen.add(row["dedupe_key"])
@@ -193,6 +190,7 @@ class AnnouncementRiskService:
                 primary_match=(diagnostics or {}).get("primary_title_match"),
                 title_matches=(diagnostics or {}).get("title_matches"),
                 event_analysis=None,
+                sync_status=None,
             )
             if row and row["dedupe_key"] not in seen:
                 seen.add(row["dedupe_key"])
@@ -210,6 +208,7 @@ class AnnouncementRiskService:
         primary_match: Any,
         title_matches: Any,
         event_analysis: Any,
+        sync_status: Any,
     ) -> dict[str, Any] | None:
         title_text = str(title or "").strip()
         if not title_text:
@@ -231,6 +230,7 @@ class AnnouncementRiskService:
             "source_url": str(source_url or "").strip() or None,
             "secondary_categories": list(selected.get("secondary_categories") or []),
             "event_analysis": event_analysis if isinstance(event_analysis, dict) else None,
+            "sync_status": str(sync_status or "").strip() or None,
             "dedupe_key": str(source_object_id or "").strip()
             or "|".join([title_text, parsed_date.isoformat() if parsed_date else "", str(source_url or "").strip()]),
         }
@@ -310,6 +310,24 @@ class AnnouncementRiskService:
         if not parts:
             return None
         return " ".join(parts[:4])
+
+    def _analysis_status(self, event_analysis: Any, sync_status: Any) -> str:
+        if isinstance(event_analysis, dict) and self._analysis_summary(event_analysis):
+            return "analyzed"
+        if str(sync_status or "").strip() == "parse_queued":
+            return "pending"
+        return "missing"
+
+    def _analysis_evidence(self, event_analysis: Any) -> str | None:
+        if not isinstance(event_analysis, dict):
+            return None
+        evidence = str(event_analysis.get("evidence_excerpt") or "").strip()
+        return evidence or None
+
+    def _pending_explanation(self, analysis_status: str) -> str:
+        if analysis_status == "pending":
+            return "公告已按标题识别为风险事件，正文分析排队中，待解析队列生成审计风险总结。"
+        return "公告已按标题识别为风险事件，正文分析尚未完成，请等待解析队列生成审计风险总结。"
 
     def _analysis_list(self, event_analysis: Any, key: str) -> list[str]:
         if not isinstance(event_analysis, dict):

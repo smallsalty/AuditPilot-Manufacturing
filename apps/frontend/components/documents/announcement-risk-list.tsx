@@ -15,6 +15,16 @@ function formatDate(value?: string | null): string {
   return date.toLocaleDateString("zh-CN");
 }
 
+function formatAnalysisStatus(value?: string | null): string {
+  if (value === "analyzed") {
+    return "已生成正文分析";
+  }
+  if (value === "pending") {
+    return "正文分析排队中";
+  }
+  return "正文分析未生成";
+}
+
 export function AnnouncementRiskList({
   risks,
   activeEventId,
@@ -34,7 +44,14 @@ export function AnnouncementRiskList({
           (risk.source_event_id != null && activeEventId === risk.source_event_id) ||
           (risk.source_event_id == null && activeFallbackKey === fallbackKey);
         const bodySummary = risk.body_analysis_summary ?? risk.event_analysis?.summary ?? null;
+        const riskPoints = Array.isArray(risk.risk_points)
+          ? risk.risk_points.slice(0, 3)
+          : Array.isArray(risk.event_analysis?.risk_points)
+            ? risk.event_analysis.risk_points.slice(0, 3)
+            : [];
         const auditFocus = Array.isArray(risk.audit_focus) ? risk.audit_focus.slice(0, 3) : [];
+        const evidenceExcerpt = risk.evidence_excerpt ?? risk.event_analysis?.evidence_excerpt ?? null;
+        const hasAnalysis = risk.analysis_status === "analyzed" && Boolean(bodySummary);
         return (
           <button
             key={`${risk.event_code}-${risk.source_event_id ?? fallbackKey}`}
@@ -51,6 +68,7 @@ export function AnnouncementRiskList({
                   <p className="font-medium text-foreground">{risk.event_name}</p>
                   <Badge value={risk.risk_level.toUpperCase()} />
                   <Badge value="default" label={`${risk.risk_score} 分`} />
+                  <Badge value="default" label={formatAnalysisStatus(risk.analysis_status)} />
                 </div>
                 <p className="text-sm text-muted-foreground">{risk.event_category}</p>
               </div>
@@ -69,21 +87,26 @@ export function AnnouncementRiskList({
                 ) : null}
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {risk.matched_keywords.map((keyword) => (
-                <Badge key={keyword} value="default" label={keyword} />
-              ))}
-            </div>
-            {bodySummary ? (
+            {hasAnalysis ? (
               <div className="mt-3 rounded-lg border bg-muted/30 p-3 text-sm leading-6 text-foreground">
-                <p className="text-xs font-medium text-muted-foreground">正文分析总结</p>
+                <p className="text-xs font-medium text-muted-foreground">审计风险总结</p>
                 <p className="mt-1">{bodySummary}</p>
+                {riskPoints.length > 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">风险点：{riskPoints.join("；")}</p>
+                ) : null}
                 {auditFocus.length > 0 ? (
                   <p className="mt-2 text-xs text-muted-foreground">审计关注：{auditFocus.join("；")}</p>
                 ) : null}
+                {evidenceExcerpt ? (
+                  <p className="mt-2 text-xs text-muted-foreground">正文证据：{evidenceExcerpt}</p>
+                ) : null}
               </div>
-            ) : null}
-            {risk.explanation && risk.explanation !== bodySummary ? (
+            ) : (
+              <div className="mt-3 rounded-lg border border-dashed bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
+                {risk.explanation}
+              </div>
+            )}
+            {hasAnalysis && risk.explanation && risk.explanation !== bodySummary ? (
               <p className="mt-3 text-sm leading-6 text-muted-foreground">{risk.explanation}</p>
             ) : null}
             <div className="mt-3 rounded-lg bg-muted/40 p-3 text-sm text-foreground">{risk.source_title}</div>

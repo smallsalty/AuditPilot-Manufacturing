@@ -219,6 +219,9 @@ export type AnnouncementRiskItem = {
   body_analysis_summary?: string | null;
   event_analysis?: AnnouncementEventAnalysis | null;
   audit_focus?: string[];
+  analysis_status?: "analyzed" | "pending" | "missing" | string;
+  risk_points?: string[];
+  evidence_excerpt?: string | null;
   source_title: string;
   source_date?: string | null;
   source_url?: string | null;
