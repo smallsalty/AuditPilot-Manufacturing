@@ -163,6 +163,26 @@ export default function RisksPage() {
         </Card>
       ) : (
         <>
+          {showResults ? (
+            <RiskTable
+              risks={displayRisks}
+              enterpriseId={currentEnterpriseId}
+              onChanged={async () => {
+                if (!currentEnterpriseId) {
+                  return;
+                }
+                invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "riskResults"]);
+                await Promise.allSettled([refreshRisks({ force: true }), refreshDashboard({ force: true })]);
+              }}
+            />
+          ) : (
+            <Card>
+              <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
+                当前企业尚无可展示风险项。完成文档抽取后，这里会优先显示文档驱动的风险结果。
+              </div>
+            </Card>
+          )}
+
           <Card>
             <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">财报专项分析</p>
             <p className="mt-2 text-sm text-muted-foreground">{financialAnalysis?.summary ?? "当前尚未生成财报专项聚合结果。"}</p>
@@ -216,26 +236,6 @@ export default function RisksPage() {
               </div>
             )}
           </Card>
-
-          {showResults ? (
-            <RiskTable
-              risks={displayRisks}
-              enterpriseId={currentEnterpriseId}
-              onChanged={async () => {
-                if (!currentEnterpriseId) {
-                  return;
-                }
-                invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "riskResults"]);
-                await Promise.allSettled([refreshRisks({ force: true }), refreshDashboard({ force: true })]);
-              }}
-            />
-          ) : (
-            <Card>
-              <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
-                当前企业尚无可展示风险项。完成文档抽取后，这里会优先显示文档驱动的风险结果。
-              </div>
-            </Card>
-          )}
         </>
       )}
     </div>
