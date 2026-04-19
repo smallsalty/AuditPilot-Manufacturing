@@ -103,9 +103,25 @@ class DocumentRiskService:
             row = grouped.setdefault(canonical_key, self._new_group(canonical_key))
             row["risk_score"] = max(row["risk_score"], float(result.risk_score or 0))
             row["summary"] = row["summary"] or (result.llm_summary or "；".join(result.reasons or []))
-            row["source_mode"] = "baseline_observation" if result.source_type == "baseline" else "document_plus_rule" if row["source_documents"] else "rule_only"
-            row["evidence_status"] = "baseline_observation" if result.source_type == "baseline" else "document_plus_rule" if row["source_documents"] else "rule_inferred"
-            row["confidence_level"] = "high" if row["source_documents"] else "medium"
+            row["source_mode"] = (
+                "baseline_observation"
+                if result.source_type == "baseline"
+                else "announcement_event"
+                if result.source_type == "event"
+                else "document_plus_rule"
+                if row["source_documents"]
+                else "rule_only"
+            )
+            row["evidence_status"] = (
+                "baseline_observation"
+                if result.source_type == "baseline"
+                else "announcement_event"
+                if result.source_type == "event"
+                else "document_plus_rule"
+                if row["source_documents"]
+                else "rule_inferred"
+            )
+            row["confidence_level"] = "high" if row["source_documents"] or result.source_type == "event" else "medium"
             row["risk_category"] = result.risk_category or row["risk_category"]
             row["risk_level"] = result.risk_level or row["risk_level"]
             row["source_type"] = result.source_type or row["source_type"]
@@ -114,6 +130,19 @@ class DocumentRiskService:
             if isinstance(snapshot, dict):
                 row["score_details"] = snapshot.get("score_details") or row["score_details"]
                 row["industry_comparison"] = snapshot.get("industry_comparison") or row["industry_comparison"]
+                announcement_risk = snapshot.get("announcement_risk")
+                if result.source_type == "event" and isinstance(announcement_risk, dict):
+                    row["source_events"] = self._dedupe_events(
+                        row["source_events"]
+                        + [
+                            {
+                                "event_type": announcement_risk.get("event_name") or result.risk_name,
+                                "event_date": announcement_risk.get("source_date"),
+                                "severity": announcement_risk.get("risk_level"),
+                                "subject": announcement_risk.get("source_title"),
+                            }
+                        ]
+                    )
             row["source_rules"] = self._dedupe_strings(row["source_rules"] + ([result.rule_code] if result.rule_code else []))
             row["feature_support"].extend(
                 [
@@ -412,7 +441,7 @@ class DocumentRiskService:
         return row
 
     def _mode_rank(self, mode: str) -> int:
-        return {"document_primary": 0, "document_plus_rule": 1, "rule_only": 2, "baseline_observation": 8}.get(mode, 9)
+        return {"document_primary": 0, "document_plus_rule": 1, "announcement_event": 2, "rule_only": 3, "baseline_observation": 8}.get(mode, 9)
 
     def _max_level(self, left: str, right: str) -> str:
         order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}

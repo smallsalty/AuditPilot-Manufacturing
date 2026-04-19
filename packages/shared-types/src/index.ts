@@ -216,6 +216,9 @@ export type AnnouncementRiskItem = {
   risk_score: number;
   summary?: string | null;
   explanation: string;
+  body_analysis_summary?: string | null;
+  event_analysis?: AnnouncementEventAnalysis | null;
+  audit_focus?: string[];
   source_title: string;
   source_date?: string | null;
   source_url?: string | null;

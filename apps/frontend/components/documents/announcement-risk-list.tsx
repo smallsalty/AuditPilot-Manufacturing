@@ -33,6 +33,8 @@ export function AnnouncementRiskList({
         const isActive =
           (risk.source_event_id != null && activeEventId === risk.source_event_id) ||
           (risk.source_event_id == null && activeFallbackKey === fallbackKey);
+        const bodySummary = risk.body_analysis_summary ?? risk.event_analysis?.summary ?? null;
+        const auditFocus = Array.isArray(risk.audit_focus) ? risk.audit_focus.slice(0, 3) : [];
         return (
           <button
             key={`${risk.event_code}-${risk.source_event_id ?? fallbackKey}`}
@@ -72,7 +74,18 @@ export function AnnouncementRiskList({
                 <Badge key={keyword} value="default" label={keyword} />
               ))}
             </div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">{risk.explanation}</p>
+            {bodySummary ? (
+              <div className="mt-3 rounded-lg border bg-muted/30 p-3 text-sm leading-6 text-foreground">
+                <p className="text-xs font-medium text-muted-foreground">正文分析总结</p>
+                <p className="mt-1">{bodySummary}</p>
+                {auditFocus.length > 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">审计关注：{auditFocus.join("；")}</p>
+                ) : null}
+              </div>
+            ) : null}
+            {risk.explanation && risk.explanation !== bodySummary ? (
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{risk.explanation}</p>
+            ) : null}
             <div className="mt-3 rounded-lg bg-muted/40 p-3 text-sm text-foreground">{risk.source_title}</div>
           </button>
         );

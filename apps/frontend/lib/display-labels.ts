@@ -70,6 +70,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 const SOURCE_MODE_LABELS: Record<string, string> = {
   document_primary: "文档证据为主",
   document_plus_rule: "文档与规则联合支持",
+  announcement_event: "公告事件支持",
   rule_only: "规则推断",
   baseline_observation: "基线观察",
   risk_analysis: "风险分析结果",
@@ -79,6 +80,7 @@ const SOURCE_MODE_LABELS: Record<string, string> = {
 const EVIDENCE_STATUS_LABELS: Record<string, string> = {
   document_supported: "文档证据支持",
   document_plus_rule: "文档+规则共同支持",
+  announcement_event: "公告事件正文支持",
   rule_inferred: "规则推断，待文档验证",
   baseline_observation: "基线观察",
 };

@@ -84,12 +84,14 @@ class AnnouncementRiskService:
                 repeat_count=len(prior_same_category),
             )
             summary = f"{definition.category_name}信号，标题命中“{'、'.join(item['matched_keywords'])}”。"
-            analysis_summary = self._analysis_summary(item.get("event_analysis"))
-            analysis_detail = self._analysis_detail_text(item.get("event_analysis"))
+            event_analysis = item.get("event_analysis")
+            analysis_summary = self._analysis_summary(event_analysis)
+            analysis_detail = self._analysis_detail_text(event_analysis)
+            analysis_audit_focus = self._analysis_list(event_analysis, "audit_focus")
             if analysis_summary:
                 summary = analysis_summary
             if analysis_detail:
-                explanation = f"{explanation} {analysis_detail}"
+                explanation = analysis_detail
             risk_item = {
                 "event_code": definition.event_code,
                 "event_category": definition.category_name,
@@ -107,10 +109,13 @@ class AnnouncementRiskService:
                 "risk_category": definition.risk_category,
                 "focus_accounts": list(definition.focus_accounts),
                 "focus_processes": list(definition.focus_processes),
-                "recommended_procedures": list(definition.recommended_procedures),
+                "recommended_procedures": self._dedupe_strings(list(definition.recommended_procedures) + analysis_audit_focus),
                 "evidence_types": list(definition.evidence_types),
                 "rationale": definition.rationale,
                 "repeat_count_90d": len(prior_same_category),
+                "event_analysis": event_analysis if isinstance(event_analysis, dict) else None,
+                "body_analysis_summary": analysis_summary,
+                "audit_focus": analysis_audit_focus,
             }
             announcement_risks.append(risk_item)
 
@@ -290,16 +295,37 @@ class AnnouncementRiskService:
         if not isinstance(event_analysis, dict):
             return None
         parts: list[str] = []
-        for key in ("risk_points", "audit_focus"):
-            value = event_analysis.get(key)
-            if isinstance(value, list):
-                parts.extend(str(item).strip() for item in value[:3] if str(item).strip())
+        summary = str(event_analysis.get("summary") or "").strip()
+        if summary:
+            parts.append(f"正文分析总结：{summary}")
+        risk_points = self._analysis_list(event_analysis, "risk_points")
+        if risk_points:
+            parts.append("风险点：" + "；".join(risk_points[:3]))
+        audit_focus = self._analysis_list(event_analysis, "audit_focus")
+        if audit_focus:
+            parts.append("审计关注：" + "；".join(audit_focus[:3]))
         evidence = str(event_analysis.get("evidence_excerpt") or "").strip()
         if evidence:
-            parts.append(evidence)
+            parts.append("证据摘录：" + evidence)
         if not parts:
             return None
-        return "正文分析显示：" + "；".join(parts[:5])
+        return " ".join(parts[:4])
+
+    def _analysis_list(self, event_analysis: Any, key: str) -> list[str]:
+        if not isinstance(event_analysis, dict):
+            return []
+        value = event_analysis.get(key)
+        if not isinstance(value, list):
+            return []
+        return self._dedupe_strings([str(item).strip() for item in value if str(item).strip()])[:5]
+
+    def _dedupe_strings(self, values: list[str]) -> list[str]:
+        items: list[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            if text and text not in items:
+                items.append(text)
+        return items
 
     def _build_explanation(
         self,

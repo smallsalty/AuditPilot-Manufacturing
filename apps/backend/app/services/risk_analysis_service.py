@@ -250,6 +250,14 @@ class RiskAnalysisService:
         text = str(value).strip()
         return [text] if text else []
 
+    def _clean_text_list(self, values) -> list[str]:
+        items: list[str] = []
+        for value in self._normalize_to_list(values):
+            text = str(value or "").strip()
+            if text and text not in items:
+                items.append(text)
+        return items
+
     def _serialize_llm_explanation(self, value) -> str | None:
         if value is None:
             return None
@@ -618,6 +626,11 @@ class RiskAnalysisService:
     def _persist_announcement_risks(self, db: Session, enterprise_id: int, run_id: int) -> dict[str, Any]:
         payload = self.announcement_risk_service.build_announcement_risks(db, enterprise_id)
         for item in payload.get("announcement_risks", []):
+            analysis_summary = item.get("body_analysis_summary") or item.get("summary")
+            analysis_focus = self._clean_text_list(item.get("audit_focus") or [])
+            recommended_procedures = self._clean_text_list(
+                list(item.get("recommended_procedures") or []) + analysis_focus
+            )
             evidence_chain = self._summarize_evidence_chain(
                 [
                     {
@@ -628,8 +641,8 @@ class RiskAnalysisService:
                         "published_at": item.get("source_date"),
                         "report_period": item.get("source_date"),
                         "title": item.get("source_title"),
-                        "snippet": item.get("explanation"),
-                        "content": item.get("explanation"),
+                        "snippet": analysis_summary or item.get("explanation"),
+                        "content": item.get("explanation") or analysis_summary,
                     }
                 ],
                 default_title=item["event_name"],
@@ -645,13 +658,19 @@ class RiskAnalysisService:
                 risk_level=str(item.get("risk_level") or "medium").upper(),
                 risk_score=float(item["risk_score"]),
                 source_type="event",
-                reasons=[item.get("explanation") or item.get("summary") or item["event_name"]],
+                reasons=[analysis_summary or item.get("explanation") or item["event_name"]],
                 evidence_chain=evidence_chain,
-                feature_snapshot={"announcement_risk": item, "announcement_summary": payload.get("announcement_summary")},
+                feature_snapshot={
+                    "announcement_risk": item,
+                    "announcement_summary": payload.get("announcement_summary"),
+                    "event_analysis": item.get("event_analysis"),
+                },
                 llm_summary=item.get("summary") or item.get("event_name"),
                 llm_explanation=self._serialize_llm_explanation(
                     {
                         "explanation": item.get("explanation"),
+                        "body_analysis_summary": analysis_summary,
+                        "audit_focus": analysis_focus,
                         "matched_keywords": item.get("matched_keywords") or [],
                     }
                 ),
@@ -666,9 +685,9 @@ class RiskAnalysisService:
                     priority=str(item.get("risk_level") or "medium").lower(),
                     focus_accounts=list(item.get("focus_accounts") or []),
                     focus_processes=list(item.get("focus_processes") or []),
-                    recommended_procedures=list(item.get("recommended_procedures") or []),
+                    recommended_procedures=recommended_procedures,
                     evidence_types=list(item.get("evidence_types") or ["announcement_event"]),
-                    recommendation_text=f"{item['event_name']}：{item.get('rationale') or item.get('explanation') or ''}",
+                    recommendation_text=f"{item['event_name']}：{analysis_summary or item.get('explanation') or item.get('rationale') or ''}",
                 )
             )
             db.add(
