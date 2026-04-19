@@ -205,16 +205,17 @@ class AuditFocusService:
             ],
         }
         system_prompt = (
-            "你是制造业上市公司审计项目经理。请基于风险证据生成针对性审计建议，"
-            "不要复述风险标题，不要复制风险清单摘要，输出严格 JSON。"
+            "你是制造业上市公司审计项目经理。请基于风险证据生成针对性审计建议。"
+            "只输出紧凑 JSON，不要 Markdown，不要解释。"
         )
         user_prompt = (
             f"企业：{enterprise_name or '当前企业'}\n"
             f"风险输入：{json.dumps(risk_payload, ensure_ascii=False)}\n"
             f"该风险类型的预设审计操作：{json.dumps(preset, ensure_ascii=False)}\n"
-            "请返回 JSON 对象，字段为 summary、targeted_advice、procedures、evidence_to_obtain、"
-            "focus_accounts、focus_processes、rationale。targeted_advice 必须是一句可执行的审计建议，"
-            "procedures 和 evidence_to_obtain 分别给 3 到 5 条。"
+            "返回 JSON 对象，字段固定为 summary、targeted_advice、procedures、evidence_to_obtain、"
+            "focus_accounts、focus_processes、rationale。summary 可等于 targeted_advice。"
+            "targeted_advice 一句且不超过80字；rationale 一句且不超过80字；"
+            "所有数组最多3条，单条不超过30字。不要复述风险标题。"
         )
         try:
             result = self.llm_client.chat_completion(
@@ -229,18 +230,22 @@ class AuditFocusService:
                     "schema_name": "audit_focus_recommendation_v1",
                     "context_variant": str(risk.get("canonical_risk_key") or "default"),
                 },
-                max_tokens=900,
-                max_attempts=1,
+                max_tokens=1600,
+                max_attempts=2,
                 strict_json_instruction=True,
             )
         except LLMRequestError:
             return None
         normalized = self._normalize_llm_result(result)
+        if not normalized and isinstance(result, dict) and result.get("parsed_ok") is False and result.get("raw"):
+            normalized = self._repair_llm_json(str(result.get("raw") or ""))
         advice = str(normalized.get("targeted_advice") or "").strip()
         return normalized if advice else None
 
     def _normalize_llm_result(self, result: Any) -> dict[str, Any]:
         if isinstance(result, dict):
+            if result.get("parsed_ok") is False:
+                return {}
             if isinstance(result.get("items"), list):
                 item = next((entry for entry in result["items"] if isinstance(entry, dict)), None)
                 if isinstance(item, dict):
@@ -251,6 +256,38 @@ class AuditFocusService:
             if isinstance(item, dict):
                 return item
         return {}
+
+    def _repair_llm_json(self, raw_text: str) -> dict[str, Any]:
+        text = str(raw_text or "").strip()
+        if not text:
+            return {}
+        system_prompt = "你只负责修复 JSON 格式。不得新增事实，不得输出 Markdown。"
+        user_prompt = (
+            "把以下内容修复为一个合法紧凑 JSON 对象。字段仅保留 summary、targeted_advice、procedures、"
+            "evidence_to_obtain、focus_accounts、focus_processes、rationale。"
+            "如果原文末尾被截断，保留已完整出现的字段，并补齐必要括号和引号；数组最多3条。\n"
+            f"原始内容：{text}"
+        )
+        try:
+            repaired = self.llm_client.chat_completion(
+                system_prompt,
+                user_prompt,
+                json_mode=True,
+                request_kind="audit_focus_recommendation_repair",
+                metadata={
+                    "classified_type": "audit_focus",
+                    "prompt_template": "audit_focus:json_repair:v1",
+                    "schema_name": "audit_focus_recommendation_v1",
+                    "context_variant": "json_repair",
+                    "llm_input_chars": len(user_prompt),
+                },
+                max_tokens=900,
+                max_attempts=1,
+                strict_json_instruction=True,
+            )
+        except LLMRequestError:
+            return {}
+        return self._normalize_llm_result(repaired)
 
     def _fallback_focus(self, risk: dict[str, Any], preset: dict[str, list[str]]) -> dict[str, Any]:
         return {
