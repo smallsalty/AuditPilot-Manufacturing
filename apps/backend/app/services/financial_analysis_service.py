@@ -43,6 +43,8 @@ class _SummaryInflightState:
 
 
 class FinancialAnalysisService:
+    SNAPSHOT_KEY = "financial_analysis_snapshot"
+    SNAPSHOT_VERSION = "financial-analysis-snapshot:v1"
     SUPPORTED_DOCUMENT_TYPES = {"annual_report", "annual_summary", "audit_report", "internal_control_report"}
     DEFAULT_PROCEDURES = [
         "实施趋势分析并复核异常波动原因",
@@ -74,6 +76,9 @@ class FinancialAnalysisService:
         anomalies: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
         focus_accounts: list[str] = []
+        source_document_ids: list[int] = []
+        source_extract_count = 0
+        input_documents: list[dict[str, Any]] = []
 
         for document in enterprise_repo.get_documents(enterprise_id, official_only=True):
             document_type = document.classified_type or document.document_type or "general"
@@ -86,6 +91,9 @@ class FinancialAnalysisService:
                 if extract.extract_family == "financial_statement"
                 and extract.detail_level == "financial_deep_dive"
             ]
+            source_document_ids.append(document.id)
+            source_extract_count += len(extracts)
+            input_documents.append(self._document_input_signature(document, document_type, extracts))
             if not extracts:
                 continue
 
@@ -162,6 +170,11 @@ class FinancialAnalysisService:
             )
 
         recommended_procedures = self._build_recommended_procedures(key_metrics, anomalies)
+        input_hash = self._financial_input_hash(enterprise_id, input_documents)
+        persisted_payload = self._load_financial_snapshot(enterprise, input_hash)
+        if persisted_payload is not None:
+            return persisted_payload
+
         summary_result = self._build_summary(
             enterprise_id=enterprise_id,
             enterprise_name=enterprise.name,
@@ -170,7 +183,7 @@ class FinancialAnalysisService:
             focus_accounts=focus_accounts,
             recommended_procedures=recommended_procedures,
         )
-        return {
+        payload = {
             "enterprise_id": enterprise_id,
             "summary": summary_result.summary,
             "summary_mode": summary_result.summary_mode,
@@ -185,6 +198,105 @@ class FinancialAnalysisService:
             "focus_accounts": focus_accounts[:12],
             "recommended_procedures": recommended_procedures,
         }
+        self._store_financial_snapshot(
+            db,
+            enterprise=enterprise,
+            input_hash=input_hash,
+            payload=payload,
+            source_document_ids=source_document_ids,
+            source_extract_count=source_extract_count,
+        )
+        return payload
+
+    def _document_input_signature(self, document: Any, document_type: str, extracts: list[Any]) -> dict[str, Any]:
+        return {
+            "document_id": document.id,
+            "classified_type": document_type,
+            "parser_version": document.parser_version,
+            "content_hash": document.content_hash,
+            "updated_at": self._iso_value(getattr(document, "updated_at", None)),
+            "extracts": [
+                {
+                    "id": extract.id,
+                    "extract_version": extract.extract_version,
+                    "is_current": extract.is_current,
+                    "extract_family": extract.extract_family,
+                    "detail_level": extract.detail_level,
+                    "title": extract.title,
+                    "problem_summary": extract.problem_summary,
+                    "evidence_excerpt": extract.evidence_excerpt,
+                    "metric_name": extract.metric_name,
+                    "metric_value": extract.metric_value,
+                    "metric_unit": extract.metric_unit,
+                    "period": extract.period,
+                    "canonical_risk_key": extract.canonical_risk_key,
+                    "updated_at": self._iso_value(getattr(extract, "updated_at", None)),
+                }
+                for extract in sorted(extracts, key=lambda item: item.id)
+            ],
+        }
+
+    def _financial_input_hash(self, enterprise_id: int, documents: list[dict[str, Any]]) -> str:
+        payload = {
+            "enterprise_id": enterprise_id,
+            "analysis_version": self.SNAPSHOT_VERSION,
+            "documents": sorted(documents, key=lambda item: item.get("document_id") or 0),
+        }
+        return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def _load_financial_snapshot(self, enterprise: Any, input_hash: str) -> dict[str, Any] | None:
+        portrait = enterprise.portrait if isinstance(getattr(enterprise, "portrait", None), dict) else {}
+        snapshot = portrait.get(self.SNAPSHOT_KEY) if isinstance(portrait, dict) else None
+        if not isinstance(snapshot, dict) or snapshot.get("input_hash") != input_hash:
+            return None
+        return {
+            "enterprise_id": enterprise.id,
+            "summary": str(snapshot.get("summary") or ""),
+            "summary_mode": str(snapshot.get("summary_mode") or "fallback"),
+            "cached": True,
+            "cache_state": "persisted_hit",
+            "updated_at": snapshot.get("generated_at"),
+            "documents": list(snapshot.get("documents") or []),
+            "periods": list(snapshot.get("periods") or []),
+            "key_metrics": list(snapshot.get("key_metrics") or []),
+            "anomalies": list(snapshot.get("anomalies") or []),
+            "evidence": list(snapshot.get("evidence") or []),
+            "focus_accounts": list(snapshot.get("focus_accounts") or []),
+            "recommended_procedures": list(snapshot.get("recommended_procedures") or []),
+        }
+
+    def _store_financial_snapshot(
+        self,
+        db: Session,
+        *,
+        enterprise: Any,
+        input_hash: str,
+        payload: dict[str, Any],
+        source_document_ids: list[int],
+        source_extract_count: int,
+    ) -> None:
+        generated_at = payload.get("updated_at") or self._now_iso()
+        snapshot = {
+            "input_hash": input_hash,
+            "generated_at": generated_at,
+            "summary": payload.get("summary"),
+            "summary_mode": payload.get("summary_mode"),
+            "documents": payload.get("documents") or [],
+            "periods": payload.get("periods") or [],
+            "key_metrics": payload.get("key_metrics") or [],
+            "anomalies": payload.get("anomalies") or [],
+            "evidence": payload.get("evidence") or [],
+            "focus_accounts": payload.get("focus_accounts") or [],
+            "recommended_procedures": payload.get("recommended_procedures") or [],
+            "source_document_ids": sorted(set(source_document_ids)),
+            "source_extract_count": source_extract_count,
+            "analysis_version": self.SNAPSHOT_VERSION,
+        }
+        portrait = dict(enterprise.portrait or {})
+        portrait[self.SNAPSHOT_KEY] = snapshot
+        enterprise.portrait = portrait
+        db.add(enterprise)
+        db.commit()
 
     def _build_recommended_procedures(
         self,
@@ -531,6 +643,13 @@ class FinancialAnalysisService:
                 expires_at=time.monotonic() + self.SUMMARY_CACHE_TTL_SECONDS,
             )
             self._summary_inflight.pop(cache_key, None)
+
+    def _iso_value(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return str(value)
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()

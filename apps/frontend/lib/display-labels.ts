@@ -43,6 +43,7 @@ const CACHE_STATE_LABELS: Record<string, string> = {
   fresh: "实时生成",
   cache_hit: "命中缓存",
   in_flight_reused: "复用进行中请求",
+  persisted_hit: "已记录结果",
 };
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {

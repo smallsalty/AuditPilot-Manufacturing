@@ -483,7 +483,7 @@ export type FinancialAnalysisPayload = {
   summary: string;
   summary_mode: "llm" | "fallback";
   cached: boolean;
-  cache_state: "fresh" | "cache_hit" | "in_flight_reused";
+  cache_state: "fresh" | "cache_hit" | "in_flight_reused" | "persisted_hit";
   updated_at?: string | null;
   documents: FinancialAnalysisDocument[];
   periods: string[];
