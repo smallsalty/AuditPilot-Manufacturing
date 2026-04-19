@@ -1,17 +1,21 @@
 import json
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.models import DocumentEventFeature, DocumentExtractResult, ReviewOverride
+from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, KnowledgeChunk, ReviewOverride
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_service import DocumentService
 from app.utils.display_text import clean_document_title
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 LITIGATION_KEYWORDS = ("诉讼", "仲裁", "立案", "原告", "被告", "案号", "裁决", "判决")
@@ -60,6 +64,53 @@ def get_document_extracts(document_id: int, db: Session = Depends(get_db)) -> di
     features = repository.list_event_features(document_id)
     feature_by_extract = {feature.extract_id: feature for feature in features if feature.extract_id}
     return {"document_id": document_id, "extracts": [_serialize_extract(extract, feature_by_extract.get(extract.id)) for extract in extracts]}
+
+
+@router.get("/documents/{document_id}/file")
+def get_document_file(document_id: int, db: Session = Depends(get_db)):
+    document = DocumentRepository(db).get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="文档不存在。")
+    local_path = _safe_upload_file_path(document.file_path)
+    if local_path is not None:
+        return FileResponse(
+            path=local_path,
+            media_type=document.mime_type or "application/octet-stream",
+            filename=document.file_name or document.document_name,
+        )
+    redirect_url = _first_url(document.file_url, document.source_url)
+    if redirect_url:
+        return RedirectResponse(redirect_url)
+    raise HTTPException(status_code=404, detail="原文件不可用。")
+
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: int, db: Session = Depends(get_db)) -> dict:
+    document = DocumentRepository(db).get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="文档不存在。")
+    local_path = _safe_upload_file_path(document.file_path)
+    document_name = clean_document_title(document.document_name)
+
+    db.execute(delete(DocumentEventFeature).where(DocumentEventFeature.document_id == document_id))
+    db.execute(delete(DocumentExtractResult).where(DocumentExtractResult.document_id == document_id))
+    db.execute(delete(ReviewOverride).where(ReviewOverride.document_id == document_id))
+    db.execute(
+        delete(KnowledgeChunk)
+        .where(KnowledgeChunk.source_type == "document")
+        .where(KnowledgeChunk.source_id == document_id)
+    )
+    db.execute(delete(DocumentMeta).where(DocumentMeta.id == document_id))
+    db.commit()
+
+    if local_path is not None:
+        try:
+            local_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning("failed to delete document file document_id=%s path=%s error=%s", document_id, local_path, exc)
+    return {"document_id": document_id, "document_name": document_name, "deleted": True}
 
 
 @router.patch("/documents/{document_id}/classification")
@@ -134,6 +185,29 @@ def override_extract_event_type(
     )
     db.commit()
     return {"document_id": document_id, "evidence_span_id": evidence_span_id, "event_type": event_type}
+
+
+def _safe_upload_file_path(value: str | None) -> Path | None:
+    if not value:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = settings.uploads_dir / candidate
+    try:
+        root = settings.uploads_dir.resolve()
+        resolved = candidate.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    return resolved if resolved.is_file() else None
+
+
+def _first_url(*values: str | None) -> str | None:
+    for value in values:
+        text = str(value or "").strip()
+        if text.startswith(("http://", "https://")):
+            return text
+    return None
 
 
 def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:

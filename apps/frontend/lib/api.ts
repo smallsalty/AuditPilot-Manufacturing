@@ -224,6 +224,12 @@ export const api = {
     request<{ document_id: number; extracts: DocumentExtractItem[] }>(`/documents/${documentId}/extracts`, {
       signal: options?.signal,
     }),
+  getDocumentFileUrl: (documentId: number) => `${API_BASE_URL}/api/documents/${documentId}/file`,
+  deleteDocument: (documentId: number, options?: ApiRequestOptions) =>
+    request<{ document_id: number; document_name: string; deleted: boolean }>(`/documents/${documentId}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    }),
   overrideDocumentClassification: (documentId: number, classifiedType: string, options?: ApiRequestOptions) =>
     request<{ document_id: number; classified_type: string }>(`/documents/${documentId}/classification`, {
       method: "PATCH",

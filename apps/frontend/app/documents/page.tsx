@@ -251,6 +251,37 @@ export default function DocumentsPage() {
     }
   };
 
+  const openOriginalDocument = (document: DocumentListItem) => {
+    const url = api.getDocumentFileUrl(document.id);
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      setMessage("浏览器阻止了原文件窗口，请允许弹窗后重试。");
+    }
+  };
+
+  const deleteDocument = async (document: DocumentListItem) => {
+    setPageAction({ kind: "analyzing", message: "正在删除文档并刷新列表..." });
+    try {
+      await api.deleteDocument(document.id);
+      if (activeDocumentId === document.id) {
+        setActiveDocumentId(null);
+        setExtracts([]);
+        setDetailSheetOpen(false);
+      }
+      invalidateEnterpriseResources(currentEnterpriseId ?? 0, ["documents", "readiness", "financialAnalysis"]);
+      await Promise.allSettled([
+        refreshDocuments({ force: true }),
+        refreshReadiness({ force: true }),
+        refreshFinancialAnalysis({ force: true }),
+      ]);
+      setMessage(`已删除文档 ${document.document_name}。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "文档删除失败。");
+    } finally {
+      setPageAction({ kind: "idle" });
+    }
+  };
+
   const updateClassification = async (document: DocumentListItem, classifiedType: string) => {
     setPageAction({ kind: "analyzing", message: "正在重算文档分类并刷新分析结果..." });
     try {
@@ -400,7 +431,7 @@ export default function DocumentsPage() {
             </Card>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+          <div>
             <Card className="p-0">
               <div className="border-b px-6 py-5">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">文档主列表</p>
@@ -414,6 +445,8 @@ export default function DocumentsPage() {
                     busy={pageAction.kind !== "idle"}
                     onView={(document) => void loadExtracts(document)}
                     onParse={(document) => void parse(document)}
+                    onOpenOriginal={(document) => openOriginalDocument(document)}
+                    onDelete={(document) => void deleteDocument(document)}
                   />
                 ) : (
                   <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
@@ -433,25 +466,9 @@ export default function DocumentsPage() {
                 )}
               </div>
             </Card>
-
-            <Card className="hidden min-h-[720px] xl:block">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">文档详情</p>
-              <p className="mt-2 text-sm text-muted-foreground">查看当前文档的抽取结果和人工修正入口。</p>
-              <div className="mt-5">
-                <DocumentDetailPanel
-                  document={activeDocument}
-                  extracts={extracts}
-                  busy={pageAction.kind !== "idle"}
-                  classificationOptions={CLASSIFICATION_OPTIONS}
-                  eventOptions={EVENT_OPTIONS}
-                  onUpdateClassification={(document, classifiedType) => void updateClassification(document, classifiedType)}
-                  onUpdateEventType={(extract, eventType) => void updateEventType(extract, eventType)}
-                />
-              </div>
-            </Card>
           </div>
 
-          <div className="xl:hidden">
+          <div>
             <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
               <SheetContent side="right" className="w-full overflow-y-auto p-6 sm:max-w-2xl">
                 <SheetHeader>
