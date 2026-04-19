@@ -230,6 +230,23 @@ export type AnnouncementRiskCategoryBreakdown = {
   score: number;
 };
 
+export type AnnouncementEventAnalysis = {
+  summary?: string | null;
+  key_facts?: string[];
+  risk_points?: string[];
+  audit_focus?: string[];
+  involved_parties?: string[];
+  amounts?: string[];
+  dates?: string[];
+  evidence_excerpt?: string | null;
+  severity?: string | null;
+  confidence?: number | null;
+  body_source_kind?: string | null;
+  category_code?: string | null;
+  prompt_template?: string | null;
+  analysis_status?: string | null;
+};
+
 export type EnterpriseEventItem = {
   id: number;
   title: string;
@@ -245,6 +262,8 @@ export type EnterpriseEventItem = {
     title: string;
   }>;
   primary_title_match?: Record<string, unknown> | null;
+  event_analysis?: AnnouncementEventAnalysis | null;
+  event_analysis_status?: string | null;
 };
 
 export type EnterpriseEventsRiskSummary = {

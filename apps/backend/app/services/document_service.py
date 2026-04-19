@@ -16,6 +16,7 @@ from app.ai.evidence_summary_service import EvidenceSummaryService
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent
 from app.repositories.document_repository import DocumentRepository
+from app.services.announcement_event_analysis_service import AnnouncementEventAnalysisService
 from app.services.document_analysis_pipeline import DocumentAnalysisPipeline
 from app.services.document_classify_service import DocumentClassifyService
 from app.services.document_feature_service import DocumentFeatureService
@@ -216,6 +217,7 @@ class DocumentService:
         self.embedding_service = HashingEmbeddingService()
         self.llm_client = llm_client or LLMClient()
         self.evidence_summary_service = EvidenceSummaryService(self.llm_client)
+        self.announcement_event_analysis_service = AnnouncementEventAnalysisService(self.llm_client)
         self.classify_service = DocumentClassifyService()
         self.feature_service = DocumentFeatureService()
         self.knowledge_index_service = KnowledgeIndexService()
@@ -259,7 +261,7 @@ class DocumentService:
             self._parse_document_record(db, document)
             parsed_documents += 1
         for event in list(db.scalars(event_stmt).all()):
-            self._queue_event_knowledge(db, event)
+            self._parse_event_record(db, event)
             parsed_events += 1
         return {"documents": parsed_documents, "events": parsed_events}
 
@@ -1184,7 +1186,32 @@ class DocumentService:
             )
         ]
 
-    def _queue_event_knowledge(self, db: Session, event: ExternalEvent) -> None:
+    def _parse_event_record(self, db: Session, event: ExternalEvent) -> None:
+        payload = dict(event.payload) if isinstance(event.payload, dict) else {}
+        analysis_result = self.announcement_event_analysis_service.analyze_event(event)
+        analysis = analysis_result.get("analysis") if isinstance(analysis_result, dict) else None
+        meta = analysis_result.get("meta") if isinstance(analysis_result, dict) else None
+        analysis_payload = analysis if isinstance(analysis, dict) else {}
+        payload["event_analysis"] = analysis_payload
+        payload["event_analysis_meta"] = meta if isinstance(meta, dict) else {}
+        event.payload = payload
+        summary = str(analysis_payload.get("summary") or event.summary or event.title).strip()
+        if summary:
+            event.summary = summary
+        severity = str(analysis_payload.get("severity") or event.severity or "").strip().lower()
+        if severity in {"low", "medium", "high"}:
+            event.severity = severity
+        self._queue_event_knowledge(db, event, analysis_payload)
+
+    def _queue_event_knowledge(self, db: Session, event: ExternalEvent, analysis: dict[str, Any] | None = None) -> None:
+        analysis = analysis if isinstance(analysis, dict) else {}
+        summary = str(analysis.get("summary") or event.summary or event.title).strip()
+        evidence_excerpt = str(analysis.get("evidence_excerpt") or summary).strip()
+        fact_tags = [event.event_type, event.severity, event.regulator or event.source]
+        fact_tags.extend(str(item) for item in analysis.get("key_facts") or [])
+        keywords = [event.event_type, event.severity]
+        keywords.extend(str(item) for item in analysis.get("risk_points") or [])
+        keywords.extend(str(item) for item in analysis.get("audit_focus") or [])
         self.knowledge_index_service.replace_document_chunks(
             db,
             enterprise_id=event.enterprise_id,
@@ -1194,12 +1221,12 @@ class DocumentService:
             extracts=[
                 {
                     "title": event.title,
-                    "summary": event.summary or event.title,
-                    "problem_summary": event.summary or event.title,
+                    "summary": summary,
+                    "problem_summary": summary,
                     "parameters": event.payload or {},
-                    "evidence_excerpt": event.summary or event.title,
-                    "fact_tags": [event.event_type, event.severity, event.regulator or event.source],
-                    "keywords": [event.event_type, event.severity],
+                    "evidence_excerpt": evidence_excerpt,
+                    "fact_tags": [item for item in fact_tags if item],
+                    "keywords": [item for item in keywords if item],
                 }
             ],
         )

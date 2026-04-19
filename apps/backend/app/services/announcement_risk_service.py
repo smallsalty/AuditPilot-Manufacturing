@@ -84,6 +84,12 @@ class AnnouncementRiskService:
                 repeat_count=len(prior_same_category),
             )
             summary = f"{definition.category_name}信号，标题命中“{'、'.join(item['matched_keywords'])}”。"
+            analysis_summary = self._analysis_summary(item.get("event_analysis"))
+            analysis_detail = self._analysis_detail_text(item.get("event_analysis"))
+            if analysis_summary:
+                summary = analysis_summary
+            if analysis_detail:
+                explanation = f"{explanation} {analysis_detail}"
             risk_item = {
                 "event_code": definition.event_code,
                 "event_category": definition.category_name,
@@ -162,6 +168,7 @@ class AnnouncementRiskService:
                 source_object_id=getattr(event, "source_object_id", None),
                 primary_match=primary_match,
                 title_matches=title_matches,
+                event_analysis=payload.get("event_analysis") if isinstance(payload, dict) else None,
             )
             if row and row["dedupe_key"] not in seen:
                 seen.add(row["dedupe_key"])
@@ -180,6 +187,7 @@ class AnnouncementRiskService:
                 source_object_id=getattr(document, "source_object_id", None),
                 primary_match=(diagnostics or {}).get("primary_title_match"),
                 title_matches=(diagnostics or {}).get("title_matches"),
+                event_analysis=None,
             )
             if row and row["dedupe_key"] not in seen:
                 seen.add(row["dedupe_key"])
@@ -196,6 +204,7 @@ class AnnouncementRiskService:
         source_object_id: Any,
         primary_match: Any,
         title_matches: Any,
+        event_analysis: Any,
     ) -> dict[str, Any] | None:
         title_text = str(title or "").strip()
         if not title_text:
@@ -216,6 +225,7 @@ class AnnouncementRiskService:
             "source_date": parsed_date,
             "source_url": str(source_url or "").strip() or None,
             "secondary_categories": list(selected.get("secondary_categories") or []),
+            "event_analysis": event_analysis if isinstance(event_analysis, dict) else None,
             "dedupe_key": str(source_object_id or "").strip()
             or "|".join([title_text, parsed_date.isoformat() if parsed_date else "", str(source_url or "").strip()]),
         }
@@ -269,6 +279,27 @@ class AnnouncementRiskService:
         high_risk_count = sum(1 for item in announcement_risks if item["risk_level"] == "high")
         leading = "、".join(item["event_category"] for item in category_breakdown[:3]) or "未形成集中类别"
         return f"近一年命中高风险公告 {high_risk_count} 条，累计命中公告事件 {len(announcement_risks)} 条，主要集中在{leading}。"
+
+    def _analysis_summary(self, event_analysis: Any) -> str | None:
+        if not isinstance(event_analysis, dict):
+            return None
+        summary = str(event_analysis.get("summary") or "").strip()
+        return summary or None
+
+    def _analysis_detail_text(self, event_analysis: Any) -> str | None:
+        if not isinstance(event_analysis, dict):
+            return None
+        parts: list[str] = []
+        for key in ("risk_points", "audit_focus"):
+            value = event_analysis.get(key)
+            if isinstance(value, list):
+                parts.extend(str(item).strip() for item in value[:3] if str(item).strip())
+        evidence = str(event_analysis.get("evidence_excerpt") or "").strip()
+        if evidence:
+            parts.append(evidence)
+        if not parts:
+            return None
+        return "正文分析显示：" + "；".join(parts[:5])
 
     def _build_explanation(
         self,

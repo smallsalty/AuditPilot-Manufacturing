@@ -18,6 +18,10 @@ function formatDate(value?: string | null): string {
   return date.toLocaleDateString("zh-CN");
 }
 
+function previewList(items?: string[]): string[] {
+  return Array.isArray(items) ? items.map((item) => item.trim()).filter(Boolean).slice(0, 3) : [];
+}
+
 export function AnnouncementRawEventsTable({
   events,
   activeEventId,
@@ -47,12 +51,31 @@ export function AnnouncementRawEventsTable({
             const primaryMatch = event.primary_title_match as { category_name?: string } | null | undefined;
             const keywords = event.title_matches.flatMap((item) => item.matched_keywords).slice(0, 4);
             const isActive = event.id === activeEventId || (activeEventId == null && activeFallbackKey === fallbackKey);
+            const analysis = event.event_analysis;
+            const keyFacts = previewList(analysis?.key_facts);
+            const riskPoints = previewList(analysis?.risk_points);
+            const auditFocus = previewList(analysis?.audit_focus);
             return (
               <TableRow key={event.id} className={isActive ? "bg-primary/5" : undefined}>
                 <TableCell className="align-top">
                   <div className="space-y-2">
                     <p className="font-medium text-foreground">{event.title}</p>
                     <p className="text-xs text-muted-foreground">{event.summary}</p>
+                    {analysis ? (
+                      <div className="space-y-1 rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Badge value="default" label="正文分析" />
+                          {event.event_analysis_status === "fallback" ? <span>降级结果</span> : null}
+                        </div>
+                        {analysis.summary && analysis.summary !== event.summary ? (
+                          <p className="text-foreground">{analysis.summary}</p>
+                        ) : null}
+                        {keyFacts.length > 0 ? <p>关键事实：{keyFacts.join("；")}</p> : null}
+                        {riskPoints.length > 0 ? <p>风险点：{riskPoints.join("；")}</p> : null}
+                        {auditFocus.length > 0 ? <p>审计关注：{auditFocus.join("；")}</p> : null}
+                        {analysis.evidence_excerpt ? <p>证据摘录：{analysis.evidence_excerpt}</p> : null}
+                      </div>
+                    ) : null}
                   </div>
                 </TableCell>
                 <TableCell className="align-top text-muted-foreground">{formatEventType(event.event_type)}</TableCell>

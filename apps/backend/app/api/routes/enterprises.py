@@ -158,7 +158,9 @@ def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> 
     risk_payload = AnnouncementRiskService().build_announcement_risks(db, enterprise_id)
     raw_events = []
     for event in repo.get_external_events(enterprise_id, official_only=True):
-        payload = event.payload or {}
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        event_analysis = payload.get("event_analysis") if isinstance(payload, dict) else None
+        event_analysis_meta = payload.get("event_analysis_meta") if isinstance(payload, dict) else None
         raw_events.append(
             {
                 "id": event.id,
@@ -170,6 +172,14 @@ def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> 
                 "source_url": event.source_url,
                 "title_matches": payload.get("title_matches") or [],
                 "primary_title_match": payload.get("primary_title_match"),
+                "event_analysis": event_analysis if isinstance(event_analysis, dict) else None,
+                "event_analysis_status": (
+                    event_analysis_meta.get("status")
+                    if isinstance(event_analysis_meta, dict)
+                    else event_analysis.get("analysis_status")
+                    if isinstance(event_analysis, dict)
+                    else None
+                ),
             }
         )
 
