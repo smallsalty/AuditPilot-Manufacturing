@@ -58,7 +58,7 @@ export function DocumentsTable({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[32%]">文档</TableHead>
+              <TableHead className="w-[14rem]">文档</TableHead>
               <TableHead className="w-[24%]">操作</TableHead>
               <TableHead>分类</TableHead>
               <TableHead>解析状态</TableHead>
@@ -73,7 +73,9 @@ export function DocumentsTable({
                 <TableRow key={document.id} className={isActive ? "bg-muted/40" : undefined}>
                   <TableCell className="align-top">
                     <div className="space-y-2">
-                      <div className="font-medium text-foreground">{document.document_name}</div>
+                      <div className="max-w-[14rem] truncate font-medium text-foreground" title={document.document_name}>
+                        {document.document_name}
+                      </div>
                       <div className="text-xs text-muted-foreground">{formatSourceName(document.source)}</div>
                       {document.last_error_message ? (
                         <div className="text-xs text-amber-700">
