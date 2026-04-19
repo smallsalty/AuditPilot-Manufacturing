@@ -303,6 +303,7 @@ export type AuditFocusPayload = {
   analysis_status: AnalysisStatus;
   last_run_at?: string | null;
   last_error?: string | null;
+  cache_state?: "persisted_hit" | "generated" | "fallback" | string;
   focus_accounts: string[];
   focus_processes: string[];
   recommended_procedures: string[];
@@ -317,6 +318,9 @@ export type AuditFocusPayload = {
     id: string;
     title: string;
     summary: string;
+    targeted_advice?: string;
+    rationale?: string;
+    cache_state?: "persisted_hit" | "generated" | "fallback" | string;
     sources: string[];
     evidence_preview?: string[];
     expanded_sections?: {

@@ -30,7 +30,7 @@ export default function AuditFocusPage() {
     if ((focus?.items?.length ?? 0) === 0 && !readiness?.qa_ready) {
       return { kind: "empty", message: "当前企业尚无可展示审计重点，请先解析文档或运行风险分析。" };
     }
-    return { kind: "ready", message: "以下重点优先基于文档证据、规则命中和风险结果生成。" };
+    return { kind: "ready", message: "以下重点基于风险证据，由 MiniMax 生成针对性审计建议。" };
   }, [currentEnterprise, currentEnterpriseId, enterpriseError, focus?.items?.length, focusError, focusLoading, readiness?.qa_ready, readinessError, readinessLoading]);
 
   return (
