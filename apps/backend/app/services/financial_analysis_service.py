@@ -457,12 +457,13 @@ class FinancialAnalysisService:
             return None
         if text.startswith("{") or text.startswith("["):
             return None
-        if len(text) > 220:
-            punctuation_cutoffs = [text.rfind(mark, 0, 220) for mark in ("。", "；", "！", "？")]
+        if len(text) > 1200:
+            punctuation_cutoffs = [text.rfind(mark, 0, 1200) for mark in ("。", "；", "！", "？")]
             cutoff = max(punctuation_cutoffs)
             if cutoff <= 0:
-                return None
-            text = text[: cutoff + 1].strip()
+                text = text[:1200].strip()
+            else:
+                text = text[: cutoff + 1].strip()
         return text or None
 
     def _fallback_result(
@@ -559,7 +560,10 @@ class FinancialAnalysisService:
         try:
             result = self.llm_client.chat_completion(
                 "你是一名财报审阅助手。请用中文生成简洁、可直接展示的财报专项摘要。",
-                prompt,
+                (
+                    f"{prompt}\n"
+                    "请输出完整的单段中文摘要，覆盖主要异常、重点科目和建议程序；不要省略，不要使用省略号，不要以未完成的半句结尾。"
+                ),
                 json_mode=False,
                 request_kind="financial_analysis_summary",
                 metadata={
@@ -567,7 +571,7 @@ class FinancialAnalysisService:
                     "candidate_count": min(len(anomalies), 4),
                     "context_variant": "financial_analysis_summary",
                 },
-                max_tokens=220,
+                max_tokens=1024,
                 max_attempts=1,
                 strict_json_instruction=False,
             )
