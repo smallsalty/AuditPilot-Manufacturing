@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 class AnnouncementEventAnalysisService:
     ANALYSIS_VERSION = "announcement-event-analysis:v1"
     MAX_BODY_CHARS = 12000
-    MAX_LIST_ITEMS = 6
+    MAX_LIST_ITEMS = 3
+    SUMMARY_MAX_CHARS = 120
+    LIST_ITEM_MAX_CHARS = 60
+    EVIDENCE_MAX_CHARS = 120
 
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.llm_client = llm_client or LLMClient()
@@ -144,7 +147,11 @@ class AnnouncementEventAnalysisService:
             payload = payload["items"][0]
         if payload.get("parsed_ok") is False:
             return self._fallback_analysis(event, body_text, body_source_kind)
-        summary = self._clean_text(payload.get("summary")) or event.summary or event.title
+        summary = self._clean_text(payload.get("summary"), limit=self.SUMMARY_MAX_CHARS) or self._short_text(
+            event.summary or event.title,
+            self.SUMMARY_MAX_CHARS,
+        )
+        category_confidence = self._confidence(payload.get("category_confidence"))
         return {
             "summary": summary,
             "key_facts": self._clean_list(payload.get("key_facts")),
@@ -153,25 +160,31 @@ class AnnouncementEventAnalysisService:
             "involved_parties": self._clean_list(payload.get("involved_parties")),
             "amounts": self._clean_list(payload.get("amounts")),
             "dates": self._clean_list(payload.get("dates")),
-            "evidence_excerpt": self._clean_text(payload.get("evidence_excerpt")) or self._evidence_excerpt(body_text),
+            "evidence_excerpt": self._clean_text(payload.get("evidence_excerpt"), limit=self.EVIDENCE_MAX_CHARS) or self._evidence_excerpt(body_text),
             "severity": self._severity(payload.get("severity"), event.severity),
             "confidence": self._confidence(payload.get("confidence")),
             "body_source_kind": body_source_kind,
+            "suggested_category_code": self._category_code(payload.get("suggested_category_code")),
+            "suggested_category_reason": self._clean_text(payload.get("suggested_category_reason"), limit=80),
+            "category_confidence": category_confidence,
         }
 
     def _fallback_analysis(self, event: ExternalEvent, body_text: str, body_source_kind: str) -> dict[str, Any]:
         return {
-            "summary": event.summary or event.title,
-            "key_facts": [event.title],
+            "summary": self._short_text(event.summary or event.title, self.SUMMARY_MAX_CHARS),
+            "key_facts": [self._short_text(event.title, self.LIST_ITEM_MAX_CHARS)],
             "risk_points": [],
             "audit_focus": [],
             "involved_parties": [],
             "amounts": [],
             "dates": [event.event_date.isoformat()] if event.event_date else [],
-            "evidence_excerpt": self._evidence_excerpt(body_text) or event.summary or event.title,
+            "evidence_excerpt": self._evidence_excerpt(body_text) or self._short_text(event.summary or event.title, self.EVIDENCE_MAX_CHARS),
             "severity": event.severity or "medium",
             "confidence": 0.35 if body_source_kind == "title_only" else 0.5,
             "body_source_kind": body_source_kind,
+            "suggested_category_code": None,
+            "suggested_category_reason": None,
+            "category_confidence": None,
         }
 
     def _title_body(self, event: ExternalEvent) -> str:
@@ -185,8 +198,8 @@ class AnnouncementEventAnalysisService:
         for raw in str(text or "").splitlines():
             item = " ".join(raw.split()).strip()
             if len(item) >= 12:
-                return item[:300]
-        return str(text or "").strip()[:300]
+                return self._short_text(item, self.EVIDENCE_MAX_CHARS)
+        return self._short_text(str(text or "").strip(), self.EVIDENCE_MAX_CHARS)
 
     def _matched_keywords(self, primary_match: dict[str, Any] | None, title_matches: list[Any]) -> list[str]:
         values: list[str] = []
@@ -204,13 +217,30 @@ class AnnouncementEventAnalysisService:
             items = [str(item) for item in value if item not in (None, "", [])]
         else:
             items = []
-        return self._dedupe([self._clean_text(item) or "" for item in items])[: self.MAX_LIST_ITEMS]
+        return self._dedupe([self._clean_text(item, limit=self.LIST_ITEM_MAX_CHARS) or "" for item in items])[: self.MAX_LIST_ITEMS]
 
-    def _clean_text(self, value: Any) -> str | None:
+    def _clean_text(self, value: Any, *, limit: int = SUMMARY_MAX_CHARS) -> str | None:
         text = " ".join(str(value or "").replace("\r", "\n").split()).strip()
         if not text:
             return None
-        return text[:1200]
+        return self._short_text(text, limit)
+
+    def _short_text(self, value: Any, limit: int) -> str:
+        text = " ".join(str(value or "").replace("\r", "\n").split()).strip()
+        if len(text) <= limit:
+            return text
+        clipped = text[:limit]
+        for mark in ("。", "！", "？", ";", "；", ".", "!", "?"):
+            index = clipped.rfind(mark)
+            if index >= max(20, int(limit * 0.45)):
+                return clipped[: index + 1].strip()
+        return clipped.rstrip("，,、；;：:") + "..."
+
+    def _category_code(self, value: Any) -> str | None:
+        text = str(value or "").strip()
+        if text in AnnouncementEventPromptRegistry.SPECS and text != AnnouncementEventPromptRegistry.DEFAULT_CATEGORY:
+            return text
+        return None
 
     def _severity(self, value: Any, fallback: str) -> str:
         text = str(value or "").strip().lower()

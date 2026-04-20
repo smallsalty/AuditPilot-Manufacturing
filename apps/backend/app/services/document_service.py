@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.ai.evidence_summary_service import EvidenceSummaryService
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent
+from app.providers.audit.announcement_event_matcher import AnnouncementEventMatcher
 from app.repositories.document_repository import DocumentRepository
 from app.services.announcement_event_analysis_service import AnnouncementEventAnalysisService
 from app.services.document_analysis_pipeline import DocumentAnalysisPipeline
@@ -1200,8 +1201,10 @@ class DocumentService:
         analysis = analysis_result.get("analysis") if isinstance(analysis_result, dict) else None
         meta = analysis_result.get("meta") if isinstance(analysis_result, dict) else None
         analysis_payload = analysis if isinstance(analysis, dict) else {}
+        meta_payload = dict(meta) if isinstance(meta, dict) else {}
+        self._apply_event_category_correction(payload, analysis_payload, meta_payload)
         payload["event_analysis"] = analysis_payload
-        payload["event_analysis_meta"] = meta if isinstance(meta, dict) else {}
+        payload["event_analysis_meta"] = meta_payload
         event.payload = payload
         summary = str(analysis_payload.get("summary") or event.summary or event.title).strip()
         if summary:
@@ -1210,6 +1213,60 @@ class DocumentService:
         if severity in {"low", "medium", "high"}:
             event.severity = severity
         self._queue_event_knowledge(db, event, analysis_payload)
+
+    def _apply_event_category_correction(
+        self,
+        payload: dict[str, Any],
+        analysis_payload: dict[str, Any],
+        meta_payload: dict[str, Any],
+    ) -> None:
+        suggested = str(analysis_payload.get("suggested_category_code") or "").strip()
+        confidence = self._numeric_confidence(analysis_payload.get("category_confidence"))
+        if not suggested or confidence < 0.75:
+            meta_payload["category_corrected"] = False
+            return
+
+        matcher = AnnouncementEventMatcher()
+        definition = matcher.category_definition(suggested)
+        if definition is None or suggested not in matcher.SUPPORTED_RISK_CATEGORY_CODES:
+            meta_payload["category_corrected"] = False
+            return
+
+        current = payload.get("primary_title_match") if isinstance(payload.get("primary_title_match"), dict) else {}
+        old_category = str(current.get("category_code") or "").strip()
+        if old_category == suggested:
+            meta_payload["category_corrected"] = False
+            return
+
+        matched_keywords = [str(item) for item in current.get("matched_keywords") or [] if str(item).strip()]
+        if "正文校正" not in matched_keywords:
+            matched_keywords.append("正文校正")
+        corrected = {
+            **current,
+            "category_code": definition.category_code,
+            "category_name": definition.category_name,
+            "event_category": definition.category_name,
+            "risk_level": definition.default_risk_level,
+            "matched_keywords": matched_keywords,
+            "category_correction_reason": analysis_payload.get("suggested_category_reason"),
+            "category_confidence": confidence,
+        }
+        payload["primary_title_match"] = corrected
+        meta_payload["category_corrected"] = True
+        meta_payload["category_correction"] = {
+            "from_category_code": old_category or None,
+            "to_category_code": definition.category_code,
+            "to_category_name": definition.category_name,
+            "confidence": confidence,
+            "reason": analysis_payload.get("suggested_category_reason"),
+        }
+
+    def _numeric_confidence(self, value: Any) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, min(number, 1.0))
 
     def _queue_event_knowledge(self, db: Session, event: ExternalEvent, analysis: dict[str, Any] | None = None) -> None:
         analysis = analysis if isinstance(analysis, dict) else {}

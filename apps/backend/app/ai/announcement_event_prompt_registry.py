@@ -102,20 +102,25 @@ class AnnouncementEventPromptRegistry:
     ) -> dict[str, Any]:
         spec = cls.get_spec(category_code)
         json_example = {
-            "summary": "用一到两句话概括公告正文披露的核心事件和审计含义。",
-            "key_facts": ["列出正文中的关键事实，不超过5条"],
-            "risk_points": ["列出审计风险点，不超过5条"],
-            "audit_focus": ["列出建议审计关注点或程序，不超过5条"],
+            "summary": "一句话概括正文披露的核心事件和审计含义，40-80字，最多100字。",
+            "key_facts": ["正文关键事实，最多3条，每条不超过40字"],
+            "risk_points": ["审计风险点，最多3条，每条不超过40字"],
+            "audit_focus": ["审计关注或建议程序，最多3条，每条不超过40字"],
             "involved_parties": ["涉及主体、监管机构、交易对手等"],
             "amounts": ["涉及金额、比例或数量"],
             "dates": ["关键日期"],
-            "evidence_excerpt": "引用或转述最关键的一句正文证据。",
+            "evidence_excerpt": "最关键的一句正文证据，最多120字。",
             "severity": "low|medium|high",
             "confidence": 0.0,
+            "suggested_category_code": spec.category_code,
+            "suggested_category_reason": "如正文显示标题分类不准，用一句话说明；否则返回空字符串。",
+            "category_confidence": 0.0,
         }
+        category_codes = ", ".join(code for code in cls.SPECS if code != cls.DEFAULT_CATEGORY)
         system_prompt = (
             "你是上市公司公告事件分析助手。只能基于给定公告标题和正文内容分析，不要编造正文外事实。"
             "请按事件类型提取结构化审计关注信息，返回严格 JSON 对象，不要输出 Markdown、代码块或额外解释。"
+            "summary 必须短，不得复述公告全文；所有数组只输出最重要的少量项目。"
         )
         user_prompt = (
             f"公告标题：{title}\n"
@@ -125,8 +130,11 @@ class AnnouncementEventPromptRegistry:
             f"分析重点：{spec.analysis_focus}\n"
             f"原摘要：{fallback_summary}\n"
             f"返回字段示例：{json.dumps(json_example, ensure_ascii=False)}\n"
-            "要求：summary 必须是完整中文句子；key_facts、risk_points、audit_focus 必须基于正文；"
-            "无法确认的字段返回空数组或 null。\n"
+            "要求：summary 只能是一句完整中文，40-80字，最多100字；不得输出多段摘要或长解释。"
+            "key_facts、risk_points、audit_focus 各最多3条，每条最多40字。"
+            "evidence_excerpt 只保留一句最关键正文证据，最多120字。"
+            f"suggested_category_code 只能从以下值选择：{category_codes}；如正文无法证明分类应变化，返回当前分类。"
+            "category_confidence 表示正文分类建议置信度，0到1。无法确认的字段返回空数组或 null。\n"
             f"公告正文：\n{body_text}"
         )
         return {
