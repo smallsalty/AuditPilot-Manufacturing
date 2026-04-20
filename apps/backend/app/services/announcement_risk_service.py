@@ -44,6 +44,7 @@ class AnnouncementRiskService:
             for row in source_rows
         ]
         matched_rows = [row for row in matched_rows if row is not None]
+        matched_rows = [row for row in matched_rows if self._has_valid_event_analysis(row.get("event_analysis"))]
         if not matched_rows:
             return self._empty_payload(enterprise_id)
 
@@ -83,7 +84,7 @@ class AnnouncementRiskService:
             analysis_risk_points = self._analysis_list(event_analysis, "risk_points")
             analysis_audit_focus = self._analysis_list(event_analysis, "audit_focus")
             evidence_excerpt = self._analysis_evidence(event_analysis)
-            summary = analysis_summary or "公告已识别为风险事件，正文分析尚未完成。"
+            summary = analysis_summary or "; ".join(analysis_risk_points[:3]) or item["source_title"]
             explanation = analysis_detail or self._pending_explanation(analysis_status)
             risk_item = {
                 "event_code": definition.event_code,
@@ -312,11 +313,16 @@ class AnnouncementRiskService:
         return " ".join(parts[:4])
 
     def _analysis_status(self, event_analysis: Any, sync_status: Any) -> str:
-        if isinstance(event_analysis, dict) and self._analysis_summary(event_analysis):
+        if self._has_valid_event_analysis(event_analysis):
             return "analyzed"
         if str(sync_status or "").strip() == "parse_queued":
             return "pending"
         return "missing"
+
+    def _has_valid_event_analysis(self, event_analysis: Any) -> bool:
+        if not isinstance(event_analysis, dict):
+            return False
+        return bool(self._analysis_list(event_analysis, "risk_points") or self._analysis_summary(event_analysis))
 
     def _analysis_evidence(self, event_analysis: Any) -> str | None:
         if not isinstance(event_analysis, dict):

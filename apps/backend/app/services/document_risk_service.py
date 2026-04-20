@@ -99,6 +99,8 @@ class DocumentRiskService:
                 rec_map[recommendation.risk_result_id].append(recommendation)
 
         for result in persisted_results:
+            if self._should_skip_unanalyzed_event_result(result):
+                continue
             canonical_key = "baseline_observation" if result.source_type == "baseline" else self.RULE_CODE_TO_RISK_KEY.get(result.rule_code or "", "uncategorized")
             row = grouped.setdefault(canonical_key, self._new_group(canonical_key))
             row["risk_score"] = max(row["risk_score"], float(result.risk_score or 0))
@@ -357,6 +359,28 @@ class DocumentRiskService:
                 }
             )
         return normalized
+
+    def _should_skip_unanalyzed_event_result(self, result: Any) -> bool:
+        if getattr(result, "source_type", None) != "event":
+            return False
+        snapshot = result.feature_snapshot if isinstance(getattr(result, "feature_snapshot", None), dict) else {}
+        announcement_risk = snapshot.get("announcement_risk") if isinstance(snapshot, dict) else None
+        event_analysis = snapshot.get("event_analysis") if isinstance(snapshot, dict) else None
+        if isinstance(announcement_risk, dict):
+            if announcement_risk.get("analysis_status") == "analyzed":
+                return False
+            event_analysis = event_analysis or announcement_risk.get("event_analysis")
+            if self._has_valid_event_analysis(event_analysis):
+                return False
+            return True
+        return not self._has_valid_event_analysis(event_analysis)
+
+    def _has_valid_event_analysis(self, event_analysis: Any) -> bool:
+        if not isinstance(event_analysis, dict):
+            return False
+        risk_points = event_analysis.get("risk_points")
+        has_risk_points = isinstance(risk_points, list) and any(str(item).strip() for item in risk_points)
+        return has_risk_points or bool(str(event_analysis.get("summary") or "").strip())
 
     def _score_extract(self, extract: DocumentExtractResult) -> float:
         score = 70.0
