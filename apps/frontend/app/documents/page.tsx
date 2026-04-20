@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { AnnouncementRiskItem, DocumentExtractItem, DocumentListItem } from "@auditpilot/shared-types";
+import type { AnnouncementRiskItem, DocumentExtractItem, DocumentListItem, EnterpriseEventItem } from "@auditpilot/shared-types";
 
 import { AnnouncementRawEventsTable } from "@/components/documents/announcement-raw-events-table";
 import { AnnouncementRiskList } from "@/components/documents/announcement-risk-list";
@@ -74,6 +74,7 @@ export default function DocumentsPage() {
   const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
   const [activeEventId, setActiveEventId] = useState<number | null>(null);
   const [activeEventFallbackKey, setActiveEventFallbackKey] = useState<string | null>(null);
+  const [parsingEventId, setParsingEventId] = useState<number | null>(null);
   const [extracts, setExtracts] = useState<DocumentExtractItem[]>([]);
   const [message, setMessage] = useState("支持 PDF 或文本文件。文档需手动解析，解析结果会显示规则命中、结构化字段和财报专项结果。");
   const [syncGapRetryCount, setSyncGapRetryCount] = useState(0);
@@ -85,6 +86,7 @@ export default function DocumentsPage() {
     setActiveDocumentId(null);
     setActiveEventId(null);
     setActiveEventFallbackKey(null);
+    setParsingEventId(null);
     setExtracts([]);
     setFile(null);
     setSyncGapRetryCount(0);
@@ -192,6 +194,27 @@ export default function DocumentsPage() {
   const focusAnnouncementRisk = (risk: AnnouncementRiskItem) => {
     setActiveEventId(risk.source_event_id ?? null);
     setActiveEventFallbackKey(`${risk.source_title}::${risk.source_date ?? ""}`);
+  };
+
+  const parseEvent = async (event: EnterpriseEventItem) => {
+    if (!currentEnterpriseId) {
+      return;
+    }
+    setParsingEventId(event.id);
+    setPageAction({ kind: "analyzing", message: "正在解析公告事件正文..." });
+    try {
+      await api.parseEvent(event.id);
+      invalidateEnterpriseResources(currentEnterpriseId, ["events"]);
+      await refreshEvents({ force: true });
+      setActiveEventId(event.id);
+      setActiveEventFallbackKey(`${event.title}::${event.event_date ?? ""}`);
+      setMessage(`公告事件“${event.title}”正文分析已生成。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "公告事件正文解析失败。");
+    } finally {
+      setParsingEventId(null);
+      setPageAction({ kind: "idle" });
+    }
   };
 
   const loadExtracts = async (document: DocumentListItem, mode: PageAction["kind"] = "reading") => {
@@ -551,6 +574,9 @@ export default function DocumentsPage() {
                         events={rawEvents}
                         activeEventId={activeEventId}
                         activeFallbackKey={activeEventFallbackKey}
+                        busy={pageAction.kind !== "idle"}
+                        parsingEventId={parsingEventId}
+                        onParseEvent={(event) => void parseEvent(event)}
                       />
                     ) : (
                       <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">

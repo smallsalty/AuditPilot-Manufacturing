@@ -170,6 +170,7 @@ def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> 
                 "event_date": event.event_date.isoformat() if event.event_date else None,
                 "summary": event.summary,
                 "source_url": event.source_url,
+                "sync_status": event.sync_status,
                 "title_matches": payload.get("title_matches") or [],
                 "primary_title_match": payload.get("primary_title_match"),
                 "event_analysis": event_analysis if isinstance(event_analysis, dict) else None,

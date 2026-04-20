@@ -261,6 +261,7 @@ export type EnterpriseEventItem = {
   event_date?: string | null;
   summary: string;
   source_url?: string | null;
+  sync_status?: string | null;
   title_matches: Array<{
     category_code: string;
     category_name: string;

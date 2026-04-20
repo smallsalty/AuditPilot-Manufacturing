@@ -22,14 +22,25 @@ function previewList(items?: string[]): string[] {
   return Array.isArray(items) ? items.map((item) => item.trim()).filter(Boolean).slice(0, 3) : [];
 }
 
+function hasBodyAnalysis(event: EnterpriseEventItem): boolean {
+  const analysis = event.event_analysis;
+  return Boolean(analysis?.summary || analysis?.key_facts?.length || analysis?.risk_points?.length || analysis?.audit_focus?.length);
+}
+
 export function AnnouncementRawEventsTable({
   events,
   activeEventId,
   activeFallbackKey,
+  busy,
+  parsingEventId,
+  onParseEvent,
 }: {
   events: EnterpriseEventItem[];
   activeEventId: number | null;
   activeFallbackKey: string | null;
+  busy?: boolean;
+  parsingEventId?: number | null;
+  onParseEvent?: (event: EnterpriseEventItem) => void;
 }) {
   return (
     <div className="rounded-xl border">
@@ -42,7 +53,7 @@ export function AnnouncementRawEventsTable({
             <TableHead>主命中类别</TableHead>
             <TableHead>命中关键词</TableHead>
             <TableHead>日期</TableHead>
-            <TableHead className="text-right">链接</TableHead>
+            <TableHead className="text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -55,6 +66,8 @@ export function AnnouncementRawEventsTable({
             const keyFacts = previewList(analysis?.key_facts);
             const riskPoints = previewList(analysis?.risk_points);
             const auditFocus = previewList(analysis?.audit_focus);
+            const analyzed = hasBodyAnalysis(event);
+            const parseLabel = parsingEventId === event.id ? "解析中..." : analyzed ? "重新解析" : "解析";
             return (
               <TableRow key={event.id} className={isActive ? "bg-primary/5" : undefined}>
                 <TableCell className="align-top">
@@ -75,6 +88,10 @@ export function AnnouncementRawEventsTable({
                         {auditFocus.length > 0 ? <p>审计关注：{auditFocus.join("；")}</p> : null}
                         {analysis.evidence_excerpt ? <p>证据摘录：{analysis.evidence_excerpt}</p> : null}
                       </div>
+                    ) : event.sync_status === "parse_queued" ? (
+                      <div className="rounded-lg border border-dashed bg-muted/30 p-2 text-xs text-muted-foreground">
+                        正文分析排队中，可点击右侧“解析”手动生成。
+                      </div>
                     ) : null}
                   </div>
                 </TableCell>
@@ -93,18 +110,30 @@ export function AnnouncementRawEventsTable({
                   </div>
                 </TableCell>
                 <TableCell className="align-top text-muted-foreground">{formatDate(event.event_date)}</TableCell>
-                <TableCell className="align-top text-right">
-                  {event.source_url ? (
-                    <Button
-                      variant="ghost"
-                      className="h-auto px-0 py-0 text-xs text-primary hover:bg-transparent"
-                      onClick={() => window.open(event.source_url ?? undefined, "_blank", "noopener,noreferrer")}
-                    >
-                      查看
-                    </Button>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">暂无</span>
-                  )}
+                <TableCell className="align-top">
+                  <div className="flex flex-col items-end gap-2">
+                    {onParseEvent ? (
+                      <Button
+                        variant="outline"
+                        className="h-8 px-3 text-xs"
+                        disabled={busy || parsingEventId === event.id}
+                        onClick={() => onParseEvent(event)}
+                      >
+                        {parseLabel}
+                      </Button>
+                    ) : null}
+                    {event.source_url ? (
+                      <Button
+                        variant="ghost"
+                        className="h-auto px-0 py-0 text-xs text-primary hover:bg-transparent"
+                        onClick={() => window.open(event.source_url ?? undefined, "_blank", "noopener,noreferrer")}
+                      >
+                        查看
+                      </Button>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">暂无链接</span>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             );

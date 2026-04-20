@@ -220,6 +220,11 @@ export const api = {
       method: "POST",
       signal: options?.signal,
     }),
+  parseEvent: (eventId: number, options?: ApiRequestOptions) =>
+    request<{ id: number; title: string; sync_status: string; event_analysis_status?: string | null }>(`/events/${eventId}/parse`, {
+      method: "POST",
+      signal: options?.signal,
+    }),
   getDocumentExtracts: (documentId: number, options?: ApiRequestOptions) =>
     request<{ document_id: number; extracts: DocumentExtractItem[] }>(`/documents/${documentId}/extracts`, {
       signal: options?.signal,

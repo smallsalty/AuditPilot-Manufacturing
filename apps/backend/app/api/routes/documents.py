@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, KnowledgeChunk, ReviewOverride
+from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent, KnowledgeChunk, ReviewOverride
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_service import DocumentService
 from app.utils.display_text import clean_document_title
@@ -50,6 +50,15 @@ def parse_document(document_id: int, db: Session = Depends(get_db)) -> dict:
     try:
         document = DocumentService().parse_document(db, document_id)
         return _serialize_document_state(document)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/events/{event_id}/parse")
+def parse_event(event_id: int, db: Session = Depends(get_db)) -> dict:
+    try:
+        event = DocumentService().parse_event(db, event_id)
+        return _serialize_event_state(event)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -374,4 +383,23 @@ def _serialize_document_state(document) -> dict:
         "financial_section_detected": cleaning_meta.get("financial_section_detected"),
         "financial_section_count": cleaning_meta.get("financial_section_count"),
         "sub_analysis_modes": cleaning_meta.get("sub_analysis_modes") or [],
+    }
+
+
+def _serialize_event_state(event: ExternalEvent) -> dict:
+    payload = event.payload if isinstance(event.payload, dict) else {}
+    analysis = payload.get("event_analysis") if isinstance(payload, dict) else None
+    meta = payload.get("event_analysis_meta") if isinstance(payload, dict) else None
+    analysis_status = (
+        meta.get("status")
+        if isinstance(meta, dict)
+        else analysis.get("analysis_status")
+        if isinstance(analysis, dict)
+        else None
+    )
+    return {
+        "id": event.id,
+        "title": clean_document_title(event.title),
+        "sync_status": event.sync_status,
+        "event_analysis_status": analysis_status,
     }

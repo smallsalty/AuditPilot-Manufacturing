@@ -249,6 +249,14 @@ class DocumentService:
             raise ValueError("文档不存在。")
         return self._parse_document_record(db, document)
 
+    def parse_event(self, db: Session, event_id: int) -> ExternalEvent:
+        event = db.get(ExternalEvent, event_id)
+        if event is None:
+            raise ValueError("公告事件不存在。")
+        self._parse_event_record(db, event)
+        db.refresh(event)
+        return event
+
     def process_parse_queue(self, db: Session, enterprise_id: int | None = None) -> dict[str, int]:
         document_stmt = select(DocumentMeta).where(DocumentMeta.sync_status == "parse_queued")
         event_stmt = select(ExternalEvent).where(ExternalEvent.sync_status == "parse_queued")
