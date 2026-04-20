@@ -337,20 +337,20 @@ class AuditQAServer:
         context_lines = []
         if context_variant == "risk_summary":
             for row in risk_rows[:3]:
-                reasons = "；".join((row.reasons or [])[:2])
-                context_lines.append(f"[risk]{row.risk_name}: score={row.risk_score}; reasons={reasons}")
+                reason = str(next(iter(row.reasons or []), ""))[:80]
+                context_lines.append(f"[risk]{row.risk_name}: score={row.risk_score}; reason={reason}")
             for row in document_risks[:3]:
                 evidence = ""
                 first_evidence = next(iter(row.get("evidence") or []), None)
                 if isinstance(first_evidence, dict):
-                    evidence = str(first_evidence.get("snippet") or "")[:120]
-                summary = str(row.get("summary") or "；".join(row.get("reasons") or []))[:160]
+                    evidence = str(first_evidence.get("snippet") or "")[:80]
+                summary = str(row.get("summary") or next(iter(row.get("reasons") or []), ""))[:100]
                 context_lines.append(
                     f"[document_risk]{row.get('risk_name')}: level={row.get('risk_level')}; "
                     f"summary={summary}; evidence={evidence}"
                 )
             for chunk in chunks[:2]:
-                context_lines.append(f"[evidence]{clean_document_title(chunk.title)}:{chunk.content[:100]}")
+                context_lines.append(f"[evidence]{clean_document_title(chunk.title)}:{chunk.content[:80]}")
         if context_variant in {"full", "risk_rows"}:
             context_lines.extend([f"[风险]{row.risk_name}:{'；'.join(row.reasons)}" for row in risk_rows])
         if context_variant in {"full", "document_risks"}:
@@ -359,7 +359,7 @@ class AuditQAServer:
             )
         if context_variant in {"full", "chunks"}:
             context_lines.extend([f"[知识]{chunk.title}:{chunk.content[:180]}" for chunk in chunks])
-        context = "\n".join(context_lines)
+        context = "\n".join(context_lines)[:900]
 
         system_prompt = (
             "你是一名审计风险问答助手。请严格基于给定的风险结果和文档依据回答，"
@@ -370,7 +370,8 @@ class AuditQAServer:
             f"问题：{question}\n"
             f"当前依据等级：{basis_level}\n"
             f"上下文：\n{context}\n"
-            "请直接输出中文分析内容，可分自然段，必要时可使用少量中文序号，尽量控制在 300~800 字。"
+            "请直接用中文回答，控制在150-300字内；最多给出3条建议。"
+            "优先说明审计判断、依据和下一步动作，不要复述全部上下文。"
             "不要使用 Markdown 标题、代码块、表格、JSON 或额外格式说明。"
         )
         return basis_level, system_prompt, user_prompt, context_variant
