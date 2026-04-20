@@ -102,7 +102,7 @@ class AnnouncementEventPromptRegistry:
     ) -> dict[str, Any]:
         spec = cls.get_spec(category_code)
         json_example = {
-            "summary": "一句话概括正文披露的核心事件和审计含义，40-80字，最多100字。",
+            "summary": "等于最核心风险点，不写事件背景总结，最多100字。",
             "key_facts": ["正文关键事实，最多3条，每条不超过40字"],
             "risk_points": ["审计风险点，最多3条，每条不超过40字"],
             "audit_focus": ["审计关注或建议程序，最多3条，每条不超过40字"],
@@ -120,7 +120,7 @@ class AnnouncementEventPromptRegistry:
         system_prompt = (
             "你是上市公司公告事件分析助手。只能基于给定公告标题和正文内容分析，不要编造正文外事实。"
             "请按事件类型提取结构化审计关注信息，返回严格 JSON 对象，不要输出 Markdown、代码块或额外解释。"
-            "summary 必须短，不得复述公告全文；所有数组只输出最重要的少量项目。"
+            "summary 必须只保留风险点，不得复述公告全文或事件背景；所有数组只输出最重要的少量项目。"
         )
         user_prompt = (
             f"公告标题：{title}\n"
@@ -130,7 +130,7 @@ class AnnouncementEventPromptRegistry:
             f"分析重点：{spec.analysis_focus}\n"
             f"原摘要：{fallback_summary}\n"
             f"返回字段示例：{json.dumps(json_example, ensure_ascii=False)}\n"
-            "要求：summary 只能是一句完整中文，40-80字，最多100字；不得输出多段摘要或长解释。"
+            "要求：summary 必须等于最核心风险点；不得写事件背景总结、不得输出多段摘要或长解释。"
             "key_facts、risk_points、audit_focus 各最多3条，每条最多40字。"
             "evidence_excerpt 只保留一句最关键正文证据，最多120字。"
             f"suggested_category_code 只能从以下值选择：{category_codes}；如正文无法证明分类应变化，返回当前分类。"

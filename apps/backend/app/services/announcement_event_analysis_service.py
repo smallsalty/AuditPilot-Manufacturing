@@ -147,7 +147,8 @@ class AnnouncementEventAnalysisService:
             payload = payload["items"][0]
         if payload.get("parsed_ok") is False:
             return self._fallback_analysis(event, body_text, body_source_kind)
-        summary = self._clean_text(payload.get("summary"), limit=self.SUMMARY_MAX_CHARS) or self._short_text(
+        risk_points = self._clean_list(payload.get("risk_points"))
+        summary = self._risk_points_summary(risk_points) or self._clean_text(payload.get("summary"), limit=self.SUMMARY_MAX_CHARS) or self._short_text(
             event.summary or event.title,
             self.SUMMARY_MAX_CHARS,
         )
@@ -155,7 +156,7 @@ class AnnouncementEventAnalysisService:
         return {
             "summary": summary,
             "key_facts": self._clean_list(payload.get("key_facts")),
-            "risk_points": self._clean_list(payload.get("risk_points")),
+            "risk_points": risk_points,
             "audit_focus": self._clean_list(payload.get("audit_focus")),
             "involved_parties": self._clean_list(payload.get("involved_parties")),
             "amounts": self._clean_list(payload.get("amounts")),
@@ -170,10 +171,11 @@ class AnnouncementEventAnalysisService:
         }
 
     def _fallback_analysis(self, event: ExternalEvent, body_text: str, body_source_kind: str) -> dict[str, Any]:
+        risk_points: list[str] = []
         return {
             "summary": self._short_text(event.summary or event.title, self.SUMMARY_MAX_CHARS),
             "key_facts": [self._short_text(event.title, self.LIST_ITEM_MAX_CHARS)],
-            "risk_points": [],
+            "risk_points": risk_points,
             "audit_focus": [],
             "involved_parties": [],
             "amounts": [],
@@ -218,6 +220,12 @@ class AnnouncementEventAnalysisService:
         else:
             items = []
         return self._dedupe([self._clean_text(item, limit=self.LIST_ITEM_MAX_CHARS) or "" for item in items])[: self.MAX_LIST_ITEMS]
+
+    def _risk_points_summary(self, risk_points: list[str]) -> str | None:
+        points = [item.strip() for item in risk_points if item.strip()]
+        if not points:
+            return None
+        return self._short_text("；".join(points[:3]), self.SUMMARY_MAX_CHARS)
 
     def _clean_text(self, value: Any, *, limit: int = SUMMARY_MAX_CHARS) -> str | None:
         text = " ".join(str(value or "").replace("\r", "\n").split()).strip()

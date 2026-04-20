@@ -296,11 +296,11 @@ class AnnouncementRiskService:
             return None
         parts: list[str] = []
         summary = str(event_analysis.get("summary") or "").strip()
-        if summary:
-            parts.append(f"正文分析总结：{summary}")
         risk_points = self._analysis_list(event_analysis, "risk_points")
         if risk_points:
             parts.append("风险点：" + "；".join(risk_points[:3]))
+        elif summary:
+            parts.append(f"风险点：{summary}")
         audit_focus = self._analysis_list(event_analysis, "audit_focus")
         if audit_focus:
             parts.append("审计关注：" + "；".join(audit_focus[:3]))
