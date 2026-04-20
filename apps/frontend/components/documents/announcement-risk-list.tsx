@@ -25,6 +25,16 @@ function formatAnalysisStatus(value?: string | null): string {
   return "正文分析未生成";
 }
 
+function numberedItems(items: string[]) {
+  return (
+    <ol className="list-decimal space-y-1 pl-4">
+      {items.map((item, index) => (
+        <li key={`${index}-${item}`}>{item}</li>
+      ))}
+    </ol>
+  );
+}
+
 export function AnnouncementRiskList({
   risks,
   activeEventId,
@@ -52,6 +62,7 @@ export function AnnouncementRiskList({
         const auditFocus = Array.isArray(risk.audit_focus) ? risk.audit_focus.slice(0, 3) : [];
         const evidenceExcerpt = risk.evidence_excerpt ?? risk.event_analysis?.evidence_excerpt ?? null;
         const hasAnalysis = risk.analysis_status === "analyzed" && Boolean(bodySummary);
+        const displayRiskPoints = riskPoints.length > 0 ? riskPoints : bodySummary ? [bodySummary] : [];
         return (
           <button
             key={`${risk.event_code}-${risk.source_event_id ?? fallbackKey}`}
@@ -89,10 +100,9 @@ export function AnnouncementRiskList({
             </div>
             {hasAnalysis ? (
               <div className="mt-3 rounded-lg border bg-muted/30 p-3 text-sm leading-6 text-foreground">
-                <p className="text-xs font-medium text-muted-foreground">审计风险总结</p>
-                <p className="mt-1">{bodySummary}</p>
-                {riskPoints.length > 0 ? (
-                  <p className="mt-2 text-xs text-muted-foreground">风险点：{riskPoints.join("；")}</p>
+                <p className="text-xs font-medium text-muted-foreground">风险点</p>
+                {displayRiskPoints.length > 0 ? (
+                  <div className="mt-2 text-sm text-foreground">{numberedItems(displayRiskPoints)}</div>
                 ) : null}
                 {auditFocus.length > 0 ? (
                   <p className="mt-2 text-xs text-muted-foreground">审计关注：{auditFocus.join("；")}</p>
@@ -106,9 +116,6 @@ export function AnnouncementRiskList({
                 {risk.explanation}
               </div>
             )}
-            {hasAnalysis && risk.explanation && risk.explanation !== bodySummary ? (
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">{risk.explanation}</p>
-            ) : null}
             <div className="mt-3 rounded-lg bg-muted/40 p-3 text-sm text-foreground">{risk.source_title}</div>
           </button>
         );

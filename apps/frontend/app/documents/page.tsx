@@ -544,7 +544,7 @@ export default function DocumentsPage() {
                         <div>
                           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">事件解释层</p>
                           <p className="mt-2 text-sm text-muted-foreground">
-                            展示公告正文分析总结、风险点和审计关注点；未完成正文分析时回退到标题命中解释。
+                            正文分析仅展示关键事实，风险点独立编号展示；未完成正文分析时显示待分析提示。
                           </p>
                         </div>
                         <AnnouncementRiskList
