@@ -13,6 +13,33 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auditpilot -d auditpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: auditpilot-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://auditpilot:auditpilot@postgres:5432/auditpilot
+      LLM_PROVIDER: deepseek
+      ANTHROPIC_BASE_URL: https://api.deepseek.com/anthropic
+      ANTHROPIC_MODEL: deepseek-v4-flash
+      BACKEND_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - backend_uploads:/app/apps/backend/uploads
 
 volumes:
   pgdata:
+  backend_uploads:
