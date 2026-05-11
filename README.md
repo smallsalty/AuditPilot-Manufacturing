@@ -2,14 +2,14 @@
 
 制造业上市公司审计风险识别与审计重点生成系统。
 
-系统围绕企业官方公告、年报、审计报告、内控报告和用户上传文档，完成文档解析、事件公告分析、风险清单生成、财报专项分析和审计重点建议生成。前端负责文档中心、风险清单、公告事件和审计重点展示；后端负责数据同步、PDF 解析、MiniMax 调用、风险识别和结果持久化。
+系统围绕企业官方公告、年报、审计报告、内控报告和用户上传文档，完成文档解析、事件公告分析、风险清单生成、财报专项分析和审计重点建议生成。前端负责文档中心、风险清单、公告事件和审计重点展示；后端负责数据同步、PDF 解析、DeepSeek 调用、风险识别和结果持久化。
 
 ## 技术架构
 
 - Frontend：Next.js 14、TypeScript、Tailwind CSS、ECharts
 - Backend：FastAPI、SQLAlchemy、Pydantic
 - Database：PostgreSQL
-- AI：MiniMax Anthropic-compatible API
+- AI：DeepSeek Anthropic-compatible API
 - 数据来源：巨潮资讯、AkShare、用户上传文件
 - 文档解析：pdfplumber、pypdf
 
@@ -18,10 +18,10 @@
 - 企业数据与公告同步：同步企业基础资料、巨潮公告、年报、审计报告、内控报告和事件类公告。
 - 文档中心：支持上传文档、解析文档、查看抽取结果、查看原文件、删除文档。
 - 文档抽取：对年报、审计报告、内控报告等文档抽取风险证据、财报专项信息和事件线索。
-- 事件公告分析：巨潮事件类公告按标题识别事件类型，并下载/解析正文，调用 MiniMax 生成正文层面的审计风险总结。
+- 事件公告分析：巨潮事件类公告按标题识别事件类型，并下载/解析正文，调用 DeepSeek 生成正文层面的审计风险总结。
 - 风险清单：融合财务指标、文档抽取、公告事件和规则结果，生成企业风险清单。
-- 财报专项分析：聚合文档中的财报异常证据，并持久化 MiniMax 总结，避免输入未变化时重复分析。
-- 审计重点：基于风险清单和证据，调用 MiniMax 生成针对性审计建议，并持久化快照避免重复生成。
+- 财报专项分析：聚合文档中的财报异常证据，并持久化 DeepSeek 总结，避免输入未变化时重复分析。
+- 审计重点：基于风险清单和证据，调用 DeepSeek 生成针对性审计建议，并持久化快照避免重复生成。
 - 问答与报告：基于已有风险、文档证据和知识片段提供审计问答与报告接口。
 
 `seed`、`mock` 和演示数据仅用于开发辅助，不属于正式运行数据来源。
@@ -33,7 +33,7 @@ apps/
   backend/              FastAPI 后端
     app/
       api/              API 路由
-      ai/               MiniMax 客户端和提示词服务
+      ai/               DeepSeek 客户端和提示词服务
       models/           SQLAlchemy 模型
       providers/        巨潮、AkShare 数据源
       scripts/          后端脚本入口
@@ -56,10 +56,10 @@ APP_ENV=development
 LOG_LEVEL=INFO
 DATABASE_URL=postgresql+psycopg://postgres:123456@localhost:5432/appdb
 
-LLM_PROVIDER=minimax
+LLM_PROVIDER=deepseek
 ANTHROPIC_API_KEY=
-ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
-ANTHROPIC_MODEL=MiniMax-M2.7
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+ANTHROPIC_MODEL=deepseek-v4-flash
 
 AKSHARE_ENABLE=true
 CNINFO_ENABLE=true
@@ -74,10 +74,10 @@ NEXT_PUBLIC_API_BASE_URL=http://60.205.216.59:8000
 
 说明：
 
-- `ANTHROPIC_API_KEY` 使用 MiniMax Anthropic-compatible API Key。
+- `ANTHROPIC_API_KEY` 使用 DeepSeek Anthropic-compatible API Key。
 - `NEXT_PUBLIC_API_BASE_URL` 是前端访问后端的地址，本地前端连接云端后端时应指向云服务器 API。
 - 当前正式数据源不使用 `TUSHARE_*`。
-- 如果 MiniMax 配置缺失，部分 AI 能力会降级或使用 fallback，不建议作为生产状态。
+- 如果 DeepSeek 配置缺失，部分 AI 能力会降级或使用 fallback，不建议作为生产状态。
 
 ## 本地开发
 
@@ -283,8 +283,9 @@ npx tsc --noEmit --incremental false
 
 ## 注意事项
 
-- 不要把 MiniMax API Key 提交到仓库。
+- 不要把 DeepSeek API Key 提交到仓库。
 - 定时监控脚本会触发同步、解析和必要的风险分析，应只在服务端计划任务中运行。
 - 文档删除接口会删除关联抽取、事件特征、人工修正和知识片段，并仅在路径安全时删除本地原文件。
-- 财报专项分析和审计重点已使用快照机制，同一批输入未变化时不会重复调用 MiniMax。
+- 财报专项分析和审计重点已使用快照机制，同一批输入未变化时不会重复调用 DeepSeek。
 - 事件公告正文分析结果写入 `ExternalEvent.payload.event_analysis`，不新增数据库表。
+

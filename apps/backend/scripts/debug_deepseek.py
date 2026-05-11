@@ -291,7 +291,7 @@ def _summarize(results: list[ProbeResult]) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Probe MiniMax Anthropic compatibility stability.")
+    parser = argparse.ArgumentParser(description="Probe DeepSeek Anthropic compatibility stability.")
     subparsers = parser.add_subparsers(dest="probe", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
@@ -369,3 +369,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

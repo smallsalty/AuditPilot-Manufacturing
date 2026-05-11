@@ -56,3 +56,201 @@ summary::-webkit-details-marker {
 ::selection {
   background: rgba(51, 65, 85, 0.18);
 }
+
+.audit-hero-noise {
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(255, 250, 240, 0.96), transparent 28%),
+    radial-gradient(circle at 86% 16%, rgba(226, 76, 116, 0.16), transparent 24%),
+    radial-gradient(circle at 64% 92%, rgba(216, 200, 170, 0.9), transparent 32%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+  background-blend-mode: normal, normal, multiply, soft-light;
+}
+
+.audit-hero-noise::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background-image:
+    repeating-linear-gradient(
+      104deg,
+      rgba(21, 19, 15, 0.05) 0,
+      rgba(21, 19, 15, 0.05) 1px,
+      transparent 1px,
+      transparent 22px
+    ),
+    radial-gradient(circle at 70% 20%, rgba(255, 250, 240, 0.56), transparent 30%);
+  mix-blend-mode: multiply;
+  opacity: 0.75;
+}
+
+.audit-hero-paper {
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 29px,
+      rgba(21, 19, 15, 0.07) 30px
+    ),
+    radial-gradient(circle at 88% 12%, rgba(226, 76, 116, 0.1), transparent 24%);
+}
+
+.audit-hero-enter {
+  animation: audit-hero-rise 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.audit-hero-enter-late {
+  animation-delay: 120ms;
+}
+
+.audit-hero-cta,
+.audit-hero-ask {
+  transition:
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.audit-hero-cta:hover,
+.audit-hero-ask:hover {
+  transform: translateY(-2px);
+}
+
+.audit-hero-cta-primary:hover {
+  box-shadow: 10px 10px 0 #e24c74;
+}
+
+.audit-hero-cta:focus-visible,
+.audit-hero-ask:focus-visible {
+  outline: 3px solid rgba(226, 76, 116, 0.58);
+  outline-offset: 4px;
+}
+
+.audit-overview-panel {
+  background-image:
+    radial-gradient(circle at 12% 14%, rgba(255, 253, 247, 0.96), transparent 30%),
+    radial-gradient(circle at 84% 16%, rgba(226, 76, 116, 0.08), transparent 22%),
+    radial-gradient(circle at 68% 92%, rgba(216, 200, 170, 0.18), transparent 34%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.76' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E");
+  background-color: #fffdf7;
+  background-blend-mode: normal, normal, multiply, soft-light;
+}
+
+.audit-overview-panel::before {
+  content: none;
+}
+
+.audit-overview-chart {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+@keyframes audit-hero-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) rotate(0.001deg);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audit-hero-enter {
+    animation: none;
+  }
+
+  .audit-hero-cta,
+  .audit-hero-ask {
+    transition: none;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body:has(.financial-print-page) {
+    background: #ffffff !important;
+  }
+
+  body:has(.financial-print-page) aside,
+  body:has(.financial-print-page) header,
+  body:has(.financial-print-page) [data-print-hidden] {
+    display: none !important;
+  }
+
+  body:has(.financial-print-page) main {
+    padding: 0 !important;
+  }
+
+  body:has(.financial-print-page) main > div {
+    max-width: none !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page {
+    gap: 12px !important;
+    padding: 0 !important;
+    color: #111827 !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-section,
+  body:has(.financial-print-page) .financial-print-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body:has(.financial-print-page) .financial-print-page [class*="shadow"],
+  body:has(.financial-print-page) .financial-print-page .shadow-soft {
+    box-shadow: none !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page h1 {
+    font-size: 22pt !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page h2 {
+    font-size: 12pt !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page p,
+  body:has(.financial-print-page) .financial-print-page li {
+    font-size: 8.5pt !important;
+    line-height: 1.45 !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page table {
+    min-width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 7pt !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page thead {
+    display: table-header-group;
+  }
+
+  body:has(.financial-print-page) .financial-print-page tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body:has(.financial-print-page) .financial-print-page th,
+  body:has(.financial-print-page) .financial-print-page td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 5px 6px !important;
+    color: #111827 !important;
+    vertical-align: middle !important;
+  }
+
+  body:has(.financial-print-page) .financial-print-page th {
+    background: #f1f5f9 !important;
+    font-size: 6.6pt !important;
+    letter-spacing: 0 !important;
+    white-space: nowrap !important;
+  }
+}

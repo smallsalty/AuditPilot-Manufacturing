@@ -228,25 +228,56 @@ class DocumentAnalysisPipeline:
                 ),
             }
 
-        result = self.service.llm_client.chat_completion(
-            prompt_bundle["system_prompt"],
-            prompt_bundle["user_prompt"],
-            json_mode=True,
-            request_kind="document_extract",
-            metadata={
-                "document_id": document.id,
-                "enterprise_id": document.enterprise_id,
-                "classified_type": classified_type,
-                "candidate_count": min(len(trimmed_candidates), self.service.LLM_EXTRACT_CANDIDATE_LIMIT),
-                "llm_input_chars": llm_input_chars,
-                "prompt_template": prompt_bundle["prompt_template"],
-                "schema_name": prompt_bundle["schema_name"],
-            },
-            max_tokens=stage_max_tokens,
-            max_attempts=2,
-            timeout=30.0,
-            strict_json_instruction=True,
-        )
+        try:
+            result = self.service.llm_client.chat_completion(
+                prompt_bundle["system_prompt"],
+                prompt_bundle["user_prompt"],
+                json_mode=True,
+                request_kind="document_extract",
+                metadata={
+                    "document_id": document.id,
+                    "enterprise_id": document.enterprise_id,
+                    "classified_type": classified_type,
+                    "candidate_count": min(len(trimmed_candidates), self.service.LLM_EXTRACT_CANDIDATE_LIMIT),
+                    "llm_input_chars": llm_input_chars,
+                    "prompt_template": prompt_bundle["prompt_template"],
+                    "schema_name": prompt_bundle["schema_name"],
+                },
+                max_tokens=stage_max_tokens,
+                max_attempts=2,
+                timeout=30.0,
+                strict_json_instruction=True,
+            )
+        except LLMRequestError as exc:
+            return self.build_stage_request_fallback(
+                exc=exc,
+                document=document,
+                trimmed_candidates=trimmed_candidates,
+                classified_type=classified_type,
+                prompt_template=prompt_bundle["prompt_template"],
+                schema_name=prompt_bundle["schema_name"],
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_input_chars=llm_input_chars,
+                max_tokens=stage_max_tokens,
+                analysis_stage=analysis_stage,
+                prompt_type=prompt_type,
+            )
+        except Exception as exc:
+            return self.build_stage_request_fallback(
+                exc=exc,
+                document=document,
+                trimmed_candidates=trimmed_candidates,
+                classified_type=classified_type,
+                prompt_template=prompt_bundle["prompt_template"],
+                schema_name=prompt_bundle["schema_name"],
+                candidate_count_before_trim=len(candidates),
+                candidate_count_after_trim=len(trimmed_candidates),
+                llm_input_chars=llm_input_chars,
+                max_tokens=stage_max_tokens,
+                analysis_stage=analysis_stage,
+                prompt_type=prompt_type,
+            )
 
         items, llm_diagnostics, error = self.validate_llm_stage_result(
             result=result,
@@ -308,6 +339,58 @@ class DocumentAnalysisPipeline:
             "analysis_mode": "failed",
             "candidate_count_before_trim": len(candidates),
             "candidate_count_after_trim": len(trimmed_candidates),
+            "last_error": error,
+            "llm_diagnostics": llm_diagnostics,
+        }
+
+    def build_stage_request_fallback(
+        self,
+        *,
+        exc: Exception,
+        document: DocumentMeta,
+        trimmed_candidates: list[dict[str, Any]],
+        classified_type: str,
+        prompt_template: str,
+        schema_name: str,
+        candidate_count_before_trim: int,
+        candidate_count_after_trim: int,
+        llm_input_chars: int,
+        max_tokens: int,
+        analysis_stage: str,
+        prompt_type: str,
+    ) -> dict[str, Any]:
+        error = self.exception_to_error_payload(exc)
+        raw_preview_source = str(error.get("provider_response_text") or error.get("message") or "")
+        raw_preview = self.service._trim_evidence_safe(raw_preview_source, limit=200) if raw_preview_source else None
+        llm_diagnostics = self.build_llm_diagnostics(
+            classified_type=classified_type,
+            prompt_template=prompt_template,
+            schema_name=schema_name,
+            candidate_count=min(candidate_count_after_trim, self.service.LLM_EXTRACT_CANDIDATE_LIMIT),
+            llm_input_chars=llm_input_chars,
+            payload_mode=str(error.get("error_type") or "request_error"),
+            retry_attempts=None,
+            max_tokens=max_tokens,
+            raw_preview=raw_preview,
+        )
+        fallback = self.service._fallback_extracts(document, trimmed_candidates, classified_type)
+        fallback = [self.apply_stage_defaults(item, analysis_stage, prompt_type, classified_type) for item in fallback]
+        if fallback:
+            return {
+                "extracts": fallback,
+                "analysis_status": "partial_fallback",
+                "analysis_mode": "hybrid_fallback",
+                "candidate_count_before_trim": candidate_count_before_trim,
+                "candidate_count_after_trim": candidate_count_after_trim,
+                "last_error": error,
+                "llm_diagnostics": llm_diagnostics,
+            }
+        return {
+            "extracts": [],
+            "analysis_status": "failed",
+            "analysis_mode": "failed",
+            "candidate_count_before_trim": candidate_count_before_trim,
+            "candidate_count_after_trim": candidate_count_after_trim,
             "last_error": error,
             "llm_diagnostics": llm_diagnostics,
         }

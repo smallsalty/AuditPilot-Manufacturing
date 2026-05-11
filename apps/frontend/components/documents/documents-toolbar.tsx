@@ -18,12 +18,13 @@ export function DocumentsToolbar({
   enterpriseName,
   currentEnterpriseId,
   officialDocCount,
+  pendingParseCount,
   message,
   uploadOpen,
   onUploadOpenChange,
   fileName,
   onFileChange,
-  onRefresh,
+  onParseAll,
   onSyncCninfo,
   onUpload,
   disabled,
@@ -32,12 +33,13 @@ export function DocumentsToolbar({
   enterpriseName?: string | null;
   currentEnterpriseId: number | null;
   officialDocCount: number;
+  pendingParseCount: number;
   message: string;
   uploadOpen: boolean;
   onUploadOpenChange: (open: boolean) => void;
   fileName: string | null;
   onFileChange: (file: File | null) => void;
-  onRefresh: () => void;
+  onParseAll: () => void;
   onSyncCninfo: () => void;
   onUpload: () => void;
   disabled: boolean;
@@ -61,8 +63,8 @@ export function DocumentsToolbar({
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <Button variant="outline" onClick={onRefresh} disabled={disabled}>
-          刷新文档
+        <Button variant="outline" onClick={onParseAll} disabled={disabled || pendingParseCount === 0}>
+          全部解析
         </Button>
         <Button variant="outline" onClick={onSyncCninfo} disabled={disabled}>
           重新收集巨潮资讯

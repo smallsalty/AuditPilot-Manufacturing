@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, ClipboardList, FileText, LayoutDashboard, Menu, ShieldCheck } from "lucide-react";
+import { BarChart3, Bot, ClipboardList, FileText, LayoutDashboard, Menu, ShieldCheck } from "lucide-react";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { EnterpriseSwitcher } from "@/components/enterprise-switcher";
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/risks", label: "风险清单", icon: ShieldCheck },
   { href: "/audit-focus", label: "审计重点", icon: ClipboardList },
   { href: "/documents", label: "文档中心", icon: FileText },
+  { href: "/financials", label: "财报数据", icon: BarChart3 },
   { href: "/chat", label: "AI问答", icon: Bot },
 ];
 
@@ -32,6 +33,8 @@ const PAGE_META = new Map(
             ? "查看规则命中、文档证据和风险聚合结果。"
             : item.href === "/audit-focus"
               ? "按证据与风险结果归纳当前审计重点。"
+              : item.href === "/financials"
+                ? "展示 AkShare 与巨潮资讯文档抽取后的结构化财报数据。"
               : item.href === "/chat"
                 ? "基于官方文档、风险结果和结构化抽取开展问答。"
                 : "查看企业整体风险画像、趋势和数据准备情况。",
@@ -82,7 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="space-y-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">AuditPilot</p>
-                <h1 className="mt-3 text-2xl font-semibold text-foreground">制造业审计风险工作台</h1>
+                <h1 className="mt-3 whitespace-nowrap text-xl font-semibold tracking-tight text-foreground">制造业审计风险工作台</h1>
               </div>
               <p className="text-sm leading-6 text-muted-foreground">
                 面向上市制造企业的文档、风险与审计判断后台。

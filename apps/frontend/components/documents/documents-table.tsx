@@ -21,6 +21,7 @@ import {
   formatParseStatus,
   formatSourceName,
 } from "@/lib/display-labels";
+import { cleanDisplayText } from "@/lib/display-text";
 
 function formatTimestamp(value?: string | null): string {
   if (!value) {
@@ -69,17 +70,23 @@ export function DocumentsTable({
           <TableBody>
             {documents.map((document) => {
               const isActive = document.id === activeDocumentId;
+              const displayName = cleanDisplayText(document.document_name, "未命名文档");
+              const showFallbackNote = document.analysis_status === "partial_fallback";
+              const showLastError = Boolean(document.last_error_message) && !showFallbackNote;
               return (
                 <TableRow key={document.id} className={isActive ? "bg-muted/40" : undefined}>
                   <TableCell className="align-top">
                     <div className="space-y-2">
-                      <div className="max-w-[14rem] truncate font-medium text-foreground" title={document.document_name}>
-                        {document.document_name}
+                      <div className="max-w-[14rem] truncate font-medium text-foreground" title={displayName}>
+                        {displayName}
                       </div>
                       <div className="text-xs text-muted-foreground">{formatSourceName(document.source)}</div>
-                      {document.last_error_message ? (
+                      {showFallbackNote ? (
+                        <div className="text-xs text-[#6c5d45]">模型没接住。已回退完成。</div>
+                      ) : null}
+                      {showLastError ? (
                         <div className="text-xs text-amber-700">
-                          最近错误：{document.last_error_message}
+                          最近错误：{cleanDisplayText(document.last_error_message)}
                           {document.last_error_at ? ` | ${formatTimestamp(document.last_error_at)}` : ""}
                         </div>
                       ) : null}

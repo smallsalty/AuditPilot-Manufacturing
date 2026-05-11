@@ -2257,6 +2257,7 @@ class DocumentService:
             llm_diagnostics=None,
         )
         db.commit()
+        classification_meta: dict[str, Any] = {}
 
         try:
             text = document.content_text or parse_document_text(document.file_path or "")

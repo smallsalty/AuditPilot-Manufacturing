@@ -1,0 +1,29 @@
+- generic [ref=e4] [box=0,0,1423,2085]:
+  - complementary [ref=e5] [box=0,0,280,2085]:
+    - generic [ref=e6] [box=0,0,279,2085]:
+      - generic [ref=e7] [box=24,28,231,116]:
+        - generic [ref=e8] [box=24,28,231,56]
+        - paragraph [ref=e11] [box=24,96,231,48]: 面向上市制造企业的文档、风险与审计判断后台。
+      - generic [ref=e12] [box=24,144,231,358]:
+        - generic [ref=e13] [box=41,161,197,60]
+        - generic [ref=e22] [box=41,237,197,40]
+        - button "刷新企业列表" [ref=e25] [cursor=pointer] [box=41,289,144,40]
+        - combobox [ref=e32] [cursor=pointer] [box=41,341,197,40]
+        - alert [ref=e35] [box=41,393,197,92]
+      - generic [ref=e38] [box=24,502,231,252]:
+        - paragraph [ref=e39] [box=24,502,231,16]: 主导航
+        - navigation [ref=e40] [box=24,530,231,224]
+      - generic [ref=e68] [box=24,1899,231,158]:
+        - paragraph [ref=e69] [box=41,1916,197,16]: 数据范围
+        - generic [ref=e70] [box=41,1944,197,96]
+  - generic [ref=e74] [box=280,0,1143,2085]:
+    - banner [ref=e75] [box=280,0,1143,65]:
+      - generic [ref=e76] [box=280,0,1143,64]:
+        - generic [ref=e78] [box=304,10,58,44]
+        - generic [ref=e82] [box=1239,14,160,36]
+    - main [ref=e85] [box=280,65,1143,2020]:
+      - generic [ref=e87] [box=304,89,1095,1972]:
+        - generic [ref=e89] [box=353,134,997,560]
+        - generic [ref=e137] [box=304,763,1095,168]
+        - generic [ref=e174] [box=304,955,1095,459]
+        - generic [ref=e199] [box=304,1438,1095,583]

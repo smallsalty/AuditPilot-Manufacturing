@@ -12,7 +12,7 @@ from app.core.db import get_db
 from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent, KnowledgeChunk, ReviewOverride
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_service import DocumentService
-from app.utils.display_text import clean_document_title
+from app.utils.display_text import clean_display_text, clean_document_title
 
 
 logger = logging.getLogger(__name__)
@@ -366,6 +366,9 @@ def _serialize_document_state(document) -> dict:
     classification_meta = dict(metadata.get("classification_meta") or {})
     cleaning_meta = dict(metadata.get("cleaning_meta") or {})
     last_error = dict(metadata.get("last_error") or {})
+    last_error_message = clean_display_text(last_error.get("message")) or None
+    if metadata.get("analysis_status") == "partial_fallback" and int(analysis_meta.get("extract_count") or 0) > 0:
+        last_error_message = None
     return {
         "id": document.id,
         "document_name": clean_document_title(document.document_name),
@@ -378,7 +381,7 @@ def _serialize_document_state(document) -> dict:
         "analysis_mode": analysis_meta.get("analysis_mode"),
         "cleaning_summary": cleaning_meta,
         "last_error_code": last_error.get("code") or last_error.get("error_type"),
-        "last_error_message": last_error.get("message"),
+        "last_error_message": last_error_message,
         "llm_diagnostics": analysis_meta.get("llm_diagnostics"),
         "financial_section_detected": cleaning_meta.get("financial_section_detected"),
         "financial_section_count": cleaning_meta.get("financial_section_count"),

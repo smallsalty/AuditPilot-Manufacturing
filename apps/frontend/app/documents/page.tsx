@@ -155,6 +155,10 @@ export default function DocumentsPage() {
   const eventRiskSummary = enterpriseEvents?.risk_summary ?? null;
   const announcementRisks = eventRiskSummary?.announcement_risks ?? [];
   const rawEvents = enterpriseEvents?.raw_events ?? [];
+  const pendingParseDocuments = useMemo(
+    () => (documents ?? []).filter((item) => item.parse_status !== "parsed" && item.parse_status !== "parsing"),
+    [documents],
+  );
 
   const refreshAll = async () => {
     setPageAction({ kind: "reading", message: "正在读取当前企业的文档与财报专项结果..." });
@@ -269,6 +273,46 @@ export default function DocumentsPage() {
       setMessage(`已生成 ${response.extracts.length} 条结构化抽取结果。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文档解析失败。");
+    } finally {
+      setPageAction({ kind: "idle" });
+    }
+  };
+
+  const parseAll = async () => {
+    if (!currentEnterpriseId) {
+      return;
+    }
+    if (pendingParseDocuments.length === 0) {
+      setMessage("没有待解析文档，已跳过。");
+      return;
+    }
+
+    setPageAction({ kind: "analyzing", message: `正在批量解析 ${pendingParseDocuments.length} 份文档...` });
+    try {
+      const results = await Promise.allSettled(
+        pendingParseDocuments.map(async (document) => {
+          await api.parseDocument(document.id);
+          return document;
+        }),
+      );
+
+      invalidateEnterpriseResources(currentEnterpriseId, ["documents", "readiness", "financialAnalysis"]);
+      await Promise.allSettled([
+        refreshReadiness({ force: true }),
+        refreshDocuments({ force: true }),
+        refreshFinancialAnalysis({ force: true }),
+      ]);
+
+      const successCount = results.filter((item) => item.status === "fulfilled").length;
+      const failedCount = results.length - successCount;
+
+      setMessage(
+        failedCount > 0
+          ? `批量解析完成，成功 ${successCount} 份，失败 ${failedCount} 份。`
+          : `批量解析完成，共处理 ${successCount} 份文档。`,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "批量解析失败。");
     } finally {
       setPageAction({ kind: "idle" });
     }
@@ -396,12 +440,13 @@ export default function DocumentsPage() {
           enterpriseName={currentEnterprise?.name}
           currentEnterpriseId={currentEnterpriseId}
           officialDocCount={readiness?.official_doc_count ?? 0}
+          pendingParseCount={pendingParseDocuments.length}
           message={message}
           uploadOpen={uploadDialogOpen}
           onUploadOpenChange={setUploadDialogOpen}
           fileName={file?.name ?? null}
           onFileChange={setFile}
-          onRefresh={() => void refreshAll()}
+          onParseAll={() => void parseAll()}
           onSyncCninfo={() => void triggerCninfoSync()}
           onUpload={() => void upload()}
           disabled={pageAction.kind !== "idle"}

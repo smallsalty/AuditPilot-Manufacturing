@@ -26,7 +26,7 @@ const PARSE_STATUS_LABELS: Record<string, string> = {
 };
 
 const ANALYSIS_MODE_LABELS: Record<string, string> = {
-  llm_primary: "MiniMax 主链",
+  llm_primary: "DeepSeek 主链",
   hybrid_fallback: "LLM + 规则回退",
   rule_only: "规则兜底",
 };
@@ -113,6 +113,7 @@ const SEVERITY_LABELS: Record<string, string> = {
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
+  announcement_title_match: "公告标题命中",
   share_repurchase: "股份回购",
   convertible_bond: "可转债",
   executive_change: "高管变动",
@@ -145,7 +146,7 @@ const SOURCE_NAME_LABELS: Record<string, string> = {
   cninfo: "巨潮资讯",
   upload: "上传文档",
   "cninfo / upload": "巨潮资讯 / 上传文档",
-  minimax: "MiniMax",
+  deepseek: "DeepSeek",
   local_cache: "本地缓存",
   manual: "手动录入",
 };
@@ -393,3 +394,4 @@ export function getFinancialAnalysisLabel(...values: Array<string | null | undef
   const firstValue = values.find((value): value is string => Boolean(value?.trim()));
   return firstValue ? formatReadableFallbackValue(firstValue) : "--";
 }
+

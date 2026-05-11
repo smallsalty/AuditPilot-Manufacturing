@@ -189,7 +189,7 @@ export default function RisksPage() {
             {financialAnalysis ? (
               <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
                 <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
-                <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "MiniMax" : "降级摘要"}</span>
+                <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "DeepSeek" : "降级摘要"}</span>
                 <span>返回来源：{formatCacheState(financialAnalysis.cache_state)}</span>
                 <span>{financialAnalysisLoading ? "读取中" : "已就绪"}</span>
               </div>
@@ -241,3 +241,4 @@ export default function RisksPage() {
     </div>
   );
 }
+

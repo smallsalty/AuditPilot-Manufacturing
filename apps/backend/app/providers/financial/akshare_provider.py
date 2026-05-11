@@ -12,18 +12,22 @@ from app.providers.financial.base import BaseFinancialProvider
 class AkshareFinancialProvider(BaseFinancialProvider):
     provider_name = "akshare"
 
-    ANALYSIS_INDICATOR_MAPPING = {
-        "营业总收入": ("revenue", "营业收入", "million_cny"),
-        "净利润": ("net_profit", "净利润", "million_cny"),
-        "经营活动产生的现金流量净额": ("operating_cash_flow", "经营现金流", "million_cny"),
-        "应收账款": ("accounts_receivable", "应收账款", "million_cny"),
-        "存货": ("inventory", "存货", "million_cny"),
-        "销售毛利率": ("gross_margin", "毛利率", "pct"),
-        "存货周转率": ("inventory_turnover", "存货周转率", "ratio"),
-        "应收账款周转率": ("ar_turnover", "应收账款周转率", "ratio"),
-        "资产负债率": ("debt_ratio", "资产负债率", "pct"),
-        "期间费用率": ("expense_ratio", "期间费用率", "pct"),
-    }
+    ANALYSIS_INDICATOR_MAPPING = (
+        {"aliases": ("营业总收入", "营业收入"), "indicator_code": "revenue", "indicator_name": "营业收入", "unit": "million_cny"},
+        {"aliases": ("归属于母公司股东的净利润", "归母净利润", "净利润"), "indicator_code": "net_profit", "indicator_name": "归母净利润", "unit": "million_cny"},
+        {"aliases": ("扣除非经常性损益后的净利润", "扣非净利润"), "indicator_code": "deduct_net_profit", "indicator_name": "扣非净利润", "unit": "million_cny"},
+        {"aliases": ("经营活动产生的现金流量净额",), "indicator_code": "operating_cash_flow", "indicator_name": "经营现金流", "unit": "million_cny"},
+        {"aliases": ("应收账款",), "indicator_code": "accounts_receivable", "indicator_name": "应收账款", "unit": "million_cny"},
+        {"aliases": ("存货",), "indicator_code": "inventory", "indicator_name": "存货", "unit": "million_cny"},
+        {"aliases": ("销售毛利率", "毛利率"), "indicator_code": "gross_margin", "indicator_name": "毛利率", "unit": "pct"},
+        {"aliases": ("销售净利率", "净利率"), "indicator_code": "net_margin", "indicator_name": "净利率", "unit": "pct"},
+        {"aliases": ("净资产收益率", "净资产收益率-摊薄", "加权净资产收益率"), "indicator_code": "roe", "indicator_name": "ROE", "unit": "pct"},
+        {"aliases": ("基本每股收益", "每股收益", "摊薄每股收益"), "indicator_code": "eps", "indicator_name": "EPS", "unit": "cny_per_share"},
+        {"aliases": ("存货周转率",), "indicator_code": "inventory_turnover", "indicator_name": "存货周转率", "unit": "ratio"},
+        {"aliases": ("应收账款周转率",), "indicator_code": "ar_turnover", "indicator_name": "应收账款周转率", "unit": "ratio"},
+        {"aliases": ("资产负债率",), "indicator_code": "debt_ratio", "indicator_name": "资产负债率", "unit": "pct"},
+        {"aliases": ("期间费用率",), "indicator_code": "expense_ratio", "indicator_name": "期间费用率", "unit": "pct"},
+    )
     TAX_PROFIT_MAPPING = {
         "TOTAL_PROFIT": ("total_profit", "利润总额"),
         "INCOME_TAX": ("income_tax_expense", "所得税费用"),
@@ -96,8 +100,9 @@ class AkshareFinancialProvider(BaseFinancialProvider):
             period_meta = self._build_period_meta(record.get(date_column), include_quarterly=include_quarterly)
             if not period_meta:
                 continue
-            for source_name, (indicator_code, indicator_name, unit) in self.ANALYSIS_INDICATOR_MAPPING.items():
-                if source_name not in normalized.columns:
+            for indicator_meta in self.ANALYSIS_INDICATOR_MAPPING:
+                source_name = self._first_existing_column(normalized, list(indicator_meta["aliases"]))
+                if not source_name:
                     continue
                 value = self._coerce_number(record.get(source_name))
                 if value is None:
@@ -106,10 +111,10 @@ class AkshareFinancialProvider(BaseFinancialProvider):
                     {
                         "ticker": ticker.upper(),
                         **period_meta,
-                        "indicator_code": indicator_code,
-                        "indicator_name": indicator_name,
+                        "indicator_code": indicator_meta["indicator_code"],
+                        "indicator_name": indicator_meta["indicator_name"],
                         "value": value,
-                        "unit": unit,
+                        "unit": indicator_meta["unit"],
                         "source": self.provider_name,
                     }
                 )

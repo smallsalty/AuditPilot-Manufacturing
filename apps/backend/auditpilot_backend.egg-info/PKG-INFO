@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: AuditPilot Manufacturing backend
 Requires-Python: >=3.11
 Requires-Dist: fastapi>=0.115.0
+Requires-Dist: anthropic>=0.34.2
 Requires-Dist: uvicorn[standard]>=0.30.0
 Requires-Dist: sqlalchemy>=2.0.30
 Requires-Dist: psycopg[binary]>=3.2.1
@@ -18,6 +19,5 @@ Requires-Dist: tenacity>=8.4.2
 Requires-Dist: pdfplumber>=0.11.2
 Requires-Dist: pypdf>=4.3.1
 Requires-Dist: akshare>=1.14.40
-Requires-Dist: openai>=1.40.3
 Provides-Extra: dev
 Requires-Dist: pytest>=8.3.2; extra == "dev"

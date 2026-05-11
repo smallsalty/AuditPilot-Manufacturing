@@ -1,0 +1,24 @@
+- generic [ref=e5] [box=0,0,373,4040]:
+  - banner [ref=e6] [box=0,0,373,65]:
+    - generic [ref=e8] [box=16,10,108,44]:
+      - button [ref=e9] [cursor=pointer] [box=16,12,50,40]:
+        - img [ref=e10] [box=33,24,16,16]
+      - generic [ref=e11] [box=66,10,58,44]:
+        - paragraph [ref=e12] [box=66,10,58,16]: 当前模块
+        - heading "总览" [level=2] [ref=e13] [box=66,26,58,28]
+  - main [ref=e14] [box=0,65,373,3975]:
+    - generic [ref=e16] [box=16,89,341,3927]:
+      - generic [ref=e18] [box=37,114,299,762]:
+        - generic [ref=e19] [box=37,114,305,370]
+        - generic [ref=e35] [box=29,526,321,402]
+      - generic [ref=e65] [box=16,925,341,732]:
+        - generic [ref=e66] [box=16,925,341,168]
+        - generic [ref=e75] [box=16,1113,341,168]
+        - generic [ref=e84] [box=16,1301,341,168]
+        - generic [ref=e93] [box=16,1489,341,168]
+      - generic [ref=e102] [box=16,1681,341,1030]:
+        - generic [ref=e105] [box=41,1706,291,113]
+        - generic [ref=e117] [box=41,2233,291,113]
+      - generic [ref=e127] [box=16,2735,341,1241]:
+        - generic [ref=e128] [box=41,2760,291,81]
+        - generic [ref=e133] [box=41,2865,291,1086]

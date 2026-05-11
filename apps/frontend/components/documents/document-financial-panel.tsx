@@ -36,7 +36,7 @@ export function DocumentFinancialPanel({
           <Badge value="default" label={`最近更新时间：${formatTimestamp(financialAnalysis?.updated_at)}`} />
           <Badge
             value="default"
-            label={`摘要来源：${financialAnalysis?.summary_mode === "llm" ? "MiniMax" : "降级摘要"}`}
+            label={`摘要来源：${financialAnalysis?.summary_mode === "llm" ? "DeepSeek" : "降级摘要"}`}
           />
           <Badge value="default" label={`返回来源：${financialAnalysis?.cache_state ?? "暂无"}`} />
           <Badge value="default" label={loading ? "读取中" : "已就绪"} />
@@ -87,3 +87,4 @@ export function DocumentFinancialPanel({
     </div>
   );
 }
+

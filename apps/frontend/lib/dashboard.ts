@@ -71,19 +71,30 @@ export function buildRadarOption(radarInput: unknown): object | null {
   if (radarData.length < 3) {
     return null;
   }
-  const radarLineColor = "#2563eb";
-  const radarFillColor = "rgba(59, 130, 246, 0.08)";
-  const radarTextColor = "#1d4ed8";
-  const radarAreaColor = "rgba(37, 99, 235, 0.18)";
-  const radarStrokeColor = "#1e40af";
+  const radarLineColor = "rgba(93, 80, 59, 0.22)";
+  const radarFillColor = "rgba(255, 253, 247, 0.54)";
+  const radarTextColor = "#5d503b";
+  const radarAreaColor = "rgba(226, 76, 116, 0.16)";
+  const radarStrokeColor = "#8f3148";
   return {
+    animationDuration: 700,
+    animationEasing: "cubicOut",
     radar: {
-      radius: "65%",
+      radius: "67%",
+      center: ["50%", "56%"],
       splitNumber: 4,
-      axisName: { color: radarTextColor },
+      axisName: {
+        color: radarTextColor,
+        fontSize: 12,
+        fontWeight: 600,
+      },
       axisLine: { lineStyle: { color: radarLineColor, width: 1 } },
-      splitArea: { areaStyle: { color: [radarFillColor] } },
-      splitLine: { lineStyle: { color: radarLineColor, width: 1.2 } },
+      splitArea: {
+        areaStyle: {
+          color: ["rgba(255, 253, 247, 0.24)", radarFillColor],
+        },
+      },
+      splitLine: { lineStyle: { color: radarLineColor, width: 1.1 } },
       indicator: radarData.map((item) => ({ name: item.name, max: 100 })),
     },
     series: [
@@ -95,6 +106,8 @@ export function buildRadarOption(radarInput: unknown): object | null {
             areaStyle: { color: radarAreaColor },
             lineStyle: { color: radarStrokeColor, width: 2.5 },
             itemStyle: { color: radarStrokeColor },
+            symbol: "circle",
+            symbolSize: 8,
           },
         ],
       },
@@ -108,24 +121,71 @@ export function buildTrendOption(trendInput: unknown): object | null {
     return null;
   }
   return {
+    animationDuration: 700,
+    animationEasing: "cubicOut",
+    grid: {
+      top: 36,
+      right: 18,
+      bottom: 26,
+      left: 12,
+      containLabel: true,
+    },
     xAxis: {
       type: "category",
       data: trendData.map((item) => item.report_period),
-      axisLabel: { color: "#cbd5e1" },
+      boundaryGap: false,
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: "rgba(93, 80, 59, 0.22)" } },
+      axisLabel: {
+        color: "#7a6a4f",
+        fontSize: 12,
+        margin: 14,
+      },
     },
     yAxis: {
       type: "value",
-      axisLabel: { color: "#cbd5e1" },
-      splitLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
+      axisTick: { show: false },
+      axisLine: { show: false },
+      axisLabel: {
+        color: "#7a6a4f",
+        fontSize: 12,
+      },
+      splitLine: { lineStyle: { color: "rgba(93, 80, 59, 0.12)" } },
     },
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "rgba(255, 253, 247, 0.96)",
+      borderColor: "rgba(93, 80, 59, 0.16)",
+      textStyle: {
+        color: "#15130f",
+      },
+    },
     series: [
       {
         data: trendData.map((item) => item.risk_score),
         type: "line",
         smooth: true,
-        areaStyle: { color: "rgba(16,185,129,0.18)" },
-        lineStyle: { color: "#10b981", width: 3 },
+        symbol: "circle",
+        symbolSize: 8,
+        itemStyle: {
+          color: "#15130f",
+          borderColor: "#fffdf7",
+          borderWidth: 2,
+        },
+        areaStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(226, 76, 116, 0.22)" },
+              { offset: 1, color: "rgba(216, 200, 170, 0.12)" },
+            ],
+          },
+        },
+        lineStyle: { color: "#c94b35", width: 3 },
       },
     ],
   };

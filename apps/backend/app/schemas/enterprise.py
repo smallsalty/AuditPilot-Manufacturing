@@ -101,3 +101,53 @@ class DashboardPayload(BaseModel):
     analysis_status: str = Field(default="not_started")
     last_run_at: str | None = None
     last_error: str | None = None
+
+
+class FinancialReportMetricSnapshot(BaseModel):
+    report_period: str
+    revenue: float | None = None
+    net_profit: float | None = None
+    deduct_net_profit: float | None = None
+    gross_margin: float | None = None
+    net_margin: float | None = None
+    debt_ratio: float | None = None
+    ocf: float | None = None
+    roe: float | None = None
+    eps: float | None = None
+
+
+class FinancialReportRowPayload(BaseModel):
+    year: int
+    quarter: str
+    report_period: str
+    revenue: float | None = None
+    revenue_yoy: float | None = None
+    revenue_qoq: float | None = None
+    net_profit: float | None = None
+    deduct_net_profit: float | None = None
+    gross_margin: float | None = None
+    net_margin: float | None = None
+    debt_ratio: float | None = None
+    ocf: float | None = None
+    roe: float | None = None
+    eps: float | None = None
+    source: str
+
+
+class FinancialReportSummaryItem(BaseModel):
+    text: str
+
+
+class FinancialReportPayload(BaseModel):
+    enterprise_id: int
+    company_name: str
+    ticker: str
+    data_source: str
+    period_range: dict[str, str | None]
+    updated_at: str | None = None
+    stale: bool = False
+    refresh_error: str | None = None
+    latest_period: str
+    latest_metrics: FinancialReportMetricSnapshot
+    rows: list[FinancialReportRowPayload]
+    summaries: list[FinancialReportSummaryItem]

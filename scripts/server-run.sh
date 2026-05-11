@@ -52,7 +52,7 @@ if [[ ! -f "$ENV_PATH" ]]; then
     fail "未找到 .env 和 .env.example"
   fi
   cp "$ENV_EXAMPLE_PATH" "$ENV_PATH"
-  echo ".env 不存在，已从 .env.example 复制。请确认 DATABASE_URL 和 LLM_* 配置。"
+  echo ".env 不存在，已从 .env.example 复制。请确认 DATABASE_URL 和 ANTHROPIC_* 配置。"
 fi
 
 DATABASE_URL_VALUE="$(read_env_value DATABASE_URL)"
@@ -60,9 +60,9 @@ if [[ -z "$DATABASE_URL_VALUE" ]]; then
   fail ".env 中缺少 DATABASE_URL"
 fi
 
-LLM_API_KEY_VALUE="$(read_env_value LLM_API_KEY)"
-if [[ -z "$LLM_API_KEY_VALUE" ]]; then
-  echo "警告: LLM_API_KEY 未配置，系统将以 Mock 模式运行。"
+ANTHROPIC_API_KEY_VALUE="$(read_env_value ANTHROPIC_API_KEY)"
+if [[ -z "$ANTHROPIC_API_KEY_VALUE" ]]; then
+  echo "警告: ANTHROPIC_API_KEY 未配置，AI 调用将失败。"
 fi
 
 step "检查 docker 与 Python 3.11"
@@ -126,3 +126,4 @@ if [[ "$SEED" != "true" ]]; then
   echo "本次未执行 seed_demo；如需初始化 demo 数据，请使用: bash scripts/server-run.sh --seed"
 fi
 "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+

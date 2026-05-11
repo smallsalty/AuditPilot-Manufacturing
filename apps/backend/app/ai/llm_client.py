@@ -54,8 +54,8 @@ class LLMClient:
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504, 529}
 
     def __init__(self) -> None:
-        self.provider = (settings.llm_provider or "minimax").lower().strip()
-        self.model = (settings.llm_model or "MiniMax-M2.7").strip()
+        self.provider = (settings.llm_provider or "deepseek").lower().strip()
+        self.model = (settings.llm_model or "deepseek-v4-flash").strip()
         self.base_url = (settings.llm_base_url or "").strip()
         self.api_key = (settings.llm_api_key or "").strip()
         self.config_error: str | None = None
@@ -72,9 +72,9 @@ class LLMClient:
         if Anthropic is None:
             self.config_error = "模型配置未加载：后端环境缺少 anthropic SDK。"
         elif not self.api_key:
-            self.config_error = "模型配置未加载：缺少 API Key，请检查 ANTHROPIC_API_KEY 或兼容的 LLM_API_KEY。"
+            self.config_error = "模型配置未加载：缺少 API Key，请检查 ANTHROPIC_API_KEY。"
         elif not self.base_url:
-            self.config_error = "模型配置未加载：缺少 base URL，请检查 ANTHROPIC_BASE_URL 或兼容的 LLM_BASE_URL。"
+            self.config_error = "模型配置未加载：缺少 base URL，请检查 ANTHROPIC_BASE_URL。"
 
         self.client = None
         if not self.config_error and Anthropic is not None:
@@ -224,13 +224,13 @@ class LLMClient:
                 status_code = error_fields.get("status_code")
                 retryable = self._should_retry_status(status_code)
                 if status_code == 401:
-                    message = "模型服务返回错误：HTTP 401，请检查 MiniMax 模型名、鉴权和 Anthropic 兼容接口配置。"
+                    message = "模型服务返回错误：HTTP 401，请检查 DeepSeek 模型名、鉴权和 Anthropic 兼容接口配置。"
                     error_type = "auth_error"
                 elif retryable:
                     message = f"模型服务暂时不可用：HTTP {status_code}。"
                     error_type = "upstream_unavailable"
                 else:
-                    message = f"模型服务返回错误：HTTP {status_code}，请检查 MiniMax 模型名、鉴权和兼容接口配置。"
+                    message = f"模型服务返回错误：HTTP {status_code}，请检查 DeepSeek 模型名、鉴权和兼容接口配置。"
                     error_type = "request_rejected"
 
                 last_error = LLMRequestError(
@@ -496,3 +496,5 @@ class LLMClient:
                 continue
             parts.append(f"{key}={value}")
         return " ".join(parts)
+
+

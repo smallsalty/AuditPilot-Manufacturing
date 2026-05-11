@@ -4,14 +4,24 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
-from app.schemas.enterprise import EnterpriseBootstrapRequest
+from app.schemas.enterprise import EnterpriseBootstrapRequest, FinancialReportPayload
 from app.services.dashboard_service import DashboardService
 from app.services.document_service import DocumentService
 from app.services.announcement_risk_service import AnnouncementRiskService
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 from app.services.financial_analysis_service import FinancialAnalysisService
+from app.services.financial_report_service import FinancialReportService
 from app.services.tax_risk_service import TaxRiskService
-from app.utils.display_text import clean_document_title
+from app.utils.display_text import clean_display_text, clean_document_title
+
+
+def _resolve_document_last_error(metadata: dict, analysis_meta: dict) -> str | None:
+    last_error = metadata.get("last_error") or {}
+    analysis_status = metadata.get("analysis_status")
+    extract_count = int(analysis_meta.get("extract_count") or 0)
+    if analysis_status == "partial_fallback" and extract_count > 0:
+        return None
+    return clean_display_text(last_error.get("message")) or None
 
 
 router = APIRouter()
@@ -113,6 +123,7 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
         classification_meta = metadata.get("classification_meta") or {}
         cleaning_meta = metadata.get("cleaning_meta") or {}
         last_error = metadata.get("last_error") or {}
+        last_error_message = _resolve_document_last_error(metadata, analysis_meta)
         items.append(
             {
                 "id": document.id,
@@ -136,7 +147,7 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
                 "analysis_groups": [group for group in analysis_meta.get("analysis_groups", []) if group in DocumentService.ANALYSIS_GROUPS],
                 "cleaning_summary": cleaning_meta,
                 "last_error_code": last_error.get("code") or last_error.get("error_type"),
-                "last_error_message": last_error.get("message"),
+                "last_error_message": last_error_message,
                 "last_error_at": last_error.get("last_error_at"),
                 "llm_diagnostics": analysis_meta.get("llm_diagnostics"),
                 "financial_section_detected": cleaning_meta.get("financial_section_detected"),
@@ -168,7 +179,7 @@ def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> 
                 "event_type": event.event_type,
                 "severity": event.severity,
                 "event_date": event.event_date.isoformat() if event.event_date else None,
-                "summary": event.summary,
+                "summary": clean_display_text(event.summary),
                 "source_url": event.source_url,
                 "sync_status": event.sync_status,
                 "title_matches": payload.get("title_matches") or [],
@@ -205,6 +216,26 @@ def get_financial_analysis(enterprise_id: int, db: Session = Depends(get_db)) ->
         return FinancialAnalysisService().build_analysis(db, enterprise_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/enterprises/{enterprise_id}/financials", response_model=FinancialReportPayload)
+def get_financials(
+    enterprise_id: int,
+    refresh: bool = Query(default=False, description="是否强制刷新 AkShare 财务数据"),
+    include_quarterly: bool = Query(default=True, description="是否返回季度数据"),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return FinancialReportService().build_report(
+            db,
+            enterprise_id,
+            refresh=refresh,
+            include_quarterly=include_quarterly,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "企业不存在。" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.get("/enterprises/{enterprise_id}/tax-risks")

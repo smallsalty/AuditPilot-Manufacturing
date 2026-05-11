@@ -502,6 +502,59 @@ export type FinancialAnalysisPayload = {
   recommended_procedures: string[];
 };
 
+export type FinancialReportMetricSnapshot = {
+  report_period: string;
+  revenue?: number | null;
+  net_profit?: number | null;
+  deduct_net_profit?: number | null;
+  gross_margin?: number | null;
+  net_margin?: number | null;
+  debt_ratio?: number | null;
+  ocf?: number | null;
+  roe?: number | null;
+  eps?: number | null;
+};
+
+export type FinancialReportRowPayload = {
+  year: number;
+  quarter: string;
+  report_period: string;
+  revenue?: number | null;
+  revenue_yoy?: number | null;
+  revenue_qoq?: number | null;
+  net_profit?: number | null;
+  deduct_net_profit?: number | null;
+  gross_margin?: number | null;
+  net_margin?: number | null;
+  debt_ratio?: number | null;
+  ocf?: number | null;
+  roe?: number | null;
+  eps?: number | null;
+  source: string;
+};
+
+export type FinancialReportSummaryItem = {
+  text: string;
+};
+
+export type FinancialReportPayload = {
+  enterprise_id: number;
+  company_name: string;
+  ticker: string;
+  data_source: string;
+  period_range: {
+    start?: string | null;
+    end?: string | null;
+  };
+  updated_at?: string | null;
+  stale: boolean;
+  refresh_error?: string | null;
+  latest_period: string;
+  latest_metrics: FinancialReportMetricSnapshot;
+  rows: FinancialReportRowPayload[];
+  summaries: FinancialReportSummaryItem[];
+};
+
 export type EnterpriseContextState = {
   currentEnterpriseId: number | null;
   currentEnterprise: EnterpriseSummary | null;

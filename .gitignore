@@ -12,7 +12,10 @@ uploads/
 *.pyc
 *.pyo
 *.pyd
+*.log
 .DS_Store
 .env
+.agent/
+.codex-runtime/
+.playwright-mcp/
 apps/backend/uploads/
-

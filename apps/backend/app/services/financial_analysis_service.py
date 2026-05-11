@@ -455,7 +455,7 @@ class FinancialAnalysisService:
         except LLMRequestError as exc:
             if exc.status_code == 401:
                 return _SummaryResult(
-                    summary=f"MiniMax 摘要暂不可用：{exc.message}",
+                    summary=f"DeepSeek 摘要暂不可用：{exc.message}",
                     summary_mode="fallback",
                     cache_state="fresh",
                     cached=False,
@@ -706,7 +706,7 @@ class FinancialAnalysisService:
         except LLMRequestError as exc:
             if exc.status_code == 401:
                 return _SummaryResult(
-                    summary=f"MiniMax 摘要暂不可用：{exc.message}",
+                    summary=f"DeepSeek 摘要暂不可用：{exc.message}",
                     summary_mode="fallback",
                     cache_state="fresh",
                     cached=False,
@@ -762,3 +762,4 @@ class FinancialAnalysisService:
         if isinstance(result, str):
             return self._sanitize_summary_text(result)
         return None
+

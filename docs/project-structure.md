@@ -31,7 +31,7 @@
 ### 应用入口
 
 - `apps/backend/pyproject.toml`：后端 Python 包配置，声明 FastAPI/SQLAlchemy/AkShare/pytest 等依赖并定义 `app*` 包安装方式。
-- `apps/backend/scripts/debug_minimax.py`：本地调试 MiniMax/Anthropic 兼容接口的辅助脚本，用来排查模型连接和响应问题。
+- `apps/backend/scripts/debug_deepseek.py`：本地调试 DeepSeek/Anthropic 兼容接口的辅助脚本，用来排查模型连接和响应问题。
 
 ### app 顶层
 
@@ -41,7 +41,7 @@
 ### app/ai
 
 - `apps/backend/app/ai/audit_qa_server.py`：审计问答主服务，组织上下文、调用 LLM、清洗回答并输出引用与建议动作。
-- `apps/backend/app/ai/llm_client.py`：统一的大模型客户端封装，负责与 Anthropic/MiniMax 兼容接口通信。
+- `apps/backend/app/ai/llm_client.py`：统一的大模型客户端封装，负责与 Anthropic/DeepSeek 兼容接口通信。
 - `apps/backend/app/ai/risk_explanation_service.py`：把规则命中结果转换成更易读的风险摘要、解释和审计关注点。
 
 ### app/api
@@ -227,3 +227,4 @@
 - `docs/ai_workflow_design.md`：记录 AI 工作流设计，包括问答、抽取和解释链路的设计意图。
 - `docs/document_collection_filtering_risk_scoring.md`：记录文档收集、筛选和风险评分口径。
 - `docs/rules-and-sources.md`：记录风险规则和数据来源的整理说明，帮助理解规则和证据从哪里来。
+

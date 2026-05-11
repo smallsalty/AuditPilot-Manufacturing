@@ -2,7 +2,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,19 +56,10 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://auditpilot:auditpilot@localhost:5432/auditpilot",
         alias="DATABASE_URL",
     )
-    llm_provider: str = Field(default="minimax", alias="LLM_PROVIDER")
-    llm_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "LLM_API_KEY", "GLM_API_KEY"),
-    )
-    llm_base_url: str = Field(
-        default="https://api.minimaxi.com/anthropic",
-        validation_alias=AliasChoices("ANTHROPIC_BASE_URL", "LLM_BASE_URL", "GLM_BASE_URL"),
-    )
-    llm_model: str = Field(
-        default="MiniMax-M2.7",
-        validation_alias=AliasChoices("ANTHROPIC_MODEL", "LLM_MODEL", "GLM_MODEL"),
-    )
+    llm_provider: str = Field(default="deepseek", alias="LLM_PROVIDER")
+    llm_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    llm_base_url: str = Field(default="https://api.deepseek.com/anthropic", alias="ANTHROPIC_BASE_URL")
+    llm_model: str = Field(default="deepseek-v4-flash", alias="ANTHROPIC_MODEL")
     akshare_enable: bool = Field(default=True, alias="AKSHARE_ENABLE")
     cninfo_enable: bool = Field(default=True, alias="CNINFO_ENABLE")
     cninfo_query_url: str = Field(

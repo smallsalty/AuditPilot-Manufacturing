@@ -5,7 +5,8 @@ import type { EnterpriseEventItem } from "@auditpilot/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatEventType, formatSeverity } from "@/lib/display-labels";
+import { cleanDisplayText } from "@/lib/display-text";
+import { formatEventType, formatKnownLabel, formatSeverity } from "@/lib/display-labels";
 
 function formatDate(value?: string | null): string {
   if (!value) {
@@ -75,15 +76,16 @@ export function AnnouncementRawEventsTable({
             const analysis = event.event_analysis;
             const keyFacts = previewList(analysis?.key_facts);
             const riskPoints = previewList(analysis?.risk_points);
-            const auditFocus = previewList(analysis?.audit_focus);
             const analyzed = hasBodyAnalysis(event);
             const parseLabel = parsingEventId === event.id ? "解析中..." : analyzed ? "重新解析" : "解析";
+            const displayTitle = cleanDisplayText(event.title, "暂无标题");
+            const displaySummary = cleanDisplayText(event.summary);
             return (
               <TableRow key={event.id} className={isActive ? "bg-primary/5" : undefined}>
                 <TableCell className="align-top">
                   <div className="space-y-2">
-                    <p className="font-medium text-foreground">{event.title}</p>
-                    <p className="text-xs text-muted-foreground">{event.summary}</p>
+                    <p className="font-medium text-foreground">{displayTitle}</p>
+                    {displaySummary ? <p className="text-xs text-muted-foreground">{displaySummary}</p> : null}
                     {analysis ? (
                       <div className="space-y-2 text-xs text-muted-foreground">
                         <div className="space-y-1 rounded-lg border bg-muted/30 p-2">
@@ -118,7 +120,9 @@ export function AnnouncementRawEventsTable({
                 <TableCell className="align-top">
                   <Badge value={event.severity.toUpperCase()} label={formatSeverity(event.severity)} />
                 </TableCell>
-                <TableCell className="align-top text-muted-foreground">{primaryMatch?.category_name ?? "暂无"}</TableCell>
+                <TableCell className="align-top text-muted-foreground">
+                  {formatKnownLabel(primaryMatch?.category_name, "暂无")}
+                </TableCell>
                 <TableCell className="align-top">
                   <div className="flex flex-wrap gap-2">
                     {keywords.length > 0 ? (

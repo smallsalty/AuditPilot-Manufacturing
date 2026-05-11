@@ -102,7 +102,7 @@ class AnnouncementEventAnalysisService:
             if not parsed_ok:
                 analysis_meta["error"] = {
                     "error_type": "json_decode_error",
-                    "message": "MiniMax returned invalid JSON; fallback analysis was used.",
+                    "message": "DeepSeek returned invalid JSON; fallback analysis was used.",
                 }
             return {"analysis": analysis, "meta": analysis_meta}
         except Exception as exc:
@@ -276,3 +276,4 @@ class AnnouncementEventAnalysisService:
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
+

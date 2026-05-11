@@ -41,7 +41,7 @@ if (-not (Test-Path $EnvPath)) {
         Fail "未找到 .env 和 .env.example"
     }
     Copy-Item $EnvExamplePath $EnvPath
-    Write-Host ".env 不存在，已从 .env.example 复制。请确认 DATABASE_URL 和 LLM_* 配置。" -ForegroundColor Yellow
+    Write-Host ".env 不存在，已从 .env.example 复制。请确认 DATABASE_URL 和 ANTHROPIC_* 配置。" -ForegroundColor Yellow
 }
 
 $DatabaseUrl = Read-EnvValue $EnvPath "DATABASE_URL"
@@ -49,9 +49,9 @@ if ([string]::IsNullOrWhiteSpace($DatabaseUrl)) {
     Fail ".env 中缺少 DATABASE_URL"
 }
 
-$LlmApiKey = Read-EnvValue $EnvPath "LLM_API_KEY"
+$LlmApiKey = Read-EnvValue $EnvPath "ANTHROPIC_API_KEY"
 if ([string]::IsNullOrWhiteSpace($LlmApiKey)) {
-    Write-Host "警告: LLM_API_KEY 未配置，系统将以 Mock 模式运行。" -ForegroundColor Yellow
+    Write-Host "警告: ANTHROPIC_API_KEY 未配置，AI 调用将失败。" -ForegroundColor Yellow
 }
 
 Write-Step "检查 Python 和 Node"

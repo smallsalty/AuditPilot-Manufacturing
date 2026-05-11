@@ -13,6 +13,7 @@ import type {
   EnterpriseReadinessPayload,
   EnterpriseSearchItem,
   FinancialAnalysisPayload,
+  FinancialReportPayload,
   RiskResultPayload,
   RiskSummaryPayload,
   SyncCompanyPayload,
@@ -190,6 +191,22 @@ export const api = {
   getEnterpriseEvents: (enterpriseId: number, options?: ApiRequestOptions) =>
     request<EnterpriseEventsPayload>(`/enterprises/${enterpriseId}/events`, { signal: options?.signal }),
   getFinancialAnalysis,
+  getFinancialReport: (
+    enterpriseId: number,
+    options?: ApiRequestOptions & { includeQuarterly?: boolean },
+  ) => {
+    const params = new URLSearchParams();
+    if (options?.force) {
+      params.set("refresh", "true");
+    }
+    if (options?.includeQuarterly === false) {
+      params.set("include_quarterly", "false");
+    }
+    const query = params.toString();
+    return request<FinancialReportPayload>(`/enterprises/${enterpriseId}/financials${query ? `?${query}` : ""}`, {
+      signal: options?.signal,
+    });
+  },
   syncCompany: (enterpriseId: number, sources: string[] = ["akshare_fast", "cninfo"], options?: ApiRequestOptions) =>
     request<SyncCompanyPayload>(`/sync/company`, {
       method: "POST",
