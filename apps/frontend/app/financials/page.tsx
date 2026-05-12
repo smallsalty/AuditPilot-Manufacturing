@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { FinancialReportPayload } from "@auditpilot/shared-types";
-import { Printer } from "lucide-react";
+import { Printer, RefreshCw } from "lucide-react";
 
 import { EChart } from "@/components/echart";
 import { useEnterpriseContext } from "@/components/enterprise-provider";
@@ -29,6 +29,8 @@ type MetricCard = {
   period: string;
   hint?: string;
 };
+
+type ReportRequestState = "idle" | "loading" | "refreshing" | "success" | "error";
 
 function FinancialSection({
   title,
@@ -63,6 +65,63 @@ function MetricCard({ metric }: { metric: MetricCard }) {
         <p className="font-mono text-2xl font-semibold tracking-tight text-foreground">{metric.value}</p>
         {metric.hint ? <p className="text-xs leading-5 text-muted-foreground">{metric.hint}</p> : null}
       </div>
+    </Card>
+  );
+}
+
+function filterRecentYears(rows: FinancialReportRow[]): FinancialReportRow[] {
+  if (!rows.length) {
+    return [];
+  }
+  const latestYear = Math.max(...rows.map((row) => row.year));
+  return rows.filter((row) => row.year >= latestYear - 2);
+}
+
+function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
+  return (
+    <Card className="financial-print-table p-0">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>年份</TableHead>
+            <TableHead>季度</TableHead>
+            <TableHead>report_period</TableHead>
+            <TableHead className="text-right">营业收入</TableHead>
+            <TableHead className="text-right">收入同比</TableHead>
+            <TableHead className="text-right">收入环比</TableHead>
+            <TableHead className="text-right">归母净利</TableHead>
+            <TableHead className="text-right">扣非净利</TableHead>
+            <TableHead className="text-right">毛利率</TableHead>
+            <TableHead className="text-right">净利率</TableHead>
+            <TableHead className="text-right">资产负债率</TableHead>
+            <TableHead className="text-right">经营现金流</TableHead>
+            <TableHead className="text-right">ROE</TableHead>
+            <TableHead className="text-right">EPS</TableHead>
+            <TableHead>source</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.report_period}>
+              <TableCell>{row.year}</TableCell>
+              <TableCell>{row.quarter}</TableCell>
+              <TableCell className="font-mono font-medium">{row.report_period}</TableCell>
+              <TableCell className="text-right font-mono">{formatMoney(row.revenue)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.revenue_yoy)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.revenue_qoq)}</TableCell>
+              <TableCell className="text-right font-mono">{formatMoney(row.net_profit)}</TableCell>
+              <TableCell className="text-right font-mono">{formatMoney(row.deduct_net_profit)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.gross_margin)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.net_margin)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.debt_ratio)}</TableCell>
+              <TableCell className="text-right font-mono">{formatMoney(row.ocf)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.roe)}</TableCell>
+              <TableCell className="text-right font-mono">{formatNumber(row.eps)}</TableCell>
+              <TableCell className="whitespace-nowrap">{row.source}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </Card>
   );
 }
@@ -141,63 +200,97 @@ function formatDateTime(value: string | null | undefined): string {
 export default function FinancialsPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError } = useEnterpriseContext();
   const [report, setReport] = useState<FinancialReportPayload | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [requestState, setRequestState] = useState<ReportRequestState>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const fetchReport = useCallback(
+    (force: boolean, signal?: AbortSignal) => {
+      if (!currentEnterpriseId) {
+        return;
+      }
+
+      setRequestState(force ? "refreshing" : "loading");
+      setError(null);
+
+      api
+        .getFinancialReport(currentEnterpriseId, { force, includeQuarterly: true, signal })
+        .then((payload) => {
+          setReport(payload);
+          setRequestState(force ? "success" : "idle");
+        })
+        .catch((fetchError) => {
+          if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
+            return;
+          }
+          if (!force) {
+            setReport(null);
+          }
+          setError(fetchError instanceof Error ? fetchError.message : "财报数据读取失败。");
+          setRequestState("error");
+        });
+    },
+    [currentEnterpriseId],
+  );
 
   useEffect(() => {
     if (!currentEnterpriseId) {
       setReport(null);
       setError(null);
-      setLoading(false);
+      setRequestState("idle");
       return;
     }
 
     const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-
-    api
-      .getFinancialReport(currentEnterpriseId, { includeQuarterly: true, signal: controller.signal })
-      .then((payload) => {
-        setReport(payload);
-      })
-      .catch((fetchError) => {
-        if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
-          return;
-        }
-        setReport(null);
-        setError(fetchError instanceof Error ? fetchError.message : "财报数据读取失败。");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
+    fetchReport(false, controller.signal);
 
     return () => {
       controller.abort();
     };
-  }, [currentEnterpriseId]);
+  }, [currentEnterpriseId, fetchReport]);
 
   const rows = report?.rows ?? [];
-  const sortedRows = useMemo(() => sortFinancialRowsDesc(rows), [rows]);
-  const ascendingRows = useMemo(() => sortFinancialRowsAsc(rows), [rows]);
-  const latest = useMemo(() => getLatestFinancialRow(rows), [rows]);
+  const annualRows = useMemo(
+    () => filterRecentYears(sortFinancialRowsDesc(rows.filter((row) => row.quarter === "FY"))),
+    [rows],
+  );
+  const quarterlyRows = useMemo(
+    () => filterRecentYears(sortFinancialRowsDesc(rows.filter((row) => row.quarter !== "FY"))),
+    [rows],
+  );
+  const displayedRows = useMemo(() => sortFinancialRowsDesc([...annualRows, ...quarterlyRows]), [annualRows, quarterlyRows]);
+  const ascendingRows = useMemo(() => sortFinancialRowsAsc(displayedRows), [displayedRows]);
+  const latest = useMemo(() => getLatestFinancialRow(displayedRows), [displayedRows]);
   const metrics = useMemo(() => buildMetricCards(latest), [latest]);
   const summaries = useMemo(
-    () => (report?.summaries?.length ? report.summaries.map((item) => item.text) : generateFinancialSummaries(rows)),
-    [report?.summaries, rows],
+    () => (report?.summaries?.length ? report.summaries.map((item) => item.text) : generateFinancialSummaries(displayedRows)),
+    [report?.summaries, displayedRows],
   );
-  const trendOption = useMemo(() => buildFinancialTrendOption(rows), [rows]);
-  const firstPeriod = report?.period_range.start ?? ascendingRows[0]?.report_period ?? "--";
-  const lastPeriod = report?.period_range.end ?? ascendingRows[ascendingRows.length - 1]?.report_period ?? "--";
+  const trendOption = useMemo(() => buildFinancialTrendOption(quarterlyRows), [quarterlyRows]);
+  const firstPeriod = ascendingRows[0]?.report_period ?? "--";
+  const lastPeriod = ascendingRows[ascendingRows.length - 1]?.report_period ?? "--";
   const updatedAt = formatDateTime(report?.updated_at);
 
   const handlePrint = () => {
     window.print();
   };
 
-  const hasRows = sortedRows.length > 0;
+  const handleRefresh = () => {
+    fetchReport(true);
+  };
+
+  const hasRows = displayedRows.length > 0;
+  const loading = requestState === "loading";
+  const refreshing = requestState === "refreshing";
+  const statusText =
+    requestState === "loading"
+      ? "正在读取 AkShare"
+      : requestState === "refreshing"
+        ? "正在刷新 AkShare"
+        : requestState === "success"
+          ? "刷新完成"
+          : requestState === "error" && report
+            ? "刷新失败，保留旧数据"
+            : "空闲";
 
   return (
     <div className="financial-print-page flex flex-col gap-6 pb-10">
@@ -231,11 +324,20 @@ export default function FinancialsPage() {
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
               数据来源：{report?.data_source ?? "等待接口返回"}。页面只展示后端接口数据。
             </p>
+            <p className="text-sm leading-6 text-muted-foreground">
+              运行状态：{statusText}。季度为 Q1-Q4 单季度数据，不是累计数。
+            </p>
           </div>
-          <Button onClick={handlePrint} data-print-hidden>
-            <Printer className="mr-2 h-4 w-4" />
-            导出 PDF
-          </Button>
+          <div className="flex flex-wrap gap-2" data-print-hidden>
+            <Button onClick={handleRefresh} disabled={!currentEnterpriseId || refreshing}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "刷新中" : "刷新 AkShare"}
+            </Button>
+            <Button onClick={handlePrint}>
+              <Printer className="mr-2 h-4 w-4" />
+              导出 PDF
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -254,7 +356,7 @@ export default function FinancialsPage() {
           <AlertTitle>正在读取</AlertTitle>
           <AlertDescription>正在读取 AkShare 财报数据。</AlertDescription>
         </Alert>
-      ) : error ? (
+      ) : error && !report ? (
         <Alert variant="destructive">
           <AlertTitle>财报读取失败</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
@@ -266,6 +368,20 @@ export default function FinancialsPage() {
         </Alert>
       ) : (
         <>
+          {refreshing ? (
+            <Alert>
+              <AlertTitle>正在刷新</AlertTitle>
+              <AlertDescription>正在重新拉取 AkShare 财报数据。</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {error && report ? (
+            <Alert variant="warning">
+              <AlertTitle>刷新失败</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+
           {report?.stale ? (
             <Alert variant="warning">
               <AlertTitle>数据未刷新</AlertTitle>
@@ -281,7 +397,7 @@ export default function FinancialsPage() {
             </div>
           </FinancialSection>
 
-          <FinancialSection title="季度趋势" description="按 report_period 展示。">
+          <FinancialSection title="季度趋势" description="只看近三年季度；Q1-Q4 为单季度数据，不是累计数。">
             <Card className="financial-print-block p-4">
               <EChart height={360} option={trendOption} />
             </Card>
@@ -299,51 +415,12 @@ export default function FinancialsPage() {
             </Card>
           </FinancialSection>
 
-          <FinancialSection title="财报明细表" description="按 report_period 倒序。">
-            <Card className="financial-print-table p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>年份</TableHead>
-                    <TableHead>季度</TableHead>
-                    <TableHead>report_period</TableHead>
-                    <TableHead className="text-right">营业收入</TableHead>
-                    <TableHead className="text-right">收入同比</TableHead>
-                    <TableHead className="text-right">收入环比</TableHead>
-                    <TableHead className="text-right">归母净利</TableHead>
-                    <TableHead className="text-right">扣非净利</TableHead>
-                    <TableHead className="text-right">毛利率</TableHead>
-                    <TableHead className="text-right">净利率</TableHead>
-                    <TableHead className="text-right">资产负债率</TableHead>
-                    <TableHead className="text-right">经营现金流</TableHead>
-                    <TableHead className="text-right">ROE</TableHead>
-                    <TableHead className="text-right">EPS</TableHead>
-                    <TableHead>source</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedRows.map((row) => (
-                    <TableRow key={row.report_period}>
-                      <TableCell>{row.year}</TableCell>
-                      <TableCell>{row.quarter}</TableCell>
-                      <TableCell className="font-mono font-medium">{row.report_period}</TableCell>
-                      <TableCell className="text-right font-mono">{formatMoney(row.revenue)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatPercent(row.revenue_yoy)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatPercent(row.revenue_qoq)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatMoney(row.net_profit)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatMoney(row.deduct_net_profit)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatPercent(row.gross_margin)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatPercent(row.net_margin)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatPercent(row.debt_ratio)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatMoney(row.ocf)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatPercent(row.roe)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatNumber(row.eps)}</TableCell>
-                      <TableCell className="whitespace-nowrap">{row.source}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
+          <FinancialSection title="财年对比" description="只输出近三年 FY。">
+            <FinancialReportTable rows={annualRows} />
+          </FinancialSection>
+
+          <FinancialSection title="季度对比" description="只输出近三年季度；Q1-Q4 是每个季度单独数据。">
+            <FinancialReportTable rows={quarterlyRows} />
           </FinancialSection>
         </>
       )}

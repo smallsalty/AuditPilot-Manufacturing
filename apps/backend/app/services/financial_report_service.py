@@ -327,7 +327,7 @@ class FinancialReportService:
         return max(1, min(4, (month - 1) // 3 + 1))
 
     def _row_sort_key(self, row: dict[str, Any]) -> tuple[int, int]:
-        quarter_order = {"Q1": 1, "Q2": 2, "Q3": 3, "FY": 4}
+        quarter_order = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4, "FY": 5}
         return int(row["year"]), quarter_order.get(str(row["quarter"]), 0)
 
     def _growth_rate(self, current: float, previous: float) -> float | None:

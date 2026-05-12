@@ -28,6 +28,16 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         {"aliases": ("资产负债率",), "indicator_code": "debt_ratio", "indicator_name": "资产负债率", "unit": "pct"},
         {"aliases": ("期间费用率",), "indicator_code": "expense_ratio", "indicator_name": "期间费用率", "unit": "pct"},
     )
+    THS_INDICATOR_MAPPING = (
+        {"aliases": ("营业总收入",), "indicator_code": "revenue", "indicator_name": "营业收入", "unit": "cny"},
+        {"aliases": ("净利润",), "indicator_code": "net_profit", "indicator_name": "归母净利润", "unit": "cny"},
+        {"aliases": ("扣非净利润",), "indicator_code": "deduct_net_profit", "indicator_name": "扣非净利润", "unit": "cny"},
+        {"aliases": ("销售毛利率", "毛利率"), "indicator_code": "gross_margin", "indicator_name": "毛利率", "unit": "pct"},
+        {"aliases": ("销售净利率", "净利率"), "indicator_code": "net_margin", "indicator_name": "净利率", "unit": "pct"},
+        {"aliases": ("资产负债率",), "indicator_code": "debt_ratio", "indicator_name": "资产负债率", "unit": "pct"},
+        {"aliases": ("净资产收益率", "净资产收益率-摊薄"), "indicator_code": "roe", "indicator_name": "ROE", "unit": "pct"},
+        {"aliases": ("基本每股收益",), "indicator_code": "eps", "indicator_name": "EPS", "unit": "cny_per_share"},
+    )
     TAX_PROFIT_MAPPING = {
         "TOTAL_PROFIT": ("total_profit", "利润总额"),
         "INCOME_TAX": ("income_tax_expense", "所得税费用"),
@@ -56,16 +66,16 @@ class AkshareFinancialProvider(BaseFinancialProvider):
             return []
 
         profile = self._profile_provider.resolve_company_profile(ticker=ticker)
-        if not profile:
+        raw_payload = (profile or {}).get("raw_payload") or {}
+        base_symbol = str(raw_payload.get("symbol") or self._ticker_symbol(ticker)).strip()
+        if not base_symbol:
             return []
-
-        raw_payload = profile.get("raw_payload") or {}
-        base_symbol = str(raw_payload.get("symbol") or "").strip()
         exchange_symbol = self._exchange_symbol(ticker=ticker, base_symbol=base_symbol)
-        company_name = str(profile.get("name") or "").strip()
+        company_name = str((profile or {}).get("name") or "").strip()
 
         rows: list[dict[str, Any]] = []
         rows.extend(self._fetch_analysis_indicator_rows(ak, ticker, base_symbol, company_name, include_quarterly))
+        rows.extend(self._fetch_ths_abstract_rows(ak, ticker, base_symbol, include_quarterly))
         rows.extend(self._fetch_tax_report_rows(ak, ticker, exchange_symbol, include_quarterly))
         return self._dedupe_rows(rows, include_quarterly=include_quarterly)
 
@@ -118,6 +128,59 @@ class AkshareFinancialProvider(BaseFinancialProvider):
                         "source": self.provider_name,
                     }
                 )
+        return rows
+
+    def _fetch_ths_abstract_rows(
+        self,
+        ak_module: Any,
+        ticker: str,
+        base_symbol: str,
+        include_quarterly: bool,
+    ) -> list[dict[str, Any]]:
+        if not base_symbol:
+            return []
+
+        datasets = [("按年度", "annual")]
+        if include_quarterly:
+            datasets.append(("按单季度", "quarterly"))
+
+        rows: list[dict[str, Any]] = []
+        for indicator, period_type in datasets:
+            try:
+                df = ak_module.stock_financial_abstract_ths(symbol=base_symbol, indicator=indicator)
+            except Exception:
+                continue
+            if df is None or df.empty:
+                continue
+
+            normalized = df.copy()
+            normalized.columns = [str(column).strip() for column in normalized.columns]
+            date_column = self._first_existing_column(normalized, ["报告期"])
+            if not date_column:
+                continue
+
+            for _, record in normalized.iterrows():
+                period_meta = self._build_ths_period_meta(record.get(date_column), period_type=period_type)
+                if not period_meta:
+                    continue
+                for indicator_meta in self.THS_INDICATOR_MAPPING:
+                    source_name = self._first_existing_column(normalized, list(indicator_meta["aliases"]))
+                    if not source_name:
+                        continue
+                    value = self._coerce_number(record.get(source_name))
+                    if value is None:
+                        continue
+                    rows.append(
+                        {
+                            "ticker": ticker.upper(),
+                            **period_meta,
+                            "indicator_code": indicator_meta["indicator_code"],
+                            "indicator_name": indicator_meta["indicator_name"],
+                            "value": value,
+                            "unit": indicator_meta["unit"],
+                            "source": self.provider_name,
+                        }
+                    )
         return rows
 
     def _fetch_tax_report_rows(
@@ -229,6 +292,34 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         return ""
 
     @staticmethod
+    def _ticker_symbol(ticker: str) -> str:
+        normalized = str(ticker or "").strip().upper()
+        if "." in normalized:
+            normalized = normalized.split(".", 1)[0]
+        normalized = normalized.replace("SH", "").replace("SZ", "")
+        return normalized if normalized.isdigit() else ""
+
+    def _build_ths_period_meta(self, raw_period: Any, *, period_type: str) -> dict[str, Any] | None:
+        raw_text = str(raw_period or "").strip()
+        if not raw_text:
+            return None
+
+        if period_type == "annual" and raw_text.isdigit() and len(raw_text) == 4:
+            timestamp = self._to_timestamp(f"{raw_text}-12-31")
+        else:
+            timestamp = self._to_timestamp(raw_text)
+        if timestamp is None:
+            return None
+
+        quarter = max(1, min(4, (int(timestamp.month) - 1) // 3 + 1))
+        return {
+            "period_type": period_type,
+            "report_period": timestamp.strftime("%Y%m%d"),
+            "report_year": int(timestamp.year),
+            "report_quarter": None if period_type == "annual" else quarter,
+        }
+
+    @staticmethod
     def _first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
         for candidate in candidates:
             if candidate in df.columns:
@@ -251,10 +342,19 @@ class AkshareFinancialProvider(BaseFinancialProvider):
     def _coerce_number(value: Any) -> float | None:
         if value is None or (isinstance(value, float) and pd.isna(value)):
             return None
-        text = str(value).strip().replace(",", "").replace("%", "")
-        if not text or text.lower() == "nan":
+        text = str(value).strip().replace(",", "")
+        if not text or text.lower() in {"nan", "none", "false", "--", "-"}:
             return None
+        multiplier = 1.0
+        if text.endswith("%"):
+            text = text[:-1]
+        if text.endswith("亿"):
+            multiplier = 100000000.0
+            text = text[:-1]
+        elif text.endswith("万"):
+            multiplier = 10000.0
+            text = text[:-1]
         try:
-            return float(text)
+            return float(text) * multiplier
         except ValueError:
             return None
