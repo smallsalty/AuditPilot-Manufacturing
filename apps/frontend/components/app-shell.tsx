@@ -14,10 +14,10 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "总览", icon: LayoutDashboard },
+  { href: "/financials", label: "财报数据", icon: BarChart3 },
   { href: "/risks", label: "风险清单", icon: ShieldCheck },
   { href: "/audit-focus", label: "审计重点", icon: ClipboardList },
   { href: "/documents", label: "文档中心", icon: FileText },
-  { href: "/financials", label: "财报数据", icon: BarChart3 },
   { href: "/chat", label: "AI问答", icon: Bot },
 ];
 

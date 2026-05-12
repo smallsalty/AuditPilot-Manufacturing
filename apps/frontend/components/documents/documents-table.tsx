@@ -93,19 +93,19 @@ export function DocumentsTable({
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid max-w-[15rem] grid-cols-2 gap-2">
                       <Button
                         variant="outline"
                         onClick={() => onView(document)}
                         disabled={busy}
-                        className="h-8 whitespace-nowrap px-3"
+                        className="order-1 h-8 w-full justify-center whitespace-nowrap px-3"
                       >
                         查看抽取
                       </Button>
                       <Button
                         onClick={() => onParse(document)}
                         disabled={busy || document.parse_status === "parsing"}
-                        className="h-8 whitespace-nowrap px-3"
+                        className="order-3 h-8 w-full justify-center whitespace-nowrap px-3"
                       >
                         {document.parse_status === "parsed" ? "重新解析" : "解析"}
                       </Button>
@@ -113,7 +113,7 @@ export function DocumentsTable({
                         variant="secondary"
                         onClick={() => onOpenOriginal(document)}
                         disabled={busy}
-                        className="h-8 whitespace-nowrap px-3"
+                        className="order-2 h-8 w-full justify-center whitespace-nowrap px-3"
                       >
                         查看原文件
                       </Button>
@@ -121,7 +121,7 @@ export function DocumentsTable({
                         variant="destructive"
                         onClick={() => setDeleteTarget(document)}
                         disabled={busy}
-                        className="h-8 whitespace-nowrap px-3"
+                        className="order-4 h-8 w-full justify-center whitespace-nowrap px-3"
                       >
                         删除
                       </Button>

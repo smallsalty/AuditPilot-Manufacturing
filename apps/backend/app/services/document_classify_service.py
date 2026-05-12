@@ -44,6 +44,7 @@ class DocumentClassifyService:
     SUPPORTED_TYPES = {
         "annual_report",
         "annual_summary",
+        "quarter_report",
         "audit_report",
         "internal_control_report",
         "announcement_event",
@@ -51,7 +52,6 @@ class DocumentClassifyService:
     }
     SYNC_TYPE_ALIASES = {
         "interim_report": "general",
-        "quarter_report": "general",
         "special_report": "general",
     }
     TITLE_MATCH_TO_TYPE = {
@@ -123,6 +123,23 @@ class DocumentClassifyService:
                 "合并现金流量表",
                 "财务报表附注",
                 "年度报告全文",
+            ),
+        },
+        "quarter_report": {
+            "title": (
+                "季度报告",
+                "第一季度报告",
+                "第三季度报告",
+                "一季报",
+                "三季报",
+            ),
+            "body": (
+                "合并资产负债表",
+                "合并利润表",
+                "合并现金流量表",
+                "主要会计数据",
+                "主要财务指标",
+                "季度报告",
             ),
         },
         "announcement_event": {

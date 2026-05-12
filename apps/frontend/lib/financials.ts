@@ -6,7 +6,8 @@ const quarterWeight: Record<string, number> = {
   Q1: 1,
   Q2: 2,
   Q3: 3,
-  FY: 4,
+  Q4: 4,
+  FY: 5,
 };
 
 function isFiniteNumber(value: number | null | undefined): value is number {

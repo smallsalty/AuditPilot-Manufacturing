@@ -511,6 +511,7 @@ export type FinancialReportMetricSnapshot = {
   net_margin?: number | null;
   debt_ratio?: number | null;
   ocf?: number | null;
+  fixed_assets?: number | null;
   roe?: number | null;
   eps?: number | null;
 };
@@ -528,6 +529,7 @@ export type FinancialReportRowPayload = {
   net_margin?: number | null;
   debt_ratio?: number | null;
   ocf?: number | null;
+  fixed_assets?: number | null;
   roe?: number | null;
   eps?: number | null;
   source: string;
@@ -535,6 +537,16 @@ export type FinancialReportRowPayload = {
 
 export type FinancialReportSummaryItem = {
   text: string;
+};
+
+export type FinancialDataRiskItem = {
+  rule_code: string;
+  risk_name: string;
+  risk_level: string;
+  risk_score: number;
+  judgment: string;
+  evidence: string;
+  periods: string[];
 };
 
 export type FinancialReportPayload = {
@@ -553,6 +565,8 @@ export type FinancialReportPayload = {
   latest_metrics: FinancialReportMetricSnapshot;
   rows: FinancialReportRowPayload[];
   summaries: FinancialReportSummaryItem[];
+  data_risk_score: number;
+  data_risks: FinancialDataRiskItem[];
 };
 
 export type EnterpriseContextState = {

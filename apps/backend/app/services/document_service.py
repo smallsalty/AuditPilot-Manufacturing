@@ -39,12 +39,13 @@ class DocumentService:
         "audit_opinion",
         "internal_control",
     )
-    FINANCIAL_DOCUMENT_TYPES = {"annual_report", "annual_summary", "audit_report", "internal_control_report"}
+    FINANCIAL_DOCUMENT_TYPES = {"annual_report", "quarter_report", "audit_report", "internal_control_report"}
     CANDIDATE_LIMITS = {
         "announcement_event": 6,
         "audit_report": 6,
         "internal_control_report": 6,
         "annual_report": 10,
+        "quarter_report": 8,
         "annual_summary": 8,
         "general": 4,
     }
@@ -53,6 +54,7 @@ class DocumentService:
         "audit_report": 4,
         "internal_control_report": 4,
         "annual_report": 5,
+        "quarter_report": 4,
         "annual_summary": 4,
         "general": 2,
     }
@@ -625,7 +627,7 @@ class DocumentService:
         filtered = [entry for entry in entries if self._passes_type_signal(entry, classified_type)]
         return (filtered or entries)[:120]
 
-        if classified_type in {"annual_report", "annual_summary"}:
+        if classified_type in {"annual_report", "quarter_report", "annual_summary"}:
             entries = [entry for entry in entries if "目录" not in entry["text"][:8] and "......" not in entry["text"]]
         if classified_type == "audit_report":
             entries = [entry for entry in entries if any(token in entry["text"] for token in ("审计", "意见", "关键审计事项", "强调事项", "事务所"))] or entries
@@ -665,7 +667,7 @@ class DocumentService:
         for pattern in self.TYPE_NOISE_PATTERNS.get(classified_type, ()):
             if pattern.match(text):
                 return True
-        if classified_type in {"annual_report", "annual_summary"}:
+        if classified_type in {"annual_report", "quarter_report", "annual_summary"}:
             if "目录" in text[:10] or "......" in text or "………" in text:
                 return True
             if re.fullmatch(r"[A-Za-z0-9（）()\- ]{4,}", text):
@@ -681,7 +683,7 @@ class DocumentService:
     def _passes_type_signal(self, entry: dict[str, Any], classified_type: str) -> bool:
         text = entry["text"]
         section_title = entry.get("section_title") or ""
-        if classified_type in {"annual_report", "annual_summary"}:
+        if classified_type in {"annual_report", "quarter_report", "annual_summary"}:
             return bool(
                 self._detect_event_type(text)
                 or self._detect_opinion_type(text)
@@ -847,11 +849,11 @@ class DocumentService:
         financial_topics = [topic for topic in self.FINANCIAL_TOPICS if topic in text]
         applied_rules = [name for name, keywords in self.RULE_GROUPS.items() if any(keyword in text for keyword in keywords)]
         metric_name, metric_value, metric_unit = self._extract_metric(text)
-        event_type = self._detect_event_type(text if classified_type in {"announcement_event", "annual_report", "annual_summary"} else f"{document.document_name} {text}")
+        event_type = self._detect_event_type(text if classified_type in {"announcement_event", "annual_report", "quarter_report", "annual_summary"} else f"{document.document_name} {text}")
         opinion_type = self._detect_opinion_type(text)
         if not event_type and opinion_type:
             event_type = opinion_type
-        if not event_type and classified_type in {"annual_report", "annual_summary"} and (metric_name or financial_topics):
+        if not event_type and classified_type in {"annual_report", "quarter_report", "annual_summary"} and (metric_name or financial_topics):
             event_type = "financial_anomaly"
 
         if not any([financial_topics, applied_rules, metric_name, event_type, opinion_type]) and index > 8:
@@ -1426,7 +1428,7 @@ class DocumentService:
                 parameters["metric_unit"] = metric_unit
             if document.report_period_label:
                 parameters["period"] = document.report_period_label
-            if classified_type in {"annual_report", "annual_summary"}:
+            if classified_type in {"annual_report", "quarter_report", "annual_summary"}:
                 parameters["fiscal_year"] = document.fiscal_year
 
         return {key: value for key, value in parameters.items() if value not in (None, "", [])}
@@ -1692,7 +1694,7 @@ class DocumentService:
         for pattern in self.TYPE_NOISE_PATTERNS.get(classified_type, ()):
             if pattern.match(text):
                 return True
-        if classified_type in {"annual_report", "annual_summary"}:
+        if classified_type in {"annual_report", "quarter_report", "annual_summary"}:
             if "目录" in text[:10] or "......" in text or "……" in text:
                 return True
             if re.fullmatch(r"[A-Za-z0-9（）()\- ]{4,}", text):

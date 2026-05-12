@@ -168,6 +168,7 @@ class AnnouncementRiskService:
                 source_date=getattr(event, "announcement_date", None) or getattr(event, "event_date", None),
                 source_url=getattr(event, "source_url", None),
                 source_object_id=getattr(event, "source_object_id", None),
+                event_type=getattr(event, "event_type", None),
                 primary_match=primary_match,
                 title_matches=title_matches,
                 event_analysis=payload.get("event_analysis") if isinstance(payload, dict) else None,
@@ -188,6 +189,7 @@ class AnnouncementRiskService:
                 source_date=getattr(document, "announcement_date", None),
                 source_url=getattr(document, "source_url", None),
                 source_object_id=getattr(document, "source_object_id", None),
+                event_type=None,
                 primary_match=(diagnostics or {}).get("primary_title_match"),
                 title_matches=(diagnostics or {}).get("title_matches"),
                 event_analysis=None,
@@ -206,6 +208,7 @@ class AnnouncementRiskService:
         source_date: Any,
         source_url: Any,
         source_object_id: Any,
+        event_type: Any,
         primary_match: Any,
         title_matches: Any,
         event_analysis: Any,
@@ -216,6 +219,8 @@ class AnnouncementRiskService:
             return None
         matches = title_matches if isinstance(title_matches, list) else self.matcher.match_title_categories(title_text)
         selected = primary_match if isinstance(primary_match, dict) else self.matcher.select_primary_match(title_text, matches)
+        if str(event_type or "").strip() == "announcement_title_match" and not isinstance(primary_match, dict):
+            return None
         if not selected:
             return None
         if selected["category_code"] not in self.matcher.SUPPORTED_RISK_CATEGORY_CODES:

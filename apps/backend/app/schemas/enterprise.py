@@ -112,6 +112,7 @@ class FinancialReportMetricSnapshot(BaseModel):
     net_margin: float | None = None
     debt_ratio: float | None = None
     ocf: float | None = None
+    fixed_assets: float | None = None
     roe: float | None = None
     eps: float | None = None
 
@@ -129,6 +130,7 @@ class FinancialReportRowPayload(BaseModel):
     net_margin: float | None = None
     debt_ratio: float | None = None
     ocf: float | None = None
+    fixed_assets: float | None = None
     roe: float | None = None
     eps: float | None = None
     source: str
@@ -136,6 +138,16 @@ class FinancialReportRowPayload(BaseModel):
 
 class FinancialReportSummaryItem(BaseModel):
     text: str
+
+
+class FinancialDataRiskItem(BaseModel):
+    rule_code: str
+    risk_name: str
+    risk_level: str
+    risk_score: float
+    judgment: str
+    evidence: str
+    periods: list[str]
 
 
 class FinancialReportPayload(BaseModel):
@@ -151,3 +163,5 @@ class FinancialReportPayload(BaseModel):
     latest_metrics: FinancialReportMetricSnapshot
     rows: list[FinancialReportRowPayload]
     summaries: list[FinancialReportSummaryItem]
+    data_risk_score: float = 0.0
+    data_risks: list[FinancialDataRiskItem] = Field(default_factory=list)

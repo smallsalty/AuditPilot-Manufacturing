@@ -226,7 +226,7 @@ class DocumentPromptRegistry:
     }
     TYPE_ALIASES = {
         "interim_report": "general",
-        "quarter_report": "general",
+        "quarter_report": "annual_report",
         "special_report": "general",
     }
 

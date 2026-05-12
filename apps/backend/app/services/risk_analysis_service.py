@@ -27,6 +27,7 @@ from app.rule_engine.evaluator import RuleEvaluator
 from app.services.announcement_risk_service import AnnouncementRiskService
 from app.services.document_risk_service import DocumentRiskService
 from app.services.feature_engineering_service import FeatureEngineeringService
+from app.services.financial_data_risk_service import FinancialDataRiskService
 from app.services.industry_benchmark_service import IndustryBenchmarkService
 from app.services.industry_classifier_service import IndustryClassifierService
 from app.services.tax_risk_service import TaxRiskService
@@ -42,6 +43,7 @@ class RiskAnalysisService:
         self.explainer = RiskExplanationService()
         self.evidence_summary_service = EvidenceSummaryService()
         self.document_risk_service = DocumentRiskService()
+        self.financial_data_risk_service = FinancialDataRiskService()
         self.tax_risk_service = TaxRiskService()
         self.announcement_risk_service = AnnouncementRiskService()
         self.industry_classifier = IndustryClassifierService()
@@ -418,6 +420,7 @@ class RiskAnalysisService:
                 )
 
             self._persist_tax_risks(db, enterprise_id, run.id)
+            self._persist_financial_data_risk(db, enterprise_id, run.id, financials)
             announcement_payload = self._persist_announcement_risks(db, enterprise_id, run.id)
 
             anomaly = self._run_anomaly_detection(enterprise_id, run.id, features, financials)
@@ -622,6 +625,53 @@ class RiskAnalysisService:
                     payload={"rule_code": item["rule_code"], "reasons": item.get("reasons") or []},
                 )
             )
+
+    def _persist_financial_data_risk(
+        self,
+        db: Session,
+        enterprise_id: int,
+        run_id: int,
+        financials: list,
+    ) -> None:
+        data_risks = self.financial_data_risk_service.evaluate_indicators(financials)
+        if not data_risks:
+            return
+        top_risk = data_risks[0]
+        risk_level = self.financial_data_risk_service.result_level_code(top_risk)
+        evidence_chain = self._summarize_evidence_chain(
+            [
+                {
+                    "evidence_id": f"FD-{top_risk['rule_code']}",
+                    "evidence_type": "financial_indicator",
+                    "source": "akshare",
+                    "source_label": "AkShare",
+                    "title": top_risk["risk_name"],
+                    "snippet": top_risk["evidence"],
+                    "content": top_risk["evidence"],
+                    "report_period": ",".join(top_risk.get("periods") or []),
+                }
+            ],
+            default_title=top_risk["risk_name"],
+            default_type="financial_indicator",
+        )
+        result = RiskIdentificationResult(
+            enterprise_id=enterprise_id,
+            run_id=run_id,
+            rule_id=None,
+            rule_code=top_risk["rule_code"],
+            risk_name=top_risk["risk_name"],
+            risk_category="财务风险",
+            risk_level=risk_level,
+            risk_score=float(top_risk["risk_score"]),
+            source_type="financial_data",
+            reasons=[top_risk["judgment"], top_risk["evidence"]],
+            evidence_chain=evidence_chain,
+            feature_snapshot={"data_risks": data_risks},
+            llm_summary=top_risk["judgment"],
+            llm_explanation=self._serialize_llm_explanation(top_risk),
+        )
+        db.add(result)
+        db.flush()
 
     def _persist_announcement_risks(self, db: Session, enterprise_id: int, run_id: int) -> dict[str, Any]:
         payload = self.announcement_risk_service.build_announcement_risks(db, enterprise_id)

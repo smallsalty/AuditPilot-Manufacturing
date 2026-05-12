@@ -130,14 +130,14 @@ export function AuditHero({
             AuditPilot
           </p>
           <h2 className="mt-8 text-[2.72rem] font-black leading-[0.98] tracking-normal text-[#15130f] sm:text-[3.9rem] xl:text-[4.35rem]">
-            <span className="block whitespace-nowrap">别硬啃年报。</span>
-            <span className="mt-2 block whitespace-nowrap">让风险先出列。</span>
+            <span className="block whitespace-nowrap">让每一个null，</span>
+            <span className="mt-2 block whitespace-nowrap">在数据之下一览无余</span>
           </h2>
           <div className="mt-7 grid max-w-[23rem] grid-cols-[1fr_0.82fr] gap-x-5 gap-y-2 text-[1.02rem] font-medium leading-7 text-[#4a4030] sm:text-[1.08rem]">
-            <p>公告先过一遍。</p>
-            <p>财报再对一遍。</p>
-            <p>少点玄学。</p>
-            <p>多点证据。</p>
+            <p>文表对齐</p>
+            <p>事件联动</p>
+            <p>白盒审计</p>
+            <p>财税勾稽</p>
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link

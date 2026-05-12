@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import FinancialIndicator
 from app.repositories.enterprise_repository import EnterpriseRepository
+from app.services.financial_data_risk_service import FinancialDataRiskService
 from app.services.ingestion_service import IngestionService
 
 
@@ -20,6 +21,7 @@ class FinancialReportService:
         "net_margin": "net_margin",
         "debt_ratio": "debt_ratio",
         "operating_cash_flow": "ocf",
+        "fixed_assets": "fixed_assets",
         "roe": "roe",
         "eps": "eps",
     }
@@ -32,6 +34,7 @@ class FinancialReportService:
         "net_margin",
         "debt_ratio",
         "ocf",
+        "fixed_assets",
         "roe",
         "eps",
     )
@@ -39,6 +42,7 @@ class FinancialReportService:
     def __init__(self) -> None:
         self.enterprise_repo = EnterpriseRepository
         self.ingestion_service = IngestionService()
+        self.data_risk_service = FinancialDataRiskService()
 
     def build_report(
         self,
@@ -91,6 +95,7 @@ class FinancialReportService:
         latest_row = rows_desc[0]
         updated_at = self._resolve_updated_at(filtered_financials, documents)
         latest_period = latest_row["report_period"]
+        data_risks = self.data_risk_service.evaluate_rows(rows)
         period_range = {
             "start": rows_asc[0]["report_period"] if rows_asc else None,
             "end": rows_asc[-1]["report_period"] if rows_asc else None,
@@ -110,6 +115,8 @@ class FinancialReportService:
             "latest_metrics": self._build_latest_metrics(latest_row),
             "rows": rows_desc,
             "summaries": self._build_summaries(rows_desc),
+            "data_risk_score": self.data_risk_service.max_score(data_risks),
+            "data_risks": data_risks,
         }
 
     def _should_refresh(
@@ -157,6 +164,7 @@ class FinancialReportService:
                     "net_margin": None,
                     "debt_ratio": None,
                     "ocf": None,
+                    "fixed_assets": None,
                     "roe": None,
                     "eps": None,
                     "source": "AkShare + CNINFO" if label in document_periods else "AkShare",
@@ -172,15 +180,15 @@ class FinancialReportService:
         return rows
 
     def _populate_growth_fields(self, rows_asc: list[dict[str, Any]]) -> None:
-        for index, row in enumerate(rows_asc):
-            previous_row = rows_asc[index - 1] if index > 0 else None
+        for row in rows_asc:
+            previous_row = self._find_revenue_qoq_row(rows_asc, row)
             yoy_row = self._find_yoy_row(rows_asc, row)
 
             revenue = self._number(row.get("revenue"))
             previous_revenue = self._number(previous_row.get("revenue") if previous_row else None)
             yoy_revenue = self._number(yoy_row.get("revenue") if yoy_row else None)
 
-            if row["quarter"] != "FY" and revenue is not None and previous_revenue not in (None, 0):
+            if revenue is not None and previous_revenue not in (None, 0):
                 row["revenue_qoq"] = self._growth_rate(revenue, previous_revenue)
             else:
                 row["revenue_qoq"] = None
@@ -189,6 +197,31 @@ class FinancialReportService:
                 row["revenue_yoy"] = self._growth_rate(revenue, yoy_revenue)
             else:
                 row["revenue_yoy"] = None
+
+    def _find_revenue_qoq_row(
+        self,
+        rows_asc: list[dict[str, Any]],
+        row: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        quarter = str(row["quarter"])
+        year = int(row["year"])
+        if quarter == "FY":
+            target_year = year - 1
+            target_quarter = "FY"
+        elif quarter == "Q1":
+            target_year = year - 1
+            target_quarter = "Q4"
+        else:
+            quarter_number = self._quarter_number(quarter)
+            if quarter_number is None or quarter_number <= 1:
+                return None
+            target_year = year
+            target_quarter = f"Q{quarter_number - 1}"
+
+        for candidate in rows_asc:
+            if candidate["year"] == target_year and candidate["quarter"] == target_quarter:
+                return candidate
+        return None
 
     def _find_yoy_row(
         self,
@@ -325,6 +358,14 @@ class FinancialReportService:
     def _quarter_from_raw_period(self, report_period: str) -> int:
         month = int(str(report_period)[4:6]) if len(str(report_period)) >= 6 else 12
         return max(1, min(4, (month - 1) // 3 + 1))
+
+    def _quarter_number(self, quarter: str) -> int | None:
+        if not quarter.startswith("Q"):
+            return None
+        try:
+            return int(quarter[1:])
+        except ValueError:
+            return None
 
     def _row_sort_key(self, row: dict[str, Any]) -> tuple[int, int]:
         quarter_order = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4, "FY": 5}

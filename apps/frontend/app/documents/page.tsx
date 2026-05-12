@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { AnnouncementRiskItem, DocumentExtractItem, DocumentListItem, EnterpriseEventItem } from "@auditpilot/shared-types";
+import type { DocumentExtractItem, DocumentListItem, EnterpriseEventItem } from "@auditpilot/shared-types";
 
 import { AnnouncementRawEventsTable } from "@/components/documents/announcement-raw-events-table";
-import { AnnouncementRiskList } from "@/components/documents/announcement-risk-list";
-import { AnnouncementRiskSummaryPanel } from "@/components/documents/announcement-risk-summary-panel";
 import { DocumentDetailPanel } from "@/components/documents/document-detail-panel";
 import { DocumentFinancialPanel } from "@/components/documents/document-financial-panel";
 import { DocumentsTable } from "@/components/documents/documents-table";
@@ -19,6 +17,7 @@ import { useDocumentsResource, useEventsResource, useFinancialAnalysisResource, 
 
 const CLASSIFICATION_OPTIONS = [
   "annual_report",
+  "quarter_report",
   "annual_summary",
   "audit_report",
   "internal_control_report",
@@ -50,6 +49,11 @@ type PageAction =
   | { kind: "idle" }
   | { kind: "reading"; message: string }
   | { kind: "analyzing"; message: string };
+
+function hasEventBodyAnalysis(event: EnterpriseEventItem): boolean {
+  const analysis = event.event_analysis;
+  return Boolean(analysis?.summary || analysis?.key_facts?.length || analysis?.risk_points?.length || analysis?.audit_focus?.length);
+}
 
 export default function DocumentsPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources } = useEnterpriseContext();
@@ -152,9 +156,8 @@ export default function DocumentsPage() {
       ? EMPTY_REASON_LABELS[readiness.empty_reason]
       : "当前企业暂无文档。可先点击“重新收集巨潮资讯”或上传 PDF。";
 
-  const eventRiskSummary = enterpriseEvents?.risk_summary ?? null;
-  const announcementRisks = eventRiskSummary?.announcement_risks ?? [];
   const rawEvents = enterpriseEvents?.raw_events ?? [];
+  const visibleRawEvents = useMemo(() => rawEvents.filter(hasEventBodyAnalysis), [rawEvents]);
   const pendingParseDocuments = useMemo(
     () => (documents ?? []).filter((item) => item.parse_status !== "parsed" && item.parse_status !== "parsing"),
     [documents],
@@ -193,11 +196,6 @@ export default function DocumentsPage() {
     } finally {
       setPageAction({ kind: "idle" });
     }
-  };
-
-  const focusAnnouncementRisk = (risk: AnnouncementRiskItem) => {
-    setActiveEventId(risk.source_event_id ?? null);
-    setActiveEventFallbackKey(`${risk.source_title}::${risk.source_date ?? ""}`);
   };
 
   const parseEvent = async (event: EnterpriseEventItem) => {
@@ -563,7 +561,7 @@ export default function DocumentsPage() {
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">公告事件</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  展示已同步公告事件的解释结果和原始事件明细，不改现有评分与风险主链路。
+                  展示已同步公告事件的解释结果和原始事件明细。
                 </p>
               </div>
 
@@ -576,47 +574,22 @@ export default function DocumentsPage() {
                 <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
                   正在读取已同步公告事件...
                 </div>
-              ) : rawEvents.length === 0 && announcementRisks.length === 0 ? (
+              ) : visibleRawEvents.length === 0 ? (
                 <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
                   当前企业暂无已同步公告事件
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {announcementRisks.length > 0 && eventRiskSummary ? (
-                    <>
-                      <AnnouncementRiskSummaryPanel riskSummary={eventRiskSummary} />
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">事件解释层</p>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            正文分析仅展示关键事实，风险点独立编号展示；未完成正文分析时显示待分析提示。
-                          </p>
-                        </div>
-                        <AnnouncementRiskList
-                          risks={announcementRisks}
-                          activeEventId={activeEventId}
-                          activeFallbackKey={activeEventFallbackKey}
-                          onSelectRisk={focusAnnouncementRisk}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <Alert>
-                      <AlertTitle>事件解释暂未生成</AlertTitle>
-                      <AlertDescription>已同步公告事件，运行风险分析后生成事件解释</AlertDescription>
-                    </Alert>
-                  )}
-
                   <div className="space-y-3">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">原始事件层</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">公告分析链</p>
                       <p className="mt-2 text-sm text-muted-foreground">
                         按同步结果展示原始公告事件，用于核对标题命中、严重程度和来源链接。
                       </p>
                     </div>
-                    {rawEvents.length > 0 ? (
+                    {visibleRawEvents.length > 0 ? (
                       <AnnouncementRawEventsTable
-                        events={rawEvents}
+                        events={visibleRawEvents}
                         activeEventId={activeEventId}
                         activeFallbackKey={activeEventFallbackKey}
                         busy={pageAction.kind !== "idle"}

@@ -113,6 +113,15 @@ const SEVERITY_LABELS: Record<string, string> = {
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
+  "Announcement Equity Control Pledge": "股权控制/质押",
+  regulatory_litigation: "监管处罚与诉讼仲裁",
+  accounting_audit: "会计差错与审计意见",
+  fund_occupation_related_party_guarantee: "资金占用、关联交易与担保",
+  debt_liquidity_default: "债务逾期、违约与流动性风险",
+  announcement_equity_control_pledge: "股权控制/质押",
+  equity_control_pledge: "股权控制/质押",
+  performance_revision_impairment: "业绩修正、减值与非经常性损益",
+  governance_personnel_internal_control: "治理异常、人员变动与内控事件",
   announcement_title_match: "公告标题命中",
   share_repurchase: "股份回购",
   convertible_bond: "可转债",
@@ -352,16 +361,7 @@ function formatReadableFallbackValue(value: string): string {
   if (!normalized) {
     return "未映射项";
   }
-  return normalized
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => {
-      if (part.length <= 3) {
-        return part.toUpperCase();
-      }
-      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-    })
-    .join(" ");
+  return "未映射项目";
 }
 
 function resolveKnownLabel(value: string): string | null {

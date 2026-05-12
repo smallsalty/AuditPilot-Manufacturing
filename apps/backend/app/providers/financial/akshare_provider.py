@@ -77,6 +77,8 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         rows.extend(self._fetch_analysis_indicator_rows(ak, ticker, base_symbol, company_name, include_quarterly))
         rows.extend(self._fetch_ths_abstract_rows(ak, ticker, base_symbol, include_quarterly))
         rows.extend(self._fetch_tax_report_rows(ak, ticker, exchange_symbol, include_quarterly))
+        rows.extend(self._fetch_operating_cash_flow_rows(ak, ticker, exchange_symbol, include_quarterly))
+        rows.extend(self._fetch_fixed_asset_rows(ak, ticker, exchange_symbol, include_quarterly))
         return self._dedupe_rows(rows, include_quarterly=include_quarterly)
 
     def _fetch_analysis_indicator_rows(
@@ -241,6 +243,167 @@ class AkshareFinancialProvider(BaseFinancialProvider):
                         }
                     )
         return rows
+
+    def _fetch_operating_cash_flow_rows(
+        self,
+        ak_module: Any,
+        ticker: str,
+        exchange_symbol: str,
+        include_quarterly: bool,
+    ) -> list[dict[str, Any]]:
+        if not exchange_symbol:
+            return []
+        try:
+            df = ak_module.stock_cash_flow_sheet_by_report_em(symbol=exchange_symbol)
+        except Exception:
+            return []
+        if df is None or df.empty:
+            return []
+
+        normalized = df.copy()
+        normalized.columns = [str(column).strip() for column in normalized.columns]
+        date_column = self._first_existing_column(normalized, ["REPORT_DATE", "REPORT_DATE_NAME"])
+        if not date_column or "NETCASH_OPERATE" not in normalized.columns:
+            return []
+
+        cumulative: dict[int, dict[int, tuple[str, float]]] = {}
+        annual_rows: list[dict[str, Any]] = []
+        for _, record in normalized.iterrows():
+            timestamp = self._to_timestamp(record.get(date_column))
+            value = self._coerce_number(record.get("NETCASH_OPERATE"))
+            if timestamp is None or value is None:
+                continue
+            quarter = max(1, min(4, (int(timestamp.month) - 1) // 3 + 1))
+            year = int(timestamp.year)
+            report_period = timestamp.strftime("%Y%m%d")
+            cumulative.setdefault(year, {})[quarter] = (report_period, value)
+            if quarter == 4:
+                annual_rows.append(
+                    self._financial_row(
+                        ticker=ticker,
+                        period_type="annual",
+                        report_period=report_period,
+                        report_year=year,
+                        report_quarter=None,
+                        indicator_code="operating_cash_flow",
+                        indicator_name="经营现金流",
+                        value=value,
+                        unit="cny",
+                    )
+                )
+
+        quarterly_rows: list[dict[str, Any]] = []
+        if include_quarterly:
+            for year, periods in cumulative.items():
+                previous_value = 0.0
+                for quarter in range(1, 5):
+                    item = periods.get(quarter)
+                    if item is None:
+                        continue
+                    report_period, cumulative_value = item
+                    quarterly_rows.append(
+                        self._financial_row(
+                            ticker=ticker,
+                            period_type="quarterly",
+                            report_period=report_period,
+                            report_year=year,
+                            report_quarter=quarter,
+                            indicator_code="operating_cash_flow",
+                            indicator_name="经营现金流",
+                            value=cumulative_value - previous_value,
+                            unit="cny",
+                        )
+                    )
+                    previous_value = cumulative_value
+
+        return [*annual_rows, *quarterly_rows]
+
+    def _fetch_fixed_asset_rows(
+        self,
+        ak_module: Any,
+        ticker: str,
+        exchange_symbol: str,
+        include_quarterly: bool,
+    ) -> list[dict[str, Any]]:
+        if not exchange_symbol:
+            return []
+        try:
+            df = ak_module.stock_balance_sheet_by_report_em(symbol=exchange_symbol)
+        except Exception:
+            return []
+        if df is None or df.empty:
+            return []
+
+        normalized = df.copy()
+        normalized.columns = [str(column).strip() for column in normalized.columns]
+        date_column = self._first_existing_column(normalized, ["REPORT_DATE", "REPORT_DATE_NAME"])
+        if not date_column or "FIXED_ASSET" not in normalized.columns:
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for _, record in normalized.iterrows():
+            timestamp = self._to_timestamp(record.get(date_column))
+            value = self._coerce_number(record.get("FIXED_ASSET"))
+            if timestamp is None or value is None:
+                continue
+            quarter = max(1, min(4, (int(timestamp.month) - 1) // 3 + 1))
+            year = int(timestamp.year)
+            report_period = timestamp.strftime("%Y%m%d")
+            if quarter == 4:
+                rows.append(
+                    self._financial_row(
+                        ticker=ticker,
+                        period_type="annual",
+                        report_period=report_period,
+                        report_year=year,
+                        report_quarter=None,
+                        indicator_code="fixed_assets",
+                        indicator_name="固定资产",
+                        value=value,
+                        unit="cny",
+                    )
+                )
+            if include_quarterly:
+                rows.append(
+                    self._financial_row(
+                        ticker=ticker,
+                        period_type="quarterly",
+                        report_period=report_period,
+                        report_year=year,
+                        report_quarter=quarter,
+                        indicator_code="fixed_assets",
+                        indicator_name="固定资产",
+                        value=value,
+                        unit="cny",
+                    )
+                )
+        return rows
+
+    def _financial_row(
+        self,
+        *,
+        ticker: str,
+        period_type: str,
+        report_period: str,
+        report_year: int,
+        report_quarter: int | None,
+        indicator_code: str,
+        indicator_name: str,
+        value: float,
+        unit: str,
+    ) -> dict[str, Any]:
+        return {
+            "ticker": ticker.upper(),
+            "period_type": period_type,
+            "report_period": report_period,
+            "report_year": report_year,
+            "report_quarter": report_quarter,
+            "indicator_code": indicator_code,
+            "indicator_name": indicator_name,
+            "value": value,
+            "unit": unit,
+            "source": self.provider_name,
+        }
 
     def _dedupe_rows(self, rows: list[dict[str, Any]], *, include_quarterly: bool) -> list[dict[str, Any]]:
         deduped: dict[tuple[Any, ...], dict[str, Any]] = {}

@@ -1,15 +1,17 @@
 "use client";
 
-import type { ReactNode } from "react";
-import type { RiskResultPayload } from "@auditpilot/shared-types";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { FinancialReportPayload, RiskResultPayload } from "@auditpilot/shared-types";
 
 import { AuditHero } from "@/components/audit-hero";
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { EChart } from "@/components/echart";
 import { StatCard } from "@/components/stat-card";
-import { buildRadarOption, buildTrendOption, getSafeTopRisks } from "@/lib/dashboard";
+import { api } from "@/lib/api";
+import { buildRadarOption, getSafeTopRisks } from "@/lib/dashboard";
 import { formatRiskLevel, formatSourceType } from "@/lib/display-labels";
 import { useDashboardResource, useReadinessResource, useRiskResultsResource } from "@/lib/enterprise-resources";
+import { buildFinancialTrendOption, sortFinancialRowsDesc, type FinancialReportRow } from "@/lib/financials";
 
 function OverviewPanel({
   eyebrow,
@@ -72,6 +74,18 @@ function getAuditSuggestions(risk: RiskResultPayload) {
   return ["先看证据链", "再补审计程序"];
 }
 
+function getRecentFinancialRows(report: FinancialReportPayload | null): FinancialReportRow[] {
+  const rows = report?.rows ?? [];
+  const quarterlyRows = rows.filter((row) => row.quarter !== "FY");
+  const sourceRows = quarterlyRows.length ? quarterlyRows : rows.filter((row) => row.quarter === "FY");
+  if (!sourceRows.length) {
+    return [];
+  }
+
+  const latestYear = Math.max(...sourceRows.map((row) => row.year));
+  return sortFinancialRowsDesc(sourceRows.filter((row) => row.year >= latestYear - 2));
+}
+
 export default function DashboardPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, enterpriseLoading, enterpriseOptions } =
     useEnterpriseContext();
@@ -79,9 +93,51 @@ export default function DashboardPage() {
   const { data: dashboard, loading: dashboardLoading, error: dashboardError } = useDashboardResource(currentEnterpriseId);
   const { data: riskResults, loading: riskResultsLoading, error: riskResultsError } =
     useRiskResultsResource(currentEnterpriseId);
+  const [financialReport, setFinancialReport] = useState<FinancialReportPayload | null>(null);
+  const [financialLoading, setFinancialLoading] = useState(false);
+  const [financialError, setFinancialError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentEnterpriseId) {
+      setFinancialReport(null);
+      setFinancialError(null);
+      setFinancialLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setFinancialLoading(true);
+    setFinancialError(null);
+
+    api
+      .getFinancialReport(currentEnterpriseId, { includeQuarterly: true, signal: controller.signal })
+      .then((payload) => {
+        setFinancialReport(payload);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setFinancialReport(null);
+        setFinancialError(error instanceof Error ? error.message : "财报数据读取失败。");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setFinancialLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [currentEnterpriseId]);
 
   const radarOption = buildRadarOption(dashboard?.radar);
-  const trendOption = buildTrendOption(dashboard?.trend);
+  const financialRows = useMemo(() => getRecentFinancialRows(financialReport), [financialReport]);
+  const financialTrendOption = useMemo(
+    () => (financialRows.length ? buildFinancialTrendOption(financialRows) : null),
+    [financialRows],
+  );
   const topRisks = getSafeTopRisks(dashboard);
   const riskSuggestionRows = (riskResults ?? []).slice(0, 4);
   const analysisStatus = dashboard?.analysis_status ?? readiness?.risk_analysis_status ?? "not_started";
@@ -94,8 +150,9 @@ export default function DashboardPage() {
     .join(" | ");
   const radarSummary =
     analysisStatus === "completed" ? "看结构。别只看总分。" : "先跑分析。再看结构。";
-  const trendSummary =
-    analysisStatus === "completed" ? "分数在变。判断也该跟着变。" : "等分析落地。再看起伏。";
+  const financialSummary = financialRows.some((row) => row.quarter !== "FY")
+    ? "近三年季度。看收入、利润、现金流。"
+    : "近三年财年。看收入、利润、现金流。";
 
   return (
     <div className="space-y-6 pb-10">
@@ -143,21 +200,19 @@ export default function DashboardPage() {
           )}
         </OverviewPanel>
 
-        <OverviewPanel eyebrow="风险趋势" title="最近分析趋势" meta={dashboardMeta} summary={trendSummary}>
+        <OverviewPanel eyebrow="财报趋势" title="近三年财报" meta={dashboardMeta} summary={financialSummary}>
           {enterpriseError ? (
             <OverviewState tone="error">企业上下文初始化失败。</OverviewState>
-          ) : dashboardError ? (
-            <OverviewState tone="error">{dashboardError}</OverviewState>
-          ) : dashboardLoading ? (
-            <OverviewState>正在加载趋势数据...</OverviewState>
-          ) : analysisStatus !== "completed" ? (
-            <OverviewState>当前暂无可展示的趋势数据。</OverviewState>
-          ) : trendOption ? (
+          ) : financialError ? (
+            <OverviewState tone="error">{financialError}</OverviewState>
+          ) : financialLoading ? (
+            <OverviewState>正在加载财报数据...</OverviewState>
+          ) : financialTrendOption ? (
             <div className="audit-overview-chart h-[340px] rounded-[24px] border border-[#1d1912]/10 bg-[#fffdf7]/88 p-3">
-              <EChart height={316} option={trendOption} />
+              <EChart height={316} option={financialTrendOption} />
             </div>
           ) : (
-            <OverviewState>暂无合法趋势数据。</OverviewState>
+            <OverviewState>暂无近三年财报数据。</OverviewState>
           )}
         </OverviewPanel>
       </section>

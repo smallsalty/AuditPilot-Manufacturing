@@ -3,29 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RiskResultPayload } from "@auditpilot/shared-types";
 
+import { DocumentFinancialPanel } from "@/components/documents/document-financial-panel";
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { RiskTable } from "@/components/risk-table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { formatCacheState, getFinancialAnalysisLabel } from "@/lib/display-labels";
 import {
   useDashboardResource,
   useFinancialAnalysisResource,
   useReadinessResource,
   useRiskResultsResource,
 } from "@/lib/enterprise-resources";
-
-function formatTimestamp(value?: string | null): string {
-  if (!value) {
-    return "暂无";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("zh-CN", { hour12: false });
-}
 
 export default function RisksPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources, setCachedResource } =
@@ -68,7 +57,7 @@ export default function RisksPage() {
       return;
     }
     if (displayRisks.length > 0) {
-      setActionMessage(`当前已生成 ${displayRisks.length} 条风险项，优先展示文档证据和规则来源。`);
+      setActionMessage(`当前已生成 ${displayRisks.length} 条风险项。`);
       return;
     }
     if (readiness?.manual_parse_required) {
@@ -184,57 +173,7 @@ export default function RisksPage() {
           )}
 
           <Card>
-            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">财报专项分析</p>
-            <p className="mt-2 text-sm text-muted-foreground">{financialAnalysis?.summary ?? "当前尚未生成财报专项聚合结果。"}</p>
-            {financialAnalysis ? (
-              <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                <span>最近更新时间：{formatTimestamp(financialAnalysis.updated_at)}</span>
-                <span>摘要来源：{financialAnalysis.summary_mode === "llm" ? "DeepSeek" : "降级摘要"}</span>
-                <span>返回来源：{formatCacheState(financialAnalysis.cache_state)}</span>
-                <span>{financialAnalysisLoading ? "读取中" : "已就绪"}</span>
-              </div>
-            ) : null}
-            {financialAnalysis?.anomalies?.length ? (
-              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
-                <div className="space-y-3">
-                  {financialAnalysis.anomalies.slice(0, 6).map((item) => (
-                    <div key={`${item.document_id}-${item.title}`} className="rounded-xl border bg-muted/20 p-4">
-                      <p className="font-medium text-foreground">{getFinancialAnalysisLabel(item.title, item.canonical_risk_key)}</p>
-                      <p className="mt-2 text-sm text-muted-foreground">{item.summary}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {item.document_name}
-                        {item.period ? ` | ${item.period}` : ""}
-                        {item.metric_name ? ` | ${item.metric_name}` : ""}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <div className="space-y-4">
-                  <div className="rounded-xl border bg-muted/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">重点科目</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {financialAnalysis.focus_accounts.map((item) => (
-                        <span key={item} className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border bg-muted/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">建议程序</p>
-                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                      {financialAnalysis.recommended_procedures.map((item) => (
-                        <p key={item}>{item}</p>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
-                财报专项区只展示聚合后的异常、重点科目和建议程序，不重复文档明细。
-              </div>
-            )}
+            <DocumentFinancialPanel financialAnalysis={financialAnalysis} loading={financialAnalysisLoading} />
           </Card>
         </>
       )}

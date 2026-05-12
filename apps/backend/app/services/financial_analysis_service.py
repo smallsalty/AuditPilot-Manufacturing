@@ -44,8 +44,8 @@ class _SummaryInflightState:
 
 class FinancialAnalysisService:
     SNAPSHOT_KEY = "financial_analysis_snapshot"
-    SNAPSHOT_VERSION = "financial-analysis-snapshot:v1"
-    SUPPORTED_DOCUMENT_TYPES = {"annual_report", "annual_summary", "audit_report", "internal_control_report"}
+    SNAPSHOT_VERSION = "financial-analysis-snapshot:v2"
+    SUPPORTED_DOCUMENT_TYPES = {"annual_report", "quarter_report", "audit_report", "internal_control_report"}
     DEFAULT_PROCEDURES = [
         "实施趋势分析并复核异常波动原因",
         "结合附注与披露复核关键财务指标口径",
@@ -426,11 +426,12 @@ class FinancialAnalysisService:
             f"重点科目：{', '.join(focus_accounts[:8]) or '关键财务科目'}\n"
             f"异常摘要：{json.dumps(self._summarize_anomalies(anomalies[:6]), ensure_ascii=False)}\n"
             f"建议程序：{json.dumps(recommended_procedures[:6], ensure_ascii=False)}\n"
-            "请输出一个简短 JSON 对象，至少包含 summary 字段。"
+            "请输出一个简短 JSON 对象，至少包含 summary 字段。summary 必须是聚合判断，不要逐条复述异常摘要；"
+            "用 2-3 句说明主要问题集中在哪些指标、可能意味着什么、审计上最该关注什么。"
         )
         try:
             result = self.llm_client.chat_completion(
-                "你是一名财报审阅助手。请用中文生成简洁、可直接展示的财报专项摘要。",
+                "你是一名财报审阅助手。请用中文生成聚合判断式摘要，避免逐条复制输入。",
                 prompt,
                 json_mode=True,
                 request_kind="financial_analysis_summary",
@@ -591,7 +592,7 @@ class FinancialAnalysisService:
         top_period = periods[0] if periods else "当前期间"
         top_procedure = recommended_procedures[0] if recommended_procedures else "执行趋势复核和关键科目测试"
         return _SummaryResult(
-            summary=f"{enterprise_name} 在 {top_period} 的财报专项分析中，重点异常主要集中在 {top_accounts}，建议优先 {top_procedure}。",
+            summary=f"{enterprise_name} 在 {top_period} 的财报异常集中在 {top_accounts}。这些信号更像是指标口径与经营质量的组合问题，建议优先 {top_procedure}。",
             summary_mode="fallback",
             cache_state=cache_state,
             cached=False,
@@ -675,10 +676,11 @@ class FinancialAnalysisService:
             f"异常摘要：{json.dumps(self._summarize_anomalies(anomalies[:4]), ensure_ascii=False)}\n"
             f"建议程序：{json.dumps(recommended_procedures[:4], ensure_ascii=False)}\n"
             "请直接输出一段中文单段摘要，不要使用 JSON、列表、代码块或额外说明。"
+            "必须做聚合判断，不要逐条复制异常摘要；用 2-3 句说明主要问题集中在哪些指标、可能意味着什么、审计上最该关注什么。"
         )
         try:
             result = self.llm_client.chat_completion(
-                "你是一名财报审阅助手。请用中文生成简洁、可直接展示的财报专项摘要。",
+                "你是一名财报审阅助手。请用中文生成聚合判断式摘要，避免逐条复制输入。",
                 (
                     f"{prompt}\n"
                     "请输出完整的单段中文摘要，覆盖主要异常、重点科目和建议程序；不要省略，不要使用省略号，不要以未完成的半句结尾。"

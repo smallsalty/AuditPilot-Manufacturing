@@ -14,9 +14,7 @@ import { api } from "@/lib/api";
 import {
   buildFinancialTrendOption,
   formatMoney,
-  formatNumber,
   formatPercent,
-  generateFinancialSummaries,
   getLatestFinancialRow,
   sortFinancialRowsAsc,
   sortFinancialRowsDesc,
@@ -85,7 +83,7 @@ function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
           <TableRow>
             <TableHead>年份</TableHead>
             <TableHead>季度</TableHead>
-            <TableHead>report_period</TableHead>
+            <TableHead>报告期</TableHead>
             <TableHead className="text-right">营业收入</TableHead>
             <TableHead className="text-right">收入同比</TableHead>
             <TableHead className="text-right">收入环比</TableHead>
@@ -95,9 +93,8 @@ function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
             <TableHead className="text-right">净利率</TableHead>
             <TableHead className="text-right">资产负债率</TableHead>
             <TableHead className="text-right">经营现金流</TableHead>
+            <TableHead className="text-right">固定资产</TableHead>
             <TableHead className="text-right">ROE</TableHead>
-            <TableHead className="text-right">EPS</TableHead>
-            <TableHead>source</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -115,9 +112,8 @@ function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
               <TableCell className="text-right font-mono">{formatPercent(row.net_margin)}</TableCell>
               <TableCell className="text-right font-mono">{formatPercent(row.debt_ratio)}</TableCell>
               <TableCell className="text-right font-mono">{formatMoney(row.ocf)}</TableCell>
+              <TableCell className="text-right font-mono">{formatMoney(row.fixed_assets)}</TableCell>
               <TableCell className="text-right font-mono">{formatPercent(row.roe)}</TableCell>
-              <TableCell className="text-right font-mono">{formatNumber(row.eps)}</TableCell>
-              <TableCell className="whitespace-nowrap">{row.source}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -139,7 +135,7 @@ function buildMetricCards(latest: FinancialReportRow | null): MetricCard[] {
       label: "归母净利",
       value: formatMoney(latest?.net_profit),
       period,
-      hint: "归属母公司股东",
+      hint: "归属公司股东",
     },
     {
       label: "扣非净利",
@@ -166,6 +162,12 @@ function buildMetricCards(latest: FinancialReportRow | null): MetricCard[] {
       hint: "现金流量表",
     },
     {
+      label: "固定资产",
+      value: formatMoney(latest?.fixed_assets),
+      period,
+      hint: "期末余额",
+    },
+    {
       label: "资产负债率",
       value: formatPercent(latest?.debt_ratio),
       period,
@@ -176,12 +178,6 @@ function buildMetricCards(latest: FinancialReportRow | null): MetricCard[] {
       value: formatPercent(latest?.roe),
       period,
       hint: "净资产收益率",
-    },
-    {
-      label: "EPS",
-      value: formatNumber(latest?.eps),
-      period,
-      hint: "基本每股收益",
     },
   ];
 }
@@ -261,10 +257,7 @@ export default function FinancialsPage() {
   const ascendingRows = useMemo(() => sortFinancialRowsAsc(displayedRows), [displayedRows]);
   const latest = useMemo(() => getLatestFinancialRow(displayedRows), [displayedRows]);
   const metrics = useMemo(() => buildMetricCards(latest), [latest]);
-  const summaries = useMemo(
-    () => (report?.summaries?.length ? report.summaries.map((item) => item.text) : generateFinancialSummaries(displayedRows)),
-    [report?.summaries, displayedRows],
-  );
+  const dataRisks = report?.data_risks ?? [];
   const trendOption = useMemo(() => buildFinancialTrendOption(quarterlyRows), [quarterlyRows]);
   const firstPeriod = ascendingRows[0]?.report_period ?? "--";
   const lastPeriod = ascendingRows[ascendingRows.length - 1]?.report_period ?? "--";
@@ -403,14 +396,25 @@ export default function FinancialsPage() {
             </Card>
           </FinancialSection>
 
-          <FinancialSection title="自动摘要" description="基于接口返回数据。">
+          <FinancialSection title="数据风险" description="近4个季度波动规则、风险判定、评分和数据依据。">
             <Card className="financial-print-block">
               <ul className="flex flex-col gap-3 text-sm leading-6 text-foreground">
-                {summaries.map((summary) => (
-                  <li key={summary} className="border-l-2 border-primary/50 pl-3">
-                    {summary}
-                  </li>
-                ))}
+                {dataRisks.length ? (
+                  dataRisks.map((risk) => (
+                    <li key={risk.rule_code} className="border-l-2 border-primary/50 pl-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{risk.risk_name}</span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {risk.risk_level} / {risk.risk_score.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground">{risk.judgment}</p>
+                      <p>{risk.evidence}</p>
+                    </li>
+                  ))
+                ) : (
+                  <li className="border-l-2 border-primary/50 pl-3">近4个季度未触发数据风险规则。</li>
+                )}
               </ul>
             </Card>
           </FinancialSection>

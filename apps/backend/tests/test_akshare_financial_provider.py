@@ -58,11 +58,23 @@ def test_fetch_financials_uses_ths_abstract_when_analysis_indicator_is_empty(mon
 
         @staticmethod
         def stock_cash_flow_sheet_by_report_em(symbol: str):
-            return pd.DataFrame()
+            return pd.DataFrame(
+                [
+                    {"REPORT_DATE": "2025-03-31", "REPORT_TYPE": "一季报", "NETCASH_OPERATE": 100.0},
+                    {"REPORT_DATE": "2025-06-30", "REPORT_TYPE": "中报", "NETCASH_OPERATE": 250.0},
+                    {"REPORT_DATE": "2025-09-30", "REPORT_TYPE": "三季报", "NETCASH_OPERATE": 450.0},
+                    {"REPORT_DATE": "2025-12-31", "REPORT_TYPE": "年报", "NETCASH_OPERATE": 700.0},
+                ]
+            )
 
         @staticmethod
         def stock_balance_sheet_by_report_em(symbol: str):
-            return pd.DataFrame()
+            return pd.DataFrame(
+                [
+                    {"REPORT_DATE": "2025-03-31", "REPORT_TYPE": "一季报", "FIXED_ASSET": 800.0},
+                    {"REPORT_DATE": "2025-12-31", "REPORT_TYPE": "年报", "FIXED_ASSET": 900.0},
+                ]
+            )
 
     provider = AkshareFinancialProvider()
     provider._profile_provider = SimpleNamespace(
@@ -101,3 +113,10 @@ def test_fetch_financials_uses_ths_abstract_when_analysis_indicator_is_empty(mon
     assert quarterly["roe"]["value"] == 5.49
     assert quarter_four["gross_margin"]["report_quarter"] == 4
     assert quarter_four["gross_margin"]["value"] == 28.21
+    assert annual["operating_cash_flow"]["value"] == 700.0
+    assert annual["fixed_assets"]["value"] == 900.0
+    assert quarterly["operating_cash_flow"]["value"] == 100.0
+    assert quarterly["fixed_assets"]["value"] == 800.0
+    assert quarter_four["operating_cash_flow"]["report_quarter"] == 4
+    assert quarter_four["operating_cash_flow"]["value"] == 250.0
+    assert quarter_four["fixed_assets"]["value"] == 900.0

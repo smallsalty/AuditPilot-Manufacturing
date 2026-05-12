@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cleanDisplayText } from "@/lib/display-text";
-import { formatEventType, formatKnownLabel, formatSeverity } from "@/lib/display-labels";
+import { formatEventType, formatKnownLabel } from "@/lib/display-labels";
 
 function formatDate(value?: string | null): string {
   if (!value) {
@@ -26,6 +26,20 @@ function previewList(items?: string[]): string[] {
 function hasBodyAnalysis(event: EnterpriseEventItem): boolean {
   const analysis = event.event_analysis;
   return Boolean(analysis?.summary || analysis?.key_facts?.length || analysis?.risk_points?.length || analysis?.audit_focus?.length);
+}
+
+function riskScoreFromSeverity(severity: string | null | undefined): number {
+  const value = String(severity || "").toLowerCase();
+  if (value === "high") {
+    return 85;
+  }
+  if (value === "medium") {
+    return 60;
+  }
+  if (value === "low") {
+    return 35;
+  }
+  return 0;
 }
 
 function numberedItems(items: string[]) {
@@ -58,9 +72,9 @@ export function AnnouncementRawEventsTable({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-[34%]">标题</TableHead>
+            <TableHead className="w-[34%]">分析链</TableHead>
             <TableHead>事件类型</TableHead>
-            <TableHead>严重程度</TableHead>
+            <TableHead>风险评分</TableHead>
             <TableHead>主命中类别</TableHead>
             <TableHead>命中关键词</TableHead>
             <TableHead>日期</TableHead>
@@ -79,46 +93,28 @@ export function AnnouncementRawEventsTable({
             const analyzed = hasBodyAnalysis(event);
             const parseLabel = parsingEventId === event.id ? "解析中..." : analyzed ? "重新解析" : "解析";
             const displayTitle = cleanDisplayText(event.title, "暂无标题");
-            const displaySummary = cleanDisplayText(event.summary);
             return (
               <TableRow key={event.id} className={isActive ? "bg-primary/5" : undefined}>
                 <TableCell className="align-top">
                   <div className="space-y-2">
-                    <p className="font-medium text-foreground">{displayTitle}</p>
-                    {displaySummary ? <p className="text-xs text-muted-foreground">{displaySummary}</p> : null}
-                    {analysis ? (
-                      <div className="space-y-2 text-xs text-muted-foreground">
-                        <div className="space-y-1 rounded-lg border bg-muted/30 p-2">
-                          <div className="flex items-center gap-2">
-                            <Badge value="default" label="正文分析" />
-                            {event.event_analysis_status === "fallback" ? <span>降级结果</span> : null}
-                          </div>
-                          {keyFacts.length > 0 ? (
-                            <div>
-                              <p className="font-medium text-muted-foreground">关键事实</p>
-                              {numberedItems(keyFacts)}
-                            </div>
-                          ) : (
-                            <p>暂无关键事实</p>
-                          )}
-                        </div>
-                        {riskPoints.length > 0 ? (
-                          <div className="rounded-lg border bg-amber-50/60 p-2 text-amber-900">
-                            <p className="font-medium">风险点</p>
-                            {numberedItems(riskPoints)}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : event.sync_status === "parse_queued" ? (
-                      <div className="rounded-lg border border-dashed bg-muted/30 p-2 text-xs text-muted-foreground">
-                        正文分析排队中，可点击右侧“解析”手动生成。
-                      </div>
-                    ) : null}
+                    <div className="rounded-lg border bg-background p-2">
+                      <p className="text-xs font-medium text-muted-foreground">公告名称</p>
+                      <p className="mt-1 font-medium text-foreground">{displayTitle}</p>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">正文分析</p>
+                      {keyFacts.length > 0 ? numberedItems(keyFacts) : <p className="mt-1">待分析</p>}
+                      {event.event_analysis_status === "fallback" ? <p className="mt-1">降级结果</p> : null}
+                    </div>
+                    <div className="rounded-lg border bg-amber-50/60 p-2 text-xs text-amber-900">
+                      <p className="font-medium">风险点</p>
+                      {riskPoints.length > 0 ? numberedItems(riskPoints) : <p className="mt-1">暂无</p>}
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell className="align-top text-muted-foreground">{formatEventType(event.event_type)}</TableCell>
                 <TableCell className="align-top">
-                  <Badge value={event.severity.toUpperCase()} label={formatSeverity(event.severity)} />
+                  <Badge value={event.severity.toUpperCase()} label={`${riskScoreFromSeverity(event.severity)}分`} />
                 </TableCell>
                 <TableCell className="align-top text-muted-foreground">
                   {formatKnownLabel(primaryMatch?.category_name, "暂无")}

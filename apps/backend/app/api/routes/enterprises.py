@@ -135,7 +135,7 @@ def get_enterprise_documents(enterprise_id: int, db: Session = Depends(get_db)) 
                 "classification_signals": classification_meta.get("classification_signals") or [],
                 "parse_status": document.parse_status,
                 "source": document.source,
-                "supports_deep_dive": (document.classified_type or document.document_type) in {"annual_report", "annual_summary", "audit_report", "internal_control_report"},
+                "supports_deep_dive": (document.classified_type or document.document_type) in {"annual_report", "quarter_report", "audit_report", "internal_control_report"},
                 "extract_status": "ready" if extracts else ("failed" if document.parse_status == "failed" else "pending"),
                 "extract_family_summary": sorted({item.extract_family or "general" for item in extracts}),
                 "event_coverage": sorted({item.event_type or item.opinion_type for item in features if item.event_type or item.opinion_type}),
@@ -172,11 +172,13 @@ def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> 
         payload = event.payload if isinstance(event.payload, dict) else {}
         event_analysis = payload.get("event_analysis") if isinstance(payload, dict) else None
         event_analysis_meta = payload.get("event_analysis_meta") if isinstance(payload, dict) else None
+        if _hide_generic_title_event(event.event_type, payload, event_analysis):
+            continue
         raw_events.append(
             {
                 "id": event.id,
                 "title": clean_document_title(event.title),
-                "event_type": event.event_type,
+                "event_type": _display_event_type(event.event_type, payload),
                 "severity": event.severity,
                 "event_date": event.event_date.isoformat() if event.event_date else None,
                 "summary": clean_display_text(event.summary),
@@ -208,6 +210,36 @@ def get_enterprise_events(enterprise_id: int, db: Session = Depends(get_db)) -> 
         },
         "raw_events": raw_events,
     }
+
+
+def _primary_event_category(payload: dict) -> str | None:
+    primary = payload.get("primary_title_match") if isinstance(payload, dict) else None
+    if not isinstance(primary, dict):
+        return None
+    category = str(primary.get("category_code") or "").strip()
+    return category or None
+
+
+def _has_event_analysis(event_analysis: object) -> bool:
+    if not isinstance(event_analysis, dict):
+        return False
+    if str(event_analysis.get("summary") or "").strip():
+        return True
+    for key in ("risk_points", "key_facts", "audit_focus"):
+        value = event_analysis.get(key)
+        if isinstance(value, list) and any(str(item).strip() for item in value):
+            return True
+    return False
+
+
+def _hide_generic_title_event(event_type: str | None, payload: dict, event_analysis: object) -> bool:
+    return not _has_event_analysis(event_analysis)
+
+
+def _display_event_type(event_type: str | None, payload: dict) -> str | None:
+    if event_type == "announcement_title_match":
+        return _primary_event_category(payload) or "announcement_event"
+    return event_type
 
 
 @router.get("/enterprises/{enterprise_id}/financial-analysis")
