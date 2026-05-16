@@ -4,6 +4,7 @@ const ANALYSIS_STATUS_LABELS: Record<string, string> = {
   completed: "已完成",
   succeeded: "已完成",
   partial_fallback: "回退完成",
+  partial_failed: "部分完成",
   failed: "分析失败",
 };
 
@@ -26,9 +27,15 @@ const PARSE_STATUS_LABELS: Record<string, string> = {
 };
 
 const ANALYSIS_MODE_LABELS: Record<string, string> = {
-  llm_primary: "DeepSeek 主链",
-  hybrid_fallback: "LLM + 规则回退",
+  llm_primary: "模型主链",
+  dual_stage_llm: "文档+财报独立分析",
+  dual_stage_partial_fallback: "文档+财报部分回退",
+  dual_stage_partial_failed: "文档+财报部分失败",
+  hybrid_fallback: "模型+规则回退",
+  partial_failed: "部分分析失败",
+  skill_contract_failed: "输出格式校验失败",
   rule_only: "规则兜底",
+  failed: "分析失败",
 };
 
 const ANALYSIS_GROUP_LABELS: Record<string, string> = {
@@ -190,6 +197,17 @@ const CANONICAL_RISK_LABELS: Record<string, string> = {
   audit_opinion_issue: "审计意见异常风险",
   going_concern: "持续经营与审计意见风险",
   financing_pressure: "融资与资金压力风险",
+  tax_effective_rate_anomaly: "企业所得税有效税率异常风险",
+  tax_cashflow_mismatch: "税费现金流匹配异常风险",
+  deferred_tax_volatility: "递延所得税波动风险",
+  tax_payable_accrual: "应交税费挂账异常风险",
+  announcement_regulatory_litigation: "公告监管处罚与诉讼仲裁风险",
+  announcement_accounting_audit: "公告会计差错与审计意见风险",
+  announcement_related_party_guarantee: "公告资金占用、关联交易与担保风险",
+  announcement_debt_liquidity: "公告债务逾期与流动性风险",
+  announcement_equity_control_pledge: "公告股权变动与控制权风险",
+  announcement_performance_revision_impairment: "公告业绩修正与减值风险",
+  announcement_governance_internal_control: "公告治理异常与内控风险",
   governance_instability: "治理结构与高管稳定性风险",
   market_signal_conflict: "市场信号背离风险",
   uncategorized: "文档发现风险",
@@ -215,6 +233,22 @@ const RULE_CODE_LABELS: Record<string, string> = {
   GM_EXPENSE_ANOMALY: "盈利质量风险：毛利与费用结构异常",
   EXCESS_PROFIT_INDUSTRY_OUTLIER: "超额盈利与回款质量背离风险",
   DEBT_PRESSURE_HIGH: "融资与偿债压力风险",
+  TAX_ETR_ABNORMAL: "企业所得税有效税率异常风险",
+  TAX_CASHFLOW_MISMATCH: "税费现金流匹配异常风险",
+  DEFERRED_TAX_VOLATILITY: "递延所得税波动风险",
+  TAX_PAYABLE_ACCRUAL: "应交税费挂账异常风险",
+  ANNOUNCEMENT_REGULATORY_LITIGATION: "公告监管处罚与诉讼仲裁风险",
+  ANNOUNCEMENT_ACCOUNTING_AUDIT: "公告会计差错与审计意见风险",
+  ANNOUNCEMENT_FUND_OCCUPATION_GUARANTEE: "公告资金占用、关联交易与担保风险",
+  ANNOUNCEMENT_DEBT_LIQUIDITY_DEFAULT: "公告债务逾期与流动性风险",
+  ANNOUNCEMENT_EQUITY_CONTROL_PLEDGE: "公告股权变动与控制权风险",
+  ANNOUNCEMENT_PERFORMANCE_IMPAIRMENT: "公告业绩修正与减值风险",
+  ANNOUNCEMENT_GOVERNANCE_INTERNAL_CONTROL: "公告治理异常与内控风险",
+  FIN_DATA_REVENUE_VOLATILITY: "收入波动异常",
+  FIN_DATA_PROFIT_CASH_MISMATCH: "利润现金错配",
+  FIN_DATA_MARGIN_DECLINE: "利润率下滑",
+  FIN_DATA_LEVERAGE_PRESSURE: "杠杆压力",
+  FIN_DATA_FIXED_ASSET_VOLATILITY: "固定资产异常波动",
 };
 
 export const CANONICAL_RISK_KEYS = [
@@ -228,6 +262,17 @@ export const CANONICAL_RISK_KEYS = [
   "audit_opinion_issue",
   "going_concern",
   "financing_pressure",
+  "tax_effective_rate_anomaly",
+  "tax_cashflow_mismatch",
+  "deferred_tax_volatility",
+  "tax_payable_accrual",
+  "announcement_regulatory_litigation",
+  "announcement_accounting_audit",
+  "announcement_related_party_guarantee",
+  "announcement_debt_liquidity",
+  "announcement_equity_control_pledge",
+  "announcement_performance_revision_impairment",
+  "announcement_governance_internal_control",
   "governance_instability",
   "market_signal_conflict",
   "uncategorized",
@@ -253,7 +298,8 @@ export function formatParseStatus(value: string | null | undefined): string {
 }
 
 export function formatAnalysisMode(value: string | null | undefined): string {
-  return formatMappedValue(value, ANALYSIS_MODE_LABELS, "待生成");
+  const label = formatMappedValue(value, ANALYSIS_MODE_LABELS, "待生成");
+  return isUnmappedLabel(label) ? "其他分析模式" : label;
 }
 
 export function formatAnalysisGroup(value: string | null | undefined): string {
@@ -313,11 +359,15 @@ export function formatStatus(value: string | null | undefined): string {
 }
 
 export function formatCanonicalRiskKey(value: string | null | undefined): string {
-  return formatMappedValue(value, CANONICAL_RISK_LABELS);
+  const label = formatMappedValue(value, CANONICAL_RISK_LABELS);
+  return isUnmappedLabel(label) ? "其他风险" : label;
 }
 
 export function formatRuleCode(value: string | null | undefined): string {
-  return formatMappedValue(value, RULE_CODE_LABELS);
+  const label = formatMappedValue(value, RULE_CODE_LABELS);
+  if (!isUnmappedLabel(label)) return label;
+  const canonicalLabel = formatMappedValue(value, CANONICAL_RISK_LABELS);
+  return isUnmappedLabel(canonicalLabel) ? "其他规则" : canonicalLabel;
 }
 
 const KNOWN_LABEL_GROUPS: Array<Record<string, string>> = [
@@ -330,6 +380,7 @@ const KNOWN_LABEL_GROUPS: Array<Record<string, string>> = [
   DOCUMENT_TYPE_LABELS,
   SOURCE_NAME_LABELS,
   ANALYSIS_STATUS_LABELS,
+  ANALYSIS_MODE_LABELS,
 ];
 
 function normalizeLabelKey(value: string): string {
@@ -381,6 +432,10 @@ export function formatKnownLabel(value: string | null | undefined, fallback = "-
   return resolveKnownLabel(value) ?? formatReadableFallbackValue(value);
 }
 
+export function isUnmappedLabel(value: string | null | undefined): boolean {
+  return !value || value === "--" || value === "未映射项" || value === "未映射项目";
+}
+
 export function getFinancialAnalysisLabel(...values: Array<string | null | undefined>): string {
   for (const value of values) {
     if (!value) {
@@ -392,6 +447,7 @@ export function getFinancialAnalysisLabel(...values: Array<string | null | undef
     }
   }
   const firstValue = values.find((value): value is string => Boolean(value?.trim()));
-  return firstValue ? formatReadableFallbackValue(firstValue) : "--";
+  const fallbackLabel = firstValue ? formatReadableFallbackValue(firstValue) : "--";
+  return isUnmappedLabel(fallbackLabel) ? "其他风险" : fallbackLabel;
 }
 

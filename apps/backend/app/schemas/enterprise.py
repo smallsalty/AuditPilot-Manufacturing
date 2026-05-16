@@ -72,6 +72,7 @@ class ScoreBlock(BaseModel):
     financial: float
     operational: float
     compliance: float
+    text_warning: float = 0.0
 
 
 class RadarPoint(BaseModel):

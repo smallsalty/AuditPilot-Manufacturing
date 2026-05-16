@@ -44,6 +44,7 @@ export type DashboardPayload = {
     financial: number;
     operational: number;
     compliance: number;
+    text_warning?: number;
   };
   analysis_status: AnalysisStatus;
   last_run_at?: string | null;
@@ -470,9 +471,15 @@ export type FinancialAnomalyItem = {
   metric_value?: number | null;
   metric_unit?: string | null;
   period?: string | null;
+  fiscal_year?: number | null;
+  fiscal_quarter?: number | null;
+  document_report_period?: string | null;
+  announcement_date?: string | null;
   section_title?: string | null;
   page_start?: number | null;
   page_end?: number | null;
+  risk_score?: number | null;
+  risk_level?: string | null;
 };
 
 export type FinancialEvidenceItem = {

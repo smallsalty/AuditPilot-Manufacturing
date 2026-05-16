@@ -69,25 +69,25 @@ export function AnnouncementRiskList({
             type="button"
             onClick={() => onSelectRisk(risk)}
             className={[
-              "w-full rounded-xl border bg-background p-4 text-left transition-colors",
-              isActive ? "border-primary/40 bg-primary/5" : "hover:bg-muted/40",
+              "audit-subpanel w-full rounded-2xl border border-[#1d1912]/10 p-4 text-left transition-colors",
+              isActive ? "border-[#e24c74]/45 bg-[#e24c74]/10" : "hover:bg-[#f8f3e8]",
             ].join(" ")}
           >
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium text-foreground">{risk.event_name}</p>
+                  <p className="font-black text-[#15130f]">{risk.event_name}</p>
                   <Badge value={risk.risk_level.toUpperCase()} />
                   <Badge value="default" label={`${risk.risk_score} 分`} />
                   <Badge value="default" label={formatAnalysisStatus(risk.analysis_status)} />
                 </div>
-                <p className="text-sm text-muted-foreground">{risk.event_category}</p>
+                <p className="text-sm font-semibold text-[#5d503b]">{risk.event_category}</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[#8a7759]">
                 <span>{formatDate(risk.source_date)}</span>
                 {risk.source_url ? (
                   <span
-                    className="cursor-pointer text-xs text-primary"
+                    className="cursor-pointer text-xs text-[#8f3148]"
                     onClick={(event) => {
                       event.stopPropagation();
                       window.open(risk.source_url ?? undefined, "_blank", "noopener,noreferrer");
@@ -99,24 +99,24 @@ export function AnnouncementRiskList({
               </div>
             </div>
             {hasAnalysis ? (
-              <div className="mt-3 rounded-lg border bg-muted/30 p-3 text-sm leading-6 text-foreground">
-                <p className="text-xs font-medium text-muted-foreground">风险点</p>
+              <div className="mt-3 rounded-xl border border-[#1d1912]/10 bg-[#fffdf7]/85 p-3 text-sm font-semibold leading-6 text-[#3f3628]">
+                <p className="audit-label">风险点</p>
                 {displayRiskPoints.length > 0 ? (
-                  <div className="mt-2 text-sm text-foreground">{numberedItems(displayRiskPoints)}</div>
+                  <div className="mt-2 text-sm text-[#3f3628]">{numberedItems(displayRiskPoints)}</div>
                 ) : null}
                 {auditFocus.length > 0 ? (
-                  <p className="mt-2 text-xs text-muted-foreground">审计关注：{auditFocus.join("；")}</p>
+                  <p className="mt-2 text-xs text-[#5d503b]">审计关注：{auditFocus.join("；")}</p>
                 ) : null}
                 {evidenceExcerpt ? (
-                  <p className="mt-2 text-xs text-muted-foreground">正文证据：{evidenceExcerpt}</p>
+                  <p className="mt-2 text-xs text-[#5d503b]">正文证据：{evidenceExcerpt}</p>
                 ) : null}
               </div>
             ) : (
-              <div className="mt-3 rounded-lg border border-dashed bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
+              <div className="mt-3 rounded-xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-3 text-sm font-semibold leading-6 text-[#6c5d45]">
                 {risk.explanation}
               </div>
             )}
-            <div className="mt-3 rounded-lg bg-muted/40 p-3 text-sm text-foreground">{risk.source_title}</div>
+            <div className="mt-3 rounded-xl border border-[#1d1912]/10 bg-[#fffdf7]/85 p-3 text-sm font-semibold text-[#3f3628]">{risk.source_title}</div>
           </button>
         );
       })}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -13,6 +14,36 @@ from app.repositories.enterprise_repository import EnterpriseRepository
 class AnnouncementRiskService:
     LOOKBACK_DAYS = 365
     REPEAT_WINDOW_DAYS = 90
+    GENERIC_REPORT_PHRASES = (
+        "审计报告",
+        "内部控制审计报告",
+        "内部控制评价报告",
+        "内部控制报告",
+        "年度报告",
+        "半年度报告",
+        "季度报告",
+    )
+    SUBSTANTIVE_TITLE_SIGNALS = (
+        "缺陷",
+        "非标",
+        "保留意见",
+        "否定意见",
+        "无法表示意见",
+        "强调事项",
+        "会计差错",
+        "更正",
+        "整改",
+        "处罚",
+        "问询",
+        "立案",
+        "诉讼",
+        "仲裁",
+        "担保",
+        "资金占用",
+        "违规",
+        "失控",
+        "重大风险",
+    )
     SCORE_BY_LEVEL = {
         "low": 42.0,
         "medium": 58.0,
@@ -217,6 +248,8 @@ class AnnouncementRiskService:
         title_text = str(title or "").strip()
         if not title_text:
             return None
+        if self._is_generic_report_title(title_text):
+            return None
         matches = title_matches if isinstance(title_matches, list) else self.matcher.match_title_categories(title_text)
         selected = primary_match if isinstance(primary_match, dict) else self.matcher.select_primary_match(title_text, matches)
         if str(event_type or "").strip() == "announcement_title_match" and not isinstance(primary_match, dict):
@@ -327,7 +360,38 @@ class AnnouncementRiskService:
     def _has_valid_event_analysis(self, event_analysis: Any) -> bool:
         if not isinstance(event_analysis, dict):
             return False
-        return bool(self._analysis_list(event_analysis, "risk_points") or self._analysis_summary(event_analysis))
+        if self._analysis_list(event_analysis, "risk_points"):
+            return True
+        if self._analysis_list(event_analysis, "audit_focus") or self._analysis_list(event_analysis, "amounts"):
+            return True
+        key_facts = self._analysis_list(event_analysis, "key_facts")
+        evidence = self._analysis_evidence(event_analysis) or ""
+        return bool(key_facts and self._contains_substantive_signal(" ".join([*key_facts, evidence])))
+
+    def _contains_substantive_signal(self, text: str) -> bool:
+        compact = str(text or "").strip()
+        if not compact:
+            return False
+        if any(signal in compact for signal in self.SUBSTANTIVE_TITLE_SIGNALS):
+            return True
+        return bool(re.search(r"\d+(?:,\d{3})*(?:\.\d+)?\s*(亿元|万元|元|股|%|％|个百分点)", compact))
+
+    def _is_generic_report_title(self, title: str) -> bool:
+        compact = re.sub(r"[\s（）()【】\[\]《》<>:：,，.。_-]+", "", str(title or ""))
+        if not compact:
+            return False
+        if any(signal in compact for signal in self.SUBSTANTIVE_TITLE_SIGNALS):
+            return False
+        if not any(phrase in compact for phrase in self.GENERIC_REPORT_PHRASES):
+            return False
+        report_only_patterns = (
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度|第一季度|一季度|第三季度|三季度|季度)?)?内部控制审计报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度)?)?内部控制评价报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度)?)?内部控制报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度)?)?审计报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}20\d{2}年?(年度|半年度|第一季度|一季度|第三季度|三季度|季度)?报告(摘要)?(的公告)?$",
+        )
+        return any(re.fullmatch(pattern, compact) for pattern in report_only_patterns)
 
     def _analysis_evidence(self, event_analysis: Any) -> str | None:
         if not isinstance(event_analysis, dict):

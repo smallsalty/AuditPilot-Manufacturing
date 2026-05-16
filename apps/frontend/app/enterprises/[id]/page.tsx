@@ -122,25 +122,25 @@ export default function EnterpriseDetailPage() {
       <Card>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">企业审计概览</p>
-            <h2 className="mt-3 text-3xl font-semibold text-foreground">
+            <p className="audit-label">企业审计概览</p>
+            <h2 className="audit-title mt-3 text-3xl">
               {state.profile?.company.name ?? "企业审计概览"}
             </h2>
-            <p className="mt-2 text-muted-foreground">
+            <p className="audit-copy mt-2 text-sm">
               {state.profile
                 ? `${state.profile.company.ticker} | ${state.profile.company.industry_tag} | ${formatExchange(state.profile.company.exchange)}`
                 : "查看企业主数据、公告时间线、监管信号和同步状态。"}
             </p>
-            {syncMessage ? <p className="mt-3 text-sm text-amber-700">{syncMessage}</p> : null}
+            {syncMessage ? <p className="mt-3 text-sm font-semibold text-[#7a4b14]">{syncMessage}</p> : null}
             {syncSummary && (syncSummary.warnings.length > 0 || syncSummary.errors.length > 0) ? (
               <div className="mt-3 space-y-2 text-sm">
                 {syncSummary.warnings.map((item) => (
-                  <p key={item} className="text-amber-700">
+                  <p key={item} className="text-[#7a4b14]">
                     提示：{item}
                   </p>
                 ))}
                 {syncSummary.errors.map((item) => (
-                  <p key={item} className="text-red-200">
+                  <p key={item} className="text-[#8c2e22]">
                     错误：{item}
                   </p>
                 ))}
@@ -160,55 +160,55 @@ export default function EnterpriseDetailPage() {
 
       {state.loading ? (
         <Card>
-          <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">正在加载审计概览...</div>
+          <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-5 text-sm font-semibold text-[#6c5d45]">正在加载审计概览...</div>
         </Card>
       ) : state.error ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">{state.error}</div>
+          <div className="rounded-2xl border border-[#c94b35]/25 bg-[#c94b35]/10 p-5 text-sm font-semibold text-[#8c2e22]">{state.error}</div>
         </Card>
       ) : !state.profile ? (
         <Card>
-          <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">当前企业暂无审计概览数据。</div>
+          <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-5 text-sm font-semibold text-[#6c5d45]">当前企业暂无审计概览数据。</div>
         </Card>
       ) : (
         <>
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">同步状态</p>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
+              <p className="audit-label">同步状态</p>
+              <p className="mt-3 text-2xl font-black text-[#15130f]">
                 {formatSyncStatus(state.readiness?.sync_status ?? state.profile.sync_status)}
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="audit-copy mt-2 text-sm">
                 最近同步：{state.readiness?.last_sync_at ?? state.profile.latest_sync_at ?? "尚未同步"}
               </p>
             </Card>
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">官方文档</p>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
+              <p className="audit-label">官方文档</p>
+              <p className="mt-3 font-mono text-2xl font-black text-[#15130f]">
                 {state.readiness?.official_doc_count ?? state.profile.document_count}
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">最近文档：{state.profile.latest_document_date ?? "暂无"}</p>
+              <p className="audit-copy mt-2 text-sm">最近文档：{state.profile.latest_document_date ?? "暂无"}</p>
             </Card>
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">监管事件</p>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
+              <p className="audit-label">监管事件</p>
+              <p className="mt-3 font-mono text-2xl font-black text-[#15130f]">
                 {state.readiness?.official_event_count ?? state.profile.penalty_count}
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">最近事件：{state.profile.latest_penalty_date ?? "暂无"}</p>
+              <p className="audit-copy mt-2 text-sm">最近事件：{state.profile.latest_penalty_date ?? "暂无"}</p>
             </Card>
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">风险分析状态</p>
-              <p className="mt-3 text-2xl font-semibold text-foreground">
+              <p className="audit-label">风险分析状态</p>
+              <p className="mt-3 text-2xl font-black text-[#15130f]">
                 {formatAnalysisStatus(state.readiness?.risk_analysis_status ?? state.profile.data_sources?.risk_analysis_status)}
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">问答可用：{state.readiness?.qa_ready ? "是" : "否"}</p>
+              <p className="audit-copy mt-2 text-sm">问答可用：{state.readiness?.qa_ready ? "是" : "否"}</p>
             </Card>
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">企业主数据</p>
-              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+              <p className="audit-label">企业主数据</p>
+              <div className="audit-copy mt-4 space-y-3 text-sm">
                 <p>企业名称：{state.profile.company.name}</p>
                 <p>股票代码：{state.profile.company.ticker}</p>
                 <p>行业：{state.profile.company.industry_tag}</p>
@@ -217,23 +217,23 @@ export default function EnterpriseDetailPage() {
                   所在地：{state.profile.company.province ?? "--"} / {state.profile.company.city ?? "--"}
                 </p>
                 <p>上市日期：{state.profile.company.listed_date ?? "--"}</p>
-                <p className="pt-2 text-muted-foreground">{state.profile.company.description ?? "暂无企业描述。"}</p>
+                <p className="pt-2">{state.profile.company.description ?? "暂无企业描述。"}</p>
               </div>
             </Card>
 
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">数据来源与状态</p>
-              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-                <div className="rounded-xl border bg-muted/20 p-4">
+              <p className="audit-label">数据来源与状态</p>
+              <div className="mt-4 space-y-3 text-sm font-semibold text-[#5d503b]">
+                <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
                   企业主数据来源：{formatSourceName(state.profile.data_sources?.profile ?? "akshare_fast")}
                 </div>
-                <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
                   公告与文档来源：{formatSourceName(state.profile.data_sources?.documents ?? "cninfo / upload")}
                 </div>
-                <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
                   事件来源：{formatSourceName(state.profile.data_sources?.events ?? "cninfo / upload")}
                 </div>
-                <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
                   当前风险分析状态：{formatAnalysisStatus(state.profile.data_sources?.risk_analysis_status)}
                 </div>
               </div>
@@ -242,19 +242,19 @@ export default function EnterpriseDetailPage() {
 
           <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">时间线</p>
+              <p className="audit-label">时间线</p>
               {timelineItems.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {timelineItems.map((item) => (
-                    <div key={item.id} className="rounded-xl border bg-muted/20 p-4">
+                    <div key={item.id} className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="font-medium text-foreground">{item.title}</p>
-                        <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                        <p className="font-black text-[#15130f]">{item.title}</p>
+                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8a7759]">
                           {formatTimelineItemType(item.item_type)} | {item.date ?? "未知日期"}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-muted-foreground">{item.summary}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <p className="mt-2 text-sm font-semibold text-[#5d503b]">{item.summary}</p>
+                      <p className="mt-2 text-xs font-semibold text-[#8a7759]">
                         {formatSourceName(item.source)} | {formatStatus(item.status)}
                         {item.severity ? ` | ${formatSeverity(item.severity)}` : ""}
                       </p>
@@ -262,30 +262,30 @@ export default function EnterpriseDetailPage() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-4 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                <div className="mt-4 rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                   当前暂无官方文档或监管事件时间线。
                 </div>
               )}
             </Card>
 
             <Card>
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">风险摘要</p>
+              <p className="audit-label">风险摘要</p>
               {state.riskSummary ? (
                 <div className="mt-4 space-y-3">
                   {state.riskSummary.highlights.length ? (
                     state.riskSummary.highlights.map((item) => (
-                      <div key={item} className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                      <div key={item} className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4 text-sm font-semibold text-[#5d503b]">
                         {item}
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                    <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                       当前暂无可展示的风险摘要。
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="mt-4 rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                <div className="mt-4 rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                   当前暂无结构化风险摘要。
                 </div>
               )}

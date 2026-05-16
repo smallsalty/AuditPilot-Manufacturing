@@ -50,6 +50,10 @@ type PageAction =
   | { kind: "reading"; message: string }
   | { kind: "analyzing"; message: string };
 
+function formatSyncDate(value?: string | null): string {
+  return value ? value.slice(0, 10) : "暂无";
+}
+
 function hasEventBodyAnalysis(event: EnterpriseEventItem): boolean {
   const analysis = event.event_analysis;
   return Boolean(analysis?.summary || analysis?.key_facts?.length || analysis?.risk_points?.length || analysis?.audit_focus?.length);
@@ -80,7 +84,7 @@ export default function DocumentsPage() {
   const [activeEventFallbackKey, setActiveEventFallbackKey] = useState<string | null>(null);
   const [parsingEventId, setParsingEventId] = useState<number | null>(null);
   const [extracts, setExtracts] = useState<DocumentExtractItem[]>([]);
-  const [message, setMessage] = useState("支持 PDF 或文本文件。文档需手动解析，解析结果会显示规则命中、结构化字段和财报专项结果。");
+  const [message, setMessage] = useState("");
   const [syncGapRetryCount, setSyncGapRetryCount] = useState(0);
   const [pageAction, setPageAction] = useState<PageAction>({ kind: "idle" });
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -347,6 +351,30 @@ export default function DocumentsPage() {
     }
   };
 
+  const deleteEvent = async (event: EnterpriseEventItem) => {
+    if (!currentEnterpriseId) {
+      return;
+    }
+    setPageAction({ kind: "analyzing", message: "正在删除公告事件并刷新列表..." });
+    try {
+      await api.deleteEvent(event.id);
+      if (activeEventId === event.id) {
+        setActiveEventId(null);
+        setActiveEventFallbackKey(null);
+      }
+      invalidateEnterpriseResources(currentEnterpriseId, ["events", "readiness", "riskResults", "dashboard", "auditFocus"]);
+      await Promise.allSettled([
+        refreshEvents({ force: true }),
+        refreshReadiness({ force: true }),
+      ]);
+      setMessage(`已删除公告事件 ${event.title}。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "公告事件删除失败。");
+    } finally {
+      setPageAction({ kind: "idle" });
+    }
+  };
+
   const updateClassification = async (document: DocumentListItem, classifiedType: string) => {
     setPageAction({ kind: "analyzing", message: "正在重算文档分类并刷新分析结果..." });
     try {
@@ -476,32 +504,27 @@ export default function DocumentsPage() {
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Card className="p-5">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">官方文档</p>
-              <p className="mt-3 text-3xl font-semibold text-foreground">{readiness?.official_doc_count ?? 0}</p>
-              <p className="mt-2 text-sm text-muted-foreground">同步后进入当前企业文档池的文档数量。</p>
+              <p className="audit-label">官方文档</p>
+              <p className="mt-3 font-mono text-3xl font-black text-[#15130f]">{readiness?.official_doc_count ?? 0}</p>
             </Card>
             <Card className="p-5">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">待手动解析</p>
-              <p className="mt-3 text-3xl font-semibold text-foreground">{readiness?.documents_pending_parse ?? 0}</p>
-              <p className="mt-2 text-sm text-muted-foreground">仍需手动点击“解析”的文档数量。</p>
+              <p className="audit-label">待手动解析</p>
+              <p className="mt-3 font-mono text-3xl font-black text-[#15130f]">{readiness?.documents_pending_parse ?? 0}</p>
             </Card>
             <Card className="p-5">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">已读取列表</p>
-              <p className="mt-3 text-3xl font-semibold text-foreground">{documents?.length ?? 0}</p>
-              <p className="mt-2 text-sm text-muted-foreground">当前文档列表中的可操作文档数量。</p>
+              <p className="audit-label">已读取列表</p>
+              <p className="mt-3 font-mono text-3xl font-black text-[#15130f]">{documents?.length ?? 0}</p>
             </Card>
             <Card className="p-5">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">同步状态</p>
-              <p className="mt-3 text-3xl font-semibold text-foreground">{readiness?.sync_status ?? "暂无"}</p>
-              <p className="mt-2 text-sm text-muted-foreground">最近同步：{readiness?.last_sync_at ?? "暂无"}</p>
+              <p className="audit-label">最后同步时间</p>
+              <p className="mt-3 text-3xl font-normal text-[#15130f]">{formatSyncDate(readiness?.last_sync_at)}</p>
             </Card>
           </div>
 
           <div>
             <Card className="p-0">
               <div className="border-b px-6 py-5">
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">文档主列表</p>
-                <p className="mt-2 text-sm text-muted-foreground">优先查看分类、解析状态和抽取入口。</p>
+                <p className="audit-label">文档主列表</p>
               </div>
               <div className="p-6">
                 {documents && documents.length > 0 ? (
@@ -515,15 +538,15 @@ export default function DocumentsPage() {
                     onDelete={(document) => void deleteDocument(document)}
                   />
                 ) : (
-                  <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                  <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                     <p>{readinessEmptyMessage}</p>
                     {readiness?.manual_parse_required ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <p className="mt-2 text-xs text-[#8a7759]">
                         已同步 {readiness.documents_pending_parse} 份官方文档，待手动解析。
                       </p>
                     ) : null}
                     {readiness?.last_sync_diagnostics?.initial_window ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <p className="mt-2 text-xs text-[#8a7759]">
                         最近同步窗口：{readiness.last_sync_diagnostics.initial_window.date_from} ~{" "}
                         {readiness.last_sync_diagnostics.initial_window.date_to}
                       </p>
@@ -559,10 +582,7 @@ export default function DocumentsPage() {
           <Card>
             <div className="space-y-5">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">公告事件</p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  展示已同步公告事件的解释结果和原始事件明细。
-                </p>
+                <p className="audit-label">公告事件</p>
               </div>
 
               {eventsError ? (
@@ -571,21 +591,18 @@ export default function DocumentsPage() {
                   <AlertDescription>公告事件加载失败，请稍后刷新</AlertDescription>
                 </Alert>
               ) : eventsLoading ? (
-                <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                   正在读取已同步公告事件...
                 </div>
               ) : visibleRawEvents.length === 0 ? (
-                <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                   当前企业暂无已同步公告事件
                 </div>
               ) : (
                 <div className="space-y-6">
                   <div className="space-y-3">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">公告分析链</p>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        按同步结果展示原始公告事件，用于核对标题命中、严重程度和来源链接。
-                      </p>
+                      <p className="audit-label">公告分析链</p>
                     </div>
                     {visibleRawEvents.length > 0 ? (
                       <AnnouncementRawEventsTable
@@ -595,9 +612,10 @@ export default function DocumentsPage() {
                         busy={pageAction.kind !== "idle"}
                         parsingEventId={parsingEventId}
                         onParseEvent={(event) => void parseEvent(event)}
+                        onDeleteEvent={(event) => void deleteEvent(event)}
                       />
                     ) : (
-                      <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                      <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
                         当前企业暂无已同步公告事件
                       </div>
                     )}

@@ -10,6 +10,7 @@ import httpx
 
 from app.ai.announcement_event_prompt_registry import AnnouncementEventPromptRegistry
 from app.ai.llm_client import LLMClient, LLMRequestError
+from app.ai.risk_agent_skill_registry import RiskAgentSkillRegistry
 from app.core.config import settings
 from app.models import ExternalEvent
 from app.utils.documents import parse_document_text
@@ -76,6 +77,7 @@ class AnnouncementEventAnalysisService:
                     "classified_type": "announcement_event",
                     "prompt_template": prompt_bundle["prompt_template"],
                     "schema_name": "announcement_event_analysis_v1",
+                    "agent_skill": prompt_bundle["agent_skill"],
                     "candidate_count": 1,
                     "context_variant": category_code,
                     "llm_input_chars": len(prompt_bundle["user_prompt"]),
@@ -86,7 +88,11 @@ class AnnouncementEventAnalysisService:
                 strict_json_instruction=True,
             )
             parsed_ok = not (isinstance(result, dict) and result.get("parsed_ok") is False)
-            analysis = self._normalize_result(result, event, body_text, body_source_kind)
+            contract_error = None
+            if parsed_ok:
+                contract_error = self._validate_skill_result(result, prompt_bundle["agent_skill"])
+                parsed_ok = contract_error is None
+            analysis = self._normalize_result(result if parsed_ok else {"parsed_ok": False}, event, body_text, body_source_kind)
             analysis["category_code"] = category_code
             analysis["prompt_template"] = prompt_bundle["prompt_template"]
             analysis["analysis_status"] = "succeeded" if parsed_ok else "fallback"
@@ -101,8 +107,8 @@ class AnnouncementEventAnalysisService:
             )
             if not parsed_ok:
                 analysis_meta["error"] = {
-                    "error_type": "json_decode_error",
-                    "message": "DeepSeek returned invalid JSON; fallback analysis was used.",
+                    "error_type": "skill_contract_validation_error" if contract_error else "json_decode_error",
+                    "message": contract_error or "DeepSeek returned invalid JSON; fallback analysis was used.",
                 }
             return {"analysis": analysis, "meta": analysis_meta}
         except Exception as exc:
@@ -170,6 +176,17 @@ class AnnouncementEventAnalysisService:
             "category_confidence": category_confidence,
         }
 
+    def _validate_skill_result(self, result: Any, agent_skill: str) -> str | None:
+        if not isinstance(result, dict):
+            return "LLM result is not a JSON object."
+        skill = RiskAgentSkillRegistry.get(agent_skill)
+        for key in (*skill.required_top_level_keys, *skill.required_item_keys):
+            if not self._has_value(result.get(key)):
+                return f"Missing required output field: {key}."
+        if skill.required_any_of and not any(self._has_value(result.get(key)) for key in skill.required_any_of):
+            return "Missing all required alternative output fields."
+        return None
+
     def _fallback_analysis(self, event: ExternalEvent, body_text: str, body_source_kind: str) -> dict[str, Any]:
         risk_points: list[str] = []
         return {
@@ -188,6 +205,16 @@ class AnnouncementEventAnalysisService:
             "suggested_category_reason": None,
             "category_confidence": None,
         }
+
+    @staticmethod
+    def _has_value(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return bool(value)
+        return True
 
     def _title_body(self, event: ExternalEvent) -> str:
         return "\n".join(part for part in [event.title, event.summary] if part)

@@ -3,29 +3,21 @@
 import { useState } from "react";
 import type { RiskResultPayload } from "@auditpilot/shared-types";
 
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { api } from "@/lib/api";
 import {
   CANONICAL_RISK_KEYS,
   formatCanonicalRiskKey,
-  formatEvidenceStatus,
-  formatEvidenceType,
-  formatEventType,
-  formatKnownLabel,
-  formatRiskLevel,
   formatRuleCode,
-  formatSeverity,
-  formatSourceMode,
-  formatSourceType,
+  isUnmappedLabel,
 } from "@/lib/display-labels";
+import type { UnifiedRiskEvidence, UnifiedRiskItem } from "@/lib/risk-display";
+import { api } from "@/lib/api";
 
 export function RiskTable({
   risks,
   enterpriseId,
   onChanged,
 }: {
-  risks: RiskResultPayload[];
+  risks: UnifiedRiskItem[];
   enterpriseId: number | null;
   onChanged?: () => Promise<void> | void;
 }) {
@@ -58,161 +50,226 @@ export function RiskTable({
 
   return (
     <div className="space-y-4">
-      {risks.map((risk, index) => (
-        <Card key={risk.id}>
-          <details className="group">
-            <summary className="list-none cursor-pointer">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-primary">{index + 1}.</span>
-                    <h3 className="text-lg font-semibold text-foreground">{risk.risk_name}</h3>
-                    <Badge value={risk.risk_level} label={formatRiskLevel(risk.risk_level)} />
+      {risks.map((risk, index) => {
+        const operationRisk = risk.operationRisk;
+        const operationKey = operationRisk?.canonical_risk_key;
+        return (
+          <article
+            key={risk.id}
+            className="audit-overview-panel relative overflow-hidden rounded-[28px] border border-[#1d1912]/10 px-5 py-5 text-[#15130f] shadow-[0_20px_55px_rgba(21,19,15,0.08)]"
+          >
+            <details className="group">
+              <summary className="list-none cursor-pointer">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_13rem] lg:items-start">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#15130f] font-mono text-xs font-black text-[#fffaf0]">
+                        {index + 1}
+                      </span>
+                      <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
+                        风险类型
+                      </p>
+                      <h3 className="min-w-0 text-xl font-black leading-7 tracking-normal text-[#15130f]">
+                        {risk.riskType}
+                      </h3>
+                    </div>
+                    <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-[#5d503b]">{risk.summary}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-[#1d1912]/10 bg-[#fffdf7]/90 px-3 py-1 text-xs font-bold text-[#5d503b]">
+                        来源：{formatSourceLabels(risk.sourceLabels)}
+                      </span>
+                    </div>
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">{risk.summary ?? risk.llm_summary ?? risk.reasons.join("；")}</p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span>
-                      {risk.evidence_status
-                        ? formatEvidenceStatus(risk.evidence_status)
-                        : risk.source_mode
-                          ? formatSourceMode(risk.source_mode)
-                          : formatSourceType(risk.source_type)}
-                    </span>
-                    {risk.canonical_risk_key ? <span>{formatCanonicalRiskKey(risk.canonical_risk_key)}</span> : null}
-                    <span>得分：{risk.risk_score.toFixed(1)}</span>
-                    <span>证据：{risk.evidence_chain.length}</span>
+                  <div className={scoreBoxClassName(risk)}>
+                    <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.2em]">得分</p>
+                    <p className="mt-2 font-mono text-4xl font-black leading-none">{formatScore(risk)}</p>
+                    <p className="mt-2 text-xs font-bold">{scoreHint(risk)}</p>
                   </div>
                 </div>
-              </div>
-            </summary>
-            <div className="mt-5 space-y-5 border-t border-border pt-5 text-sm text-muted-foreground">
-              {risk.source_rules?.length ? (
-                <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">规则补充</p>
-                  <ol className="space-y-2">
-                    {risk.source_rules.map((rule, ruleIndex) => (
-                      <li key={rule} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                        {ruleIndex + 1}. {formatRuleCode(rule)}
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              ) : null}
+              </summary>
 
-              {risk.source_events?.length ? (
-                <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">事件来源</p>
-                  <ol className="space-y-2">
-                    {risk.source_events.map((event, eventIndex) => (
-                      <li key={`${risk.id}-${eventIndex}`} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                        {eventIndex + 1}.{" "}
-                        {[formatEventType(event.event_type), event.subject, event.event_date, formatSeverity(event.severity)]
-                          .filter(Boolean)
-                          .join(" | ")}
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              ) : null}
-
-              <section>
-                <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">证据索引</p>
-                {risk.evidence_chain.length > 0 ? (
-                  <div className="space-y-3">
-                    {risk.evidence_chain.map((evidence, evidenceIndex) => (
-                      <div key={`${risk.id}-${evidence.evidence_id}`} className="rounded-xl border border-border bg-muted/20 p-4">
-                        <p className="font-medium text-foreground">
-                          {evidenceIndex + 1}. {formatKnownLabel(evidence.title)}
-                        </p>
-                        <p className="mt-2 text-muted-foreground">{evidence.snippet}</p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          <span>{formatEvidenceType(evidence.evidence_type)}</span>
-                          {evidence.source_label ? <span>{evidence.source_label}</span> : null}
-                          {evidence.published_at ? <span>{evidence.published_at}</span> : null}
-                          {"section_title" in evidence && (evidence as Record<string, unknown>).section_title ? (
-                            <span>{String((evidence as Record<string, unknown>).section_title)}</span>
-                          ) : null}
-                        </div>
+              <div className="mt-5 space-y-5 border-t border-[#1d1912]/10 pt-5 text-sm">
+                <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+                  <div className="rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4">
+                    <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
+                      风险类型 + 具体风险语句
+                    </p>
+                    <p className="mt-3 text-base font-black leading-7 text-[#15130f]">{risk.riskType}</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-[#5d503b]">{risk.riskStatement}</p>
+                    {risk.sourceRules.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {risk.sourceRules.map((rule) => (
+                          <span
+                            key={rule}
+                            className="rounded-full border border-[#d8c8aa] bg-[#f8f3e8] px-3 py-1 text-xs font-bold text-[#6c5d45]"
+                          >
+                            {formatRuleLabel(rule)}
+                          </span>
+                        ))}
                       </div>
-                    ))}
+                    ) : null}
+                    {risk.relatedRiskType ? (
+                      <div className="mt-3 rounded-xl border border-[#d8c8aa] bg-[#f8f3e8] px-3 py-2 text-xs font-bold text-[#6c5d45]">
+                        关联风险类型：{risk.relatedRiskType}
+                      </div>
+                    ) : null}
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">暂无直接证据。</div>
-                )}
-              </section>
 
-              {risk.source_documents?.length ? (
-                <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">来源文档</p>
-                  <ol className="space-y-2">
-                    {risk.source_documents.map((document, documentIndex) => (
-                      <li key={`${document.document_id}-${document.document_name}`} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                        {documentIndex + 1}. {document.document_name}
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              ) : null}
-
-              {risk.recommended_procedures.length ? (
-                <section>
-                  <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">建议动作</p>
-                  <ol className="space-y-2">
-                    {risk.recommended_procedures.map((procedure, procedureIndex) => (
-                      <li key={procedure} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                        {procedureIndex + 1}. {procedure}
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              ) : null}
-
-              {enterpriseId && risk.canonical_risk_key ? (
-                <section>
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground disabled:opacity-50"
-                      disabled={busyKey === risk.canonical_risk_key}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        void ignoreRisk(risk);
-                      }}
-                    >
-                      {busyKey === risk.canonical_risk_key ? "处理中..." : "忽略该风险"}
-                    </button>
-                    <select
-                      className="rounded-lg border border-input bg-background px-3 py-3 text-sm text-foreground"
-                      value={mergeValues[risk.canonical_risk_key] ?? ""}
-                      onChange={(event) =>
-                        setMergeValues((current) => ({ ...current, [risk.canonical_risk_key as string]: event.target.value }))
-                      }
-                    >
-                      <option value="">合并到标准风险键</option>
-                      {CANONICAL_RISK_KEYS.filter((key) => key !== risk.canonical_risk_key).map((key) => (
-                        <option key={key} value={key}>
-                          {formatCanonicalRiskKey(key)}
-                        </option>
+                  <div className="rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4">
+                    <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
+                      来源文件
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {risk.sourceFiles.map((file) => (
+                        <span
+                          key={file}
+                          className="rounded-full border border-[#1d1912]/10 bg-[#f8f3e8] px-3 py-1 text-xs font-bold text-[#3f3628]"
+                        >
+                          {file}
+                        </span>
                       ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground disabled:opacity-50"
-                      disabled={busyKey === risk.canonical_risk_key || !mergeValues[risk.canonical_risk_key]}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        void mergeRisk(risk);
-                      }}
-                    >
-                      合并风险
-                    </button>
+                    </div>
                   </div>
                 </section>
-              ) : null}
-            </div>
-          </details>
-        </Card>
-      ))}
+
+                <EvidenceSection title="证据原文" items={risk.rawEvidence} emptyText="暂无可展示的证据原文。" />
+
+                {operationRisk && operationKey ? (
+                  <section className="rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4">
+                    <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
+                      操作
+                    </p>
+                    <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center">
+                      <button
+                        type="button"
+                        className="cursor-pointer rounded-xl border border-[#1d1912]/15 bg-[#15130f] px-4 py-3 text-sm font-bold text-[#fffaf0] transition-colors duration-200 hover:bg-[#3f3628] disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={busyKey === operationKey}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void ignoreRisk(operationRisk);
+                        }}
+                      >
+                        {busyKey === operationKey ? "处理中..." : "忽略该风险"}
+                      </button>
+                      <select
+                        className="min-h-11 rounded-xl border border-[#1d1912]/15 bg-[#fffdf7] px-3 py-3 text-sm font-semibold text-[#15130f]"
+                        value={mergeValues[operationKey] ?? ""}
+                        onChange={(event) =>
+                          setMergeValues((current) => ({ ...current, [operationKey]: event.target.value }))
+                        }
+                      >
+                        <option value="">合并到标准风险键</option>
+                        {CANONICAL_RISK_KEYS.filter((key) => key !== operationKey).map((key) => (
+                          <option key={key} value={key}>
+                            {formatCanonicalRiskKey(key)}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="cursor-pointer rounded-xl border border-[#1d1912]/15 bg-[#fffdf7] px-4 py-3 text-sm font-bold text-[#15130f] transition-colors duration-200 hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={busyKey === operationKey || !mergeValues[operationKey]}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void mergeRisk(operationRisk);
+                        }}
+                      >
+                        合并风险
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            </details>
+          </article>
+        );
+      })}
     </div>
   );
+}
+
+function EvidenceSection({
+  title,
+  items,
+  emptyText,
+}: {
+  title: string;
+  items: UnifiedRiskEvidence[];
+  emptyText: string;
+}) {
+  return (
+    <section className="rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4">
+      <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">{title}</p>
+      {items.length ? (
+        <div className="mt-3 space-y-3">
+          {items.map((item, index) => (
+            <div key={`${item.id}-${index}`} className="rounded-xl border border-[#1d1912]/10 bg-[#f8f3e8] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-[#1d1912]/10 bg-[#15130f] px-2.5 py-1 font-mono text-[0.68rem] font-black text-[#fffaf0]">
+                  {index + 1}
+                </span>
+                <p className="font-black text-[#15130f]">{item.sourceFile}</p>
+              </div>
+              <p className="mt-3 text-sm font-bold text-[#3f3628]">{item.title}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-[#5d503b]">{item.rawText}</p>
+              {item.meta.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.meta.map((meta) => (
+                    <span
+                      key={meta}
+                      className="rounded-full border border-[#d8c8aa] bg-[#fffdf7] px-2.5 py-1 text-xs font-semibold text-[#6c5d45]"
+                    >
+                      {meta}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
+          {emptyText}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatScore(risk: UnifiedRiskItem): string {
+  return typeof risk.riskScore === "number" ? risk.riskScore.toFixed(1) : "--";
+}
+
+function formatRuleLabel(rule: string): string {
+  const label = formatRuleCode(rule);
+  return isUnmappedLabel(label) ? "其他规则" : label;
+}
+
+function formatSourceLabels(labels: string[]): string {
+  const uniqueLabels = labels.filter((label, index, array) => Boolean(label) && array.indexOf(label) === index);
+  return uniqueLabels.length ? uniqueLabels.join("、") : "暂无";
+}
+
+function scoreHint(risk: UnifiedRiskItem): string {
+  if (risk.riskLevel === "SPECIAL" || typeof risk.riskScore !== "number") {
+    return "专项分析";
+  }
+  if (risk.riskLevel?.toUpperCase() === "HIGH" || (typeof risk.riskScore === "number" && risk.riskScore >= 80)) {
+    return "高风险";
+  }
+  if (risk.riskLevel?.toUpperCase() === "LOW" || (typeof risk.riskScore === "number" && risk.riskScore < 60)) {
+    return "低风险";
+  }
+  return "中风险";
+}
+
+function scoreBoxClassName(risk: UnifiedRiskItem): string {
+  const base = "rounded-2xl border px-4 py-4 text-right";
+  if (risk.riskLevel?.toUpperCase() === "HIGH" || (typeof risk.riskScore === "number" && risk.riskScore >= 80)) {
+    return `${base} border-[#c94b35]/25 bg-[#c94b35]/10 text-[#8c2e22]`;
+  }
+  if (risk.riskLevel?.toUpperCase() === "LOW" || (typeof risk.riskScore === "number" && risk.riskScore < 60)) {
+    return `${base} border-[#047857]/20 bg-[#047857]/10 text-[#065f46]`;
+  }
+  return `${base} border-[#b7791f]/25 bg-[#b7791f]/10 text-[#8a4f12]`;
 }

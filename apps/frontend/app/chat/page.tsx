@@ -107,13 +107,13 @@ export default function ChatPage() {
   return (
     <div className="space-y-6 pb-10">
       <Card>
-        <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">智能问答</p>
-        <h2 className="mt-3 text-3xl font-semibold text-foreground">
+        <p className="audit-label">智能问答</p>
+        <h2 className="audit-title mt-3 text-3xl">
           {currentEnterprise ? `${currentEnterprise.name} 风险问答` : "风险问答"}
         </h2>
-        <p className="mt-2 text-muted-foreground">{pageState.message}</p>
+        <p className="audit-copy mt-2 text-sm">{pageState.message}</p>
         {currentEnterprise ? (
-          <p className="mt-3 text-sm text-muted-foreground">
+          <p className="mt-3 text-sm font-semibold text-[#5d503b]">
             企业代码：{currentEnterprise.ticker} | 官方文档 {readiness?.official_doc_count ?? 0} 份
           </p>
         ) : null}
@@ -123,7 +123,7 @@ export default function ChatPage() {
               <button
                 key={item}
                 onClick={() => void send(item)}
-                className="rounded-full border border-border bg-muted/30 px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
+                className="audit-hover-lift rounded-full border border-[#d8c8aa] bg-[#f8f3e8]/75 px-4 py-2 text-sm font-bold text-[#5d503b] hover:border-[#15130f]/25 hover:bg-[#fffdf7] hover:text-[#15130f]"
               >
                 {item}
               </button>
@@ -134,11 +134,11 @@ export default function ChatPage() {
 
       {pageState.kind === "loading" || pageState.kind === "empty" ? (
         <Card>
-          <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">{pageState.message}</div>
+          <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-5 text-sm font-semibold text-[#6c5d45]">{pageState.message}</div>
         </Card>
       ) : pageState.kind === "error" ? (
         <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-5 text-sm text-red-100">{pageState.message}</div>
+          <div className="rounded-2xl border border-[#c94b35]/25 bg-[#c94b35]/10 p-5 text-sm font-semibold text-[#8c2e22]">{pageState.message}</div>
         </Card>
       ) : (
         <Card>
@@ -155,8 +155,8 @@ export default function ChatPage() {
                     <div
                       className={
                         message.role === "user"
-                          ? "rounded-[24px] bg-primary px-5 py-4 text-primary-foreground"
-                          : "rounded-[24px] border border-border bg-muted/20 px-5 py-4 text-foreground"
+                          ? "rounded-[24px] border border-[#15130f] bg-[#15130f] px-5 py-4 font-semibold text-[#fffaf0] shadow-[8px_8px_0_rgba(226,76,116,0.18)]"
+                          : "audit-subpanel rounded-[24px] border border-[#1d1912]/10 px-5 py-4 font-semibold text-[#3f3628]"
                       }
                     >
                       <div
@@ -178,14 +178,14 @@ export default function ChatPage() {
                               [messageKey]: !expanded,
                             }))
                           }
-                          className="mt-3 text-sm text-primary transition hover:text-primary/80"
+                          className="mt-3 text-sm font-bold text-[#8f3148] transition hover:text-[#c94b35]"
                         >
                           {expanded ? "收起" : "展开全文"}
                         </button>
                       ) : null}
                     </div>
                     {message.role === "assistant" && message.basisLevel ? (
-                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      <p className="audit-label mt-2">
                         {BASIS_LEVEL_LABELS[message.basisLevel] ?? `依据等级：${message.basisLevel}`}
                       </p>
                     ) : null}
@@ -194,11 +194,11 @@ export default function ChatPage() {
                         {message.citations.map((citation, citationIndex) => (
                           <div
                             key={`${citation.title}-${citation.source_type}-${citationIndex}`}
-                            className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground"
+                            className="rounded-2xl border border-[#1d1912]/10 bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#5d503b]"
                           >
-                            <p className="font-medium text-foreground">{citation.title}</p>
+                            <p className="font-black text-[#15130f]">{citation.title}</p>
                             <p className="mt-2">{citation.content}</p>
-                            <p className="mt-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                            <p className="audit-label mt-2">
                               {formatSourceType(citation.source_type)}
                             </p>
                           </div>
@@ -208,7 +208,7 @@ export default function ChatPage() {
                     {message.suggested_actions?.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {message.suggested_actions.map((action) => (
-                          <span key={action} className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                          <span key={action} className="rounded-full border border-[#d8c8aa] bg-[#f8f3e8] px-3 py-1 text-xs font-bold text-[#5d503b]">
                             {action}
                           </span>
                         ))}
@@ -218,14 +218,14 @@ export default function ChatPage() {
                 );
               })
             ) : (
-              <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
+              <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-5 text-sm font-semibold text-[#6c5d45]">
                 当前还没有问答记录。可以直接点击推荐问题，或输入自定义问题。
               </div>
             )}
           </div>
 
           {chatError ? (
-            <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
+            <div className="mt-4 rounded-2xl border border-[#c94b35]/25 bg-[#c94b35]/10 p-4 text-sm font-semibold text-[#8c2e22]">
               {chatError}
             </div>
           ) : null}
@@ -236,7 +236,7 @@ export default function ChatPage() {
               onChange={(event) => setQuestion(event.target.value)}
               rows={3}
               placeholder="请输入问题，例如：为什么判定收入确认风险较高？"
-              className="flex-1 rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+              className="flex-1 rounded-2xl border border-[#d8c8aa] bg-[#fffdf7]/85 px-4 py-3 text-sm font-semibold text-[#15130f] outline-none placeholder:text-[#8a7759] focus:ring-2 focus:ring-[#e24c74]/45"
             />
             <Button onClick={() => void send()} disabled={loading || pageState.kind !== "ready"} className="h-fit lg:self-end">
               {loading ? "生成中..." : "发送问题"}

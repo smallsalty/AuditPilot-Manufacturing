@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.ai.risk_agent_skill_registry import RiskAgentSkillRegistry
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
@@ -43,8 +44,9 @@ class _SummaryInflightState:
 
 
 class FinancialAnalysisService:
+    AGENT_SKILL = RiskAgentSkillRegistry.get("financial_report_risk_analysis").key
     SNAPSHOT_KEY = "financial_analysis_snapshot"
-    SNAPSHOT_VERSION = "financial-analysis-snapshot:v2"
+    SNAPSHOT_VERSION = "financial-analysis-snapshot:v3"
     SUPPORTED_DOCUMENT_TYPES = {"annual_report", "quarter_report", "audit_report", "internal_control_report"}
     DEFAULT_PROCEDURES = [
         "实施趋势分析并复核异常波动原因",
@@ -124,6 +126,7 @@ class FinancialAnalysisService:
                     key_metrics.append(metric_payload)
                     document_metrics.append(metric_payload)
 
+                risk_score = self._score_financial_extract(extract)
                 anomaly_payload = {
                     "document_id": document.id,
                     "document_name": clean_document_title(document.document_name),
@@ -134,9 +137,15 @@ class FinancialAnalysisService:
                     "metric_value": extract.metric_value,
                     "metric_unit": extract.metric_unit,
                     "period": period,
+                    "fiscal_year": extract.fiscal_year or document.fiscal_year,
+                    "fiscal_quarter": extract.fiscal_quarter,
+                    "document_report_period": document.report_period_label,
+                    "announcement_date": document.announcement_date.isoformat() if document.announcement_date else None,
                     "section_title": extract.section_title,
                     "page_start": extract.page_start,
                     "page_end": extract.page_end,
+                    "risk_score": risk_score,
+                    "risk_level": self._score_to_level(risk_score),
                 }
                 anomalies.append(anomaly_payload)
                 document_anomalies.append(anomaly_payload)
@@ -185,6 +194,7 @@ class FinancialAnalysisService:
         )
         payload = {
             "enterprise_id": enterprise_id,
+            "agent_skill": self.AGENT_SKILL,
             "summary": summary_result.summary,
             "summary_mode": summary_result.summary_mode,
             "cached": summary_result.cached,
@@ -251,6 +261,7 @@ class FinancialAnalysisService:
             return None
         return {
             "enterprise_id": enterprise.id,
+            "agent_skill": self.AGENT_SKILL,
             "summary": str(snapshot.get("summary") or ""),
             "summary_mode": str(snapshot.get("summary_mode") or "fallback"),
             "cached": True,
@@ -279,6 +290,7 @@ class FinancialAnalysisService:
         snapshot = {
             "input_hash": input_hash,
             "generated_at": generated_at,
+            "agent_skill": self.AGENT_SKILL,
             "summary": payload.get("summary"),
             "summary_mode": payload.get("summary_mode"),
             "documents": payload.get("documents") or [],
@@ -319,6 +331,95 @@ class FinancialAnalysisService:
             if item not in deduped:
                 deduped.append(item)
         return deduped[:8]
+
+    def latest_financial_anomalies(self, anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not anomalies:
+            return []
+        latest = max(anomalies, key=self._anomaly_source_sort_key)
+        latest_document_id = latest.get("document_id")
+        if latest_document_id is None:
+            return [latest]
+        return [item for item in anomalies if item.get("document_id") == latest_document_id]
+
+    def _score_financial_extract(self, extract: Any) -> float:
+        score = 64.0
+        if getattr(extract, "detail_level", None) == "financial_deep_dive":
+            score += 8.0
+        applied_rules = getattr(extract, "applied_rules", None) or []
+        if isinstance(applied_rules, list):
+            score += min(len(applied_rules) * 4.0, 12.0)
+        if getattr(extract, "canonical_risk_key", None):
+            score += 4.0
+        if getattr(extract, "metric_value", None) is not None:
+            score += 3.0
+        if getattr(extract, "compare_value", None) is not None:
+            score += 3.0
+        if getattr(extract, "problem_summary", None) or getattr(extract, "evidence_excerpt", None):
+            score += 4.0
+
+        severity = str(getattr(extract, "severity", "") or "").strip().lower()
+        if severity in {"high", "高", "高风险"}:
+            score += 8.0
+        elif severity in {"medium", "中", "中风险"}:
+            score += 4.0
+
+        return round(min(95.0, max(0.0, score)), 1)
+
+    @staticmethod
+    def _score_to_level(score: float) -> str:
+        if score >= 80:
+            return "HIGH"
+        if score >= 60:
+            return "MEDIUM"
+        return "LOW"
+
+    def _anomaly_source_sort_key(self, anomaly: dict[str, Any]) -> tuple[int, int, int, int]:
+        year = self._int_value(anomaly.get("fiscal_year"))
+        quarter = self._int_value(anomaly.get("fiscal_quarter"))
+        period_text = " ".join(
+            str(value or "")
+            for value in (
+                anomaly.get("period"),
+                anomaly.get("document_report_period"),
+                anomaly.get("document_name"),
+                anomaly.get("title"),
+            )
+        )
+        inferred_year, inferred_quarter = self._infer_report_period_rank(period_text)
+        date_rank = self._date_rank(anomaly.get("announcement_date"))
+        document_id = self._int_value(anomaly.get("document_id"))
+        return year or inferred_year, max(quarter, inferred_quarter), date_rank, document_id
+
+    @staticmethod
+    def _infer_report_period_rank(text: str) -> tuple[int, int]:
+        year_match = re.search(r"(20\d{2})", text)
+        year = int(year_match.group(1)) if year_match else 0
+        if re.search(r"年度报告|年报|全年|FY", text, flags=re.I):
+            return year, 5
+        if re.search(r"三季|第三季度|Q3", text, flags=re.I):
+            return year, 3
+        if re.search(r"半年度|半年报|上半年|中报|Q2", text, flags=re.I):
+            return year, 2
+        if re.search(r"一季|第一季度|Q1", text, flags=re.I):
+            return year, 1
+        return year, 0
+
+    @staticmethod
+    def _date_rank(value: Any) -> int:
+        text = str(value or "").strip()
+        if not text:
+            return 0
+        digits = re.sub(r"\D", "", text)
+        if len(digits) >= 8:
+            return int(digits[:8])
+        return int(digits) if digits.isdigit() else 0
+
+    @staticmethod
+    def _int_value(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
     def _build_summary(
         self,
@@ -407,64 +508,6 @@ class FinancialAnalysisService:
         self._store_summary(cache_key, inflight, result)
         return result
 
-    def _generate_summary(
-        self,
-        *,
-        enterprise_id: int,
-        enterprise_name: str,
-        periods: list[str],
-        anomalies: list[dict[str, Any]],
-        focus_accounts: list[str],
-        recommended_procedures: list[str],
-    ) -> _SummaryResult:
-        if self.llm_client.config_error:
-            return self._fallback_result(enterprise_name, periods, focus_accounts, recommended_procedures, cache_state="fresh")
-
-        prompt = (
-            f"企业：{enterprise_name}\n"
-            f"期间：{', '.join(periods[:4]) or '当前期间'}\n"
-            f"重点科目：{', '.join(focus_accounts[:8]) or '关键财务科目'}\n"
-            f"异常摘要：{json.dumps(self._summarize_anomalies(anomalies[:6]), ensure_ascii=False)}\n"
-            f"建议程序：{json.dumps(recommended_procedures[:6], ensure_ascii=False)}\n"
-            "请输出一个简短 JSON 对象，至少包含 summary 字段。summary 必须是聚合判断，不要逐条复述异常摘要；"
-            "用 2-3 句说明主要问题集中在哪些指标、可能意味着什么、审计上最该关注什么。"
-        )
-        try:
-            result = self.llm_client.chat_completion(
-                "你是一名财报审阅助手。请用中文生成聚合判断式摘要，避免逐条复制输入。",
-                prompt,
-                json_mode=True,
-                request_kind="financial_analysis_summary",
-                metadata={
-                    "enterprise_id": enterprise_id,
-                    "candidate_count": len(anomalies),
-                    "context_variant": "financial_analysis_summary",
-                },
-                max_tokens=512,
-                max_attempts=2,
-                strict_json_instruction=False,
-            )
-            summary = self._extract_summary_text(result)
-            if summary:
-                return _SummaryResult(
-                    summary=summary,
-                    summary_mode="llm",
-                    cache_state="fresh",
-                    cached=False,
-                    updated_at=self._now_iso(),
-                )
-        except LLMRequestError as exc:
-            if exc.status_code == 401:
-                return _SummaryResult(
-                    summary=f"DeepSeek 摘要暂不可用：{exc.message}",
-                    summary_mode="fallback",
-                    cache_state="fresh",
-                    cached=False,
-                    updated_at=self._now_iso(),
-                )
-
-        return self._fallback_result(enterprise_name, periods, focus_accounts, recommended_procedures, cache_state="fresh")
-
     def _summarize_anomalies(self, anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
             {
@@ -475,42 +518,6 @@ class FinancialAnalysisService:
             }
             for item in anomalies
         ]
-
-    def _extract_summary_text(self, result: Any) -> str | None:
-        if isinstance(result, dict):
-            summary = self._sanitize_summary_text(result.get("summary"))
-            if summary:
-                return summary
-            items = result.get("items")
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        summary = self._sanitize_summary_text(item.get("summary"))
-                        if summary:
-                            return summary
-            raw = result.get("raw")
-            if isinstance(raw, str) and raw.strip():
-                recovered = self._recover_summary_payload(raw)
-                if isinstance(recovered, dict):
-                    summary = self._sanitize_summary_text(recovered.get("summary"))
-                    if summary:
-                        return summary
-                if isinstance(recovered, list):
-                    for item in recovered:
-                        if isinstance(item, dict):
-                            summary = self._sanitize_summary_text(item.get("summary"))
-                            if summary:
-                                return summary
-                return self._sanitize_summary_text(raw)
-        if isinstance(result, list):
-            for item in result:
-                if isinstance(item, dict):
-                    summary = self._sanitize_summary_text(item.get("summary"))
-                    if summary:
-                        return summary
-        if isinstance(result, str):
-            return self._sanitize_summary_text(result)
-        return None
 
     def _recover_summary_payload(self, raw: str) -> Any:
         try:
@@ -668,8 +675,11 @@ class FinancialAnalysisService:
         if self.llm_client.config_error:
             return self._fallback_result(enterprise_name, periods, focus_accounts, recommended_procedures, cache_state="fresh")
 
+        skill = RiskAgentSkillRegistry.get(self.AGENT_SKILL)
         logger.info("financial_analysis_summary text mode used enterprise_id=%s", enterprise_id)
         prompt = (
+            f"agent_skill：{skill.key}\n"
+            f"skill_contract：\n{skill.prompt_contract()}\n"
             f"企业：{enterprise_name}\n"
             f"期间：{', '.join(periods[:3]) or '当前期间'}\n"
             f"重点科目：{', '.join(focus_accounts[:5]) or '关键财务科目'}\n"
@@ -680,7 +690,7 @@ class FinancialAnalysisService:
         )
         try:
             result = self.llm_client.chat_completion(
-                "你是一名财报审阅助手。请用中文生成聚合判断式摘要，避免逐条复制输入。",
+                f"{skill.role}。{skill.summary_format}",
                 (
                     f"{prompt}\n"
                     "请输出完整的单段中文摘要，覆盖主要异常、重点科目和建议程序；不要省略，不要使用省略号，不要以未完成的半句结尾。"
@@ -691,6 +701,7 @@ class FinancialAnalysisService:
                     "enterprise_id": enterprise_id,
                     "candidate_count": min(len(anomalies), 4),
                     "context_variant": "financial_analysis_summary",
+                    "agent_skill": skill.key,
                 },
                 max_tokens=1024,
                 max_attempts=1,

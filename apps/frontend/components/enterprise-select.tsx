@@ -15,7 +15,7 @@ export function EnterpriseSelect({
     <select
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="w-full rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+      className="w-full rounded-xl border border-[#d8c8aa] bg-[#fffdf7]/85 px-4 py-3 text-sm font-semibold text-[#15130f] outline-none transition focus:ring-2 focus:ring-[#e24c74]/45"
     >
       {enterprises.map((enterprise) => (
         <option key={enterprise.id} value={enterprise.id}>

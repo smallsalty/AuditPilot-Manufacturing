@@ -124,12 +124,12 @@ export function AuditHero({
     <section className="audit-hero-noise relative isolate overflow-hidden rounded-[1.75rem] border border-[#2a2418]/15 bg-[#f3efe4] px-5 py-6 text-[#15130f] shadow-[0_30px_80px_rgba(21,19,15,0.18)] sm:px-8 sm:py-9 xl:px-12 xl:py-11">
       <div className="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-[#e24c74]/16 blur-3xl" />
       <div className="pointer-events-none absolute bottom-0 left-1/4 h-48 w-80 -rotate-12 bg-[#d8c8aa]/35 blur-3xl" />
-      <div className="relative grid min-h-[520px] gap-8 lg:grid-cols-[minmax(25rem,0.95fr)_minmax(25rem,1.05fr)] lg:items-end xl:min-h-[560px]">
+      <div className="relative grid min-h-[520px] gap-8 lg:grid-cols-[minmax(25rem,0.95fr)_minmax(24rem,1.05fr)] lg:items-end xl:min-h-[560px]">
         <div className="audit-hero-enter flex h-full flex-col justify-end pb-2 lg:pb-7">
           <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-[#7a6d58]">
             AuditPilot
           </p>
-          <h2 className="mt-8 text-[2.72rem] font-black leading-[0.98] tracking-normal text-[#15130f] sm:text-[3.9rem] xl:text-[4.35rem]">
+          <h2 className="mt-8 text-[2.72rem] font-black leading-[0.98] tracking-normal text-[#15130f] sm:text-[3.9rem] xl:text-[4.05rem]">
             <span className="block whitespace-nowrap">让每一个null，</span>
             <span className="mt-2 block whitespace-nowrap">在数据之下一览无余</span>
           </h2>
@@ -151,12 +151,6 @@ export function AuditHero({
               className="audit-hero-cta rounded-full border border-[#15130f]/70 bg-[#fffaf0]/45 px-5 py-3 text-sm font-semibold text-[#15130f] outline-none"
             >
               去翻文档
-            </Link>
-            <Link
-              href="/chat"
-              className="audit-hero-ask ml-0 font-mono text-xs font-semibold uppercase tracking-[0.24em] text-[#8f3148] outline-none sm:ml-2"
-            >
-              问它一句
             </Link>
           </div>
           <p className="mt-7 max-w-[18rem] border-l-4 border-[#e24c74] pl-4 text-sm font-semibold leading-6 text-[#5d503b]">

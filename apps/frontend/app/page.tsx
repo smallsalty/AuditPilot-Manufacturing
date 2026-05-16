@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { FinancialReportPayload, RiskResultPayload } from "@auditpilot/shared-types";
+import type { AuditFocusPayload, FinancialReportPayload } from "@auditpilot/shared-types";
 
 import { AuditHero } from "@/components/audit-hero";
 import { useEnterpriseContext } from "@/components/enterprise-provider";
@@ -9,9 +9,21 @@ import { EChart } from "@/components/echart";
 import { StatCard } from "@/components/stat-card";
 import { api } from "@/lib/api";
 import { buildRadarOption, getSafeTopRisks } from "@/lib/dashboard";
-import { formatRiskLevel, formatSourceType } from "@/lib/display-labels";
-import { useDashboardResource, useReadinessResource, useRiskResultsResource } from "@/lib/enterprise-resources";
+import {
+  useAuditFocusResource,
+  useDashboardResource,
+  useReadinessResource,
+  useRiskResultsResource,
+} from "@/lib/enterprise-resources";
 import { buildFinancialTrendOption, sortFinancialRowsDesc, type FinancialReportRow } from "@/lib/financials";
+import { buildUnifiedRiskItems } from "@/lib/risk-display";
+
+type AuditFocusItem = NonNullable<AuditFocusPayload["items"]>[number];
+type DashboardRiskItem = ReturnType<typeof buildUnifiedRiskItems>[number];
+type AuditSuggestionRow = {
+  item: AuditFocusItem;
+  suggestions: string[];
+};
 
 function OverviewPanel({
   eyebrow,
@@ -23,7 +35,7 @@ function OverviewPanel({
   eyebrow: string;
   title: string;
   meta?: string;
-  summary: string;
+  summary?: string;
   children: ReactNode;
 }) {
   return (
@@ -34,10 +46,12 @@ function OverviewPanel({
             <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#8f3148]">{eyebrow}</p>
             <h3 className="mt-2 text-[1.75rem] font-black leading-none tracking-normal text-[#15130f]">{title}</h3>
           </div>
-          <div className="space-y-1 text-left lg:text-right">
-            {meta ? <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8a7759]">{meta}</p> : null}
-            <p className="text-sm font-medium leading-6 text-[#5d503b]">{summary}</p>
-          </div>
+          {meta || summary ? (
+            <div className="space-y-1 text-left lg:text-right">
+              {meta ? <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8a7759]">{meta}</p> : null}
+              {summary ? <p className="text-sm font-medium leading-6 text-[#5d503b]">{summary}</p> : null}
+            </div>
+          ) : null}
         </div>
         {children}
       </div>
@@ -64,14 +78,22 @@ function OverviewState({
   );
 }
 
-function getAuditSuggestions(risk: RiskResultPayload) {
-  if (risk.recommended_procedures.length > 0) {
-    return risk.recommended_procedures.slice(0, 3);
-  }
-  if (risk.focus_accounts.length > 0) {
-    return risk.focus_accounts.slice(0, 3).map((item) => `先核对${item}`);
-  }
-  return ["先看证据链", "再补审计程序"];
+function getAuditSuggestions(item: AuditFocusItem) {
+  return (
+    item.expanded_sections?.find((section) => section.title.includes("建议程序"))?.items?.filter((detail) => detail.trim()) ??
+    []
+  ).slice(0, 4);
+}
+
+function buildAuditSuggestionRows(focus: AuditFocusPayload | null): AuditSuggestionRow[] {
+  return (focus?.items ?? [])
+    .map((item) => ({ item, suggestions: getAuditSuggestions(item) }))
+    .filter((row) => row.suggestions.length > 0)
+    .slice(0, 4);
+}
+
+function findMatchedRisk(item: AuditFocusItem, risks: DashboardRiskItem[]): DashboardRiskItem | undefined {
+  return risks.find((risk) => risk.riskName === item.title || risk.riskType === item.title);
 }
 
 function getRecentFinancialRows(report: FinancialReportPayload | null): FinancialReportRow[] {
@@ -93,6 +115,7 @@ export default function DashboardPage() {
   const { data: dashboard, loading: dashboardLoading, error: dashboardError } = useDashboardResource(currentEnterpriseId);
   const { data: riskResults, loading: riskResultsLoading, error: riskResultsError } =
     useRiskResultsResource(currentEnterpriseId);
+  const { data: auditFocus, loading: auditFocusLoading, error: auditFocusError } = useAuditFocusResource(currentEnterpriseId);
   const [financialReport, setFinancialReport] = useState<FinancialReportPayload | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
@@ -139,20 +162,9 @@ export default function DashboardPage() {
     [financialRows],
   );
   const topRisks = getSafeTopRisks(dashboard);
-  const riskSuggestionRows = (riskResults ?? []).slice(0, 4);
+  const riskDisplayItems = useMemo(() => buildUnifiedRiskItems(riskResults ?? [], null), [riskResults]);
+  const riskSuggestionRows = useMemo(() => buildAuditSuggestionRows(auditFocus), [auditFocus]);
   const analysisStatus = dashboard?.analysis_status ?? readiness?.risk_analysis_status ?? "not_started";
-  const dashboardMeta = [
-    currentEnterprise?.ticker,
-    currentEnterprise?.industry_tag,
-    currentEnterprise?.report_year ? `报告年度 ${currentEnterprise.report_year}` : null,
-  ]
-    .filter(Boolean)
-    .join(" | ");
-  const radarSummary =
-    analysisStatus === "completed" ? "看结构。别只看总分。" : "先跑分析。再看结构。";
-  const financialSummary = financialRows.some((row) => row.quarter !== "FY")
-    ? "近三年季度。看收入、利润、现金流。"
-    : "近三年财年。看收入、利润、现金流。";
 
   return (
     <div className="space-y-6 pb-10">
@@ -170,15 +182,16 @@ export default function DashboardPage() {
         topRisks={topRisks}
       />
 
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="综合风险评分" value={dashboard?.score.total ?? "--"} hint="规则与证据聚合" />
-        <StatCard label="财务风险" value={dashboard?.score.financial ?? "--"} hint="收入、应收、现金流" />
-        <StatCard label="经营风险" value={dashboard?.score.operational ?? "--"} hint="存货、波动、景气度" />
-        <StatCard label="合规风险" value={dashboard?.score.compliance ?? "--"} hint="处罚、诉讼、内控" />
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-[1.2fr_repeat(4,minmax(0,1fr))]">
+        <StatCard label="综合风险" value={dashboard?.score.total ?? "--"} />
+        <StatCard label="财务风险" value={dashboard?.score.financial ?? "--"} hint="最新财报风险" />
+        <StatCard label="经营风险" value={dashboard?.score.operational ?? "--"} hint="数据风险" />
+        <StatCard label="合规风险" value={dashboard?.score.compliance ?? "--"} hint="公告风险" />
+        <StatCard label="文本预警" value={dashboard?.score.text_warning ?? "--"} hint="文档风险" />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <OverviewPanel eyebrow="风险雷达" title="风险结构画像" meta={dashboardMeta} summary={radarSummary}>
+        <OverviewPanel eyebrow="风险雷达" title="风险结构画像">
           {enterpriseError ? (
             <OverviewState tone="error">企业上下文初始化失败。</OverviewState>
           ) : dashboardError || readinessError ? (
@@ -200,7 +213,7 @@ export default function DashboardPage() {
           )}
         </OverviewPanel>
 
-        <OverviewPanel eyebrow="财报趋势" title="近三年财报" meta={dashboardMeta} summary={financialSummary}>
+        <OverviewPanel eyebrow="财报趋势" title="近三年财报">
           {enterpriseError ? (
             <OverviewState tone="error">企业上下文初始化失败。</OverviewState>
           ) : financialError ? (
@@ -223,26 +236,23 @@ export default function DashboardPage() {
             <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.24em] text-[#8f3148]">风险到建议</p>
             <h3 className="mt-2 text-2xl font-black tracking-normal text-[#15130f]">风险项和审计动作</h3>
           </div>
-          <p className="max-w-xl text-sm font-medium leading-6 text-[#5d503b]">
-            左边是风险，右边是下一步。别让结论单飞。
-          </p>
         </div>
 
         {enterpriseError ? (
           <div className="mt-5 rounded-xl border border-[#c94b35]/25 bg-[#c94b35]/10 p-4 text-sm font-semibold text-[#8c2e22]">
             企业接不上，建议先空着。
           </div>
-        ) : riskResultsLoading || dashboardLoading ? (
+        ) : auditFocusLoading || riskResultsLoading || dashboardLoading ? (
           <div className="mt-5 rounded-xl border border-dashed border-[#d8c8aa] bg-[#f3efe4]/70 p-4 text-sm font-semibold text-[#6c5d45]">
             正在配审计动作。
           </div>
         ) : riskSuggestionRows.length > 0 ? (
           <div className="mt-6 space-y-3">
-            {riskSuggestionRows.map((risk, index) => {
-              const suggestions = getAuditSuggestions(risk);
+            {riskSuggestionRows.map(({ item, suggestions }, index) => {
+              const matchedRisk = findMatchedRisk(item, riskDisplayItems);
               return (
                 <div
-                  key={risk.id}
+                  key={item.id}
                   className="grid gap-4 rounded-xl border border-[#1d1912]/10 bg-[#f8f3e8] p-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(22rem,1.35fr)]"
                 >
                   <div className="flex items-start gap-4">
@@ -250,12 +260,14 @@ export default function DashboardPage() {
                       {index + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="text-lg font-black leading-7 text-[#15130f]">{risk.risk_name}</p>
+                      <p className="text-lg font-black leading-7 text-[#15130f]">{item.title}</p>
                       <p className="mt-1 text-sm font-semibold text-[#6c5d45]">
-                        {formatRiskLevel(risk.risk_level)} / {formatSourceType(risk.source_type)}
+                        {matchedRisk?.riskStatement ?? item.summary}
                       </p>
                     </div>
-                    <span className="ml-auto font-mono text-3xl font-black text-[#c94b35]">{risk.risk_score.toFixed(1)}</span>
+                    <span className="ml-auto font-mono text-3xl font-black text-[#c94b35]">
+                      {typeof matchedRisk?.riskScore === "number" ? matchedRisk.riskScore.toFixed(1) : "--"}
+                    </span>
                   </div>
                   <div className="relative border-l-4 border-[#e24c74] pl-5">
                     <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
@@ -287,7 +299,7 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        ) : riskResultsError ? (
+        ) : auditFocusError || riskResultsError ? (
           <div className="mt-5 rounded-xl border border-[#c94b35]/25 bg-[#c94b35]/10 p-4 text-sm font-semibold text-[#8c2e22]">
             风险建议没读到。
           </div>

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.ai.risk_agent_skill_registry import RiskAgentSkillRegistry
+
 
 @dataclass(frozen=True)
 class DocumentPromptSpec:
@@ -11,8 +13,6 @@ class DocumentPromptSpec:
     type_label: str
     type_rules: str
     json_example: dict[str, Any]
-    required_item_keys: tuple[str, ...]
-    required_any_of: tuple[str, ...] = ()
 
 
 class DocumentPromptRegistry:
@@ -33,7 +33,8 @@ class DocumentPromptRegistry:
             type_rules=(
                 "聚焦经营变化、治理事项、异常事件、重大风险、审计重点。"
                 "最多返回 3 条 items，只保留最高价值事项，不要重复输出相同事实。"
-                "事项优先级依次为：重大资本动作、治理异常、审计与合规异常、明显财务异常。"
+                "事项优先级依次为：重大资本动作、治理异常、审计与合规异常。"
+                "财务报表、附注和指标异常由财报 agent 单独分析，本阶段不得输出。"
                 "普通增长、常规盈利改善、常规分红、常规经营亮点不得进入结果；只有明确异常或具有审计关注意义时才允许保留。"
                 "严禁为了凑满条数输出低价值事项，输出必须是完整闭合 JSON。"
             ),
@@ -53,8 +54,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("event_type", "opinion_type", "metric_name", "risk_points"),
         ),
         "annual_summary": DocumentPromptSpec(
             prompt_template="document_extract:annual_summary",
@@ -82,8 +81,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("event_type", "metric_name", "financial_topics", "risk_points"),
         ),
         "audit_report": DocumentPromptSpec(
             prompt_template="document_extract:audit_report",
@@ -110,8 +107,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("opinion_type", "event_type", "conclusion"),
         ),
         "internal_control_report": DocumentPromptSpec(
             prompt_template="document_extract:internal_control_report",
@@ -138,8 +133,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("defect_level", "event_type", "conclusion"),
         ),
         "announcement_event": DocumentPromptSpec(
             prompt_template="document_extract:announcement_event",
@@ -165,8 +158,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("event_type",),
         ),
         "general": DocumentPromptSpec(
             prompt_template="document_extract:general",
@@ -189,8 +180,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("risk_points", "event_type", "metric_name", "opinion_type"),
         ),
         "annual_financial_subanalysis": DocumentPromptSpec(
             prompt_template="document_extract:annual_financial_subanalysis",
@@ -199,6 +188,9 @@ class DocumentPromptRegistry:
             type_rules=(
                 "只聚焦财务报表与附注，提取财务异常、关键指标波动、附注线索。"
                 "每条结果都要尽量带 metric_name、financial_topics 和 note_refs。"
+                "最多返回 3 条 items，必须合并同类科目，不要逐条铺开低价值指标。"
+                "metric_value 和 compare_value 必须是合法 JSON number，禁止使用千分位逗号；无法转换时使用 null。"
+                "evidence_excerpt 控制在 160 字以内，输出必须是完整闭合 JSON。"
             ),
             json_example={
                 "items": [
@@ -220,8 +212,6 @@ class DocumentPromptRegistry:
                     }
                 ]
             },
-            required_item_keys=("title", "summary", "evidence_excerpt"),
-            required_any_of=("metric_name", "financial_topics", "note_refs"),
         ),
     }
     TYPE_ALIASES = {
@@ -250,6 +240,13 @@ class DocumentPromptRegistry:
         report_period_label: str | None = None,
     ) -> dict[str, Any]:
         spec = cls.get_spec(prompt_type)
+        agent_skill = (
+            "financial_report_risk_analysis"
+            if cls.resolve_prompt_type(prompt_type) == "annual_financial_subanalysis"
+            else "document_risk_analysis"
+        )
+        skill = RiskAgentSkillRegistry.get(agent_skill)
+        skill_contract = skill.prompt_contract()
         candidate_blocks = []
         for index, item in enumerate(candidates, start=1):
             candidate_blocks.append(
@@ -268,6 +265,7 @@ class DocumentPromptRegistry:
 
         system_prompt = (
             f"{cls.COMMON_RULES}"
+            f" 当前生效 agent skill contract：\n{skill_contract}\n"
             f" 当前文档类型是{spec.type_label}。"
             f" {spec.type_rules}"
             f" 返回格式示例：{spec.json_example}"
@@ -285,6 +283,7 @@ class DocumentPromptRegistry:
             "user_prompt": user_prompt,
             "schema_name": spec.schema_name,
             "prompt_template": spec.prompt_template,
-            "required_item_keys": spec.required_item_keys,
-            "required_any_of": spec.required_any_of,
+            "agent_skill": agent_skill,
+            "required_item_keys": skill.required_item_keys,
+            "required_any_of": skill.required_any_of,
         }

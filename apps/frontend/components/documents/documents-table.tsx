@@ -55,7 +55,7 @@ export function DocumentsTable({
 
   return (
     <>
-      <div className="rounded-xl border">
+      <div className="rounded-2xl border border-[#1d1912]/10">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -74,18 +74,18 @@ export function DocumentsTable({
               const showFallbackNote = document.analysis_status === "partial_fallback";
               const showLastError = Boolean(document.last_error_message) && !showFallbackNote;
               return (
-                <TableRow key={document.id} className={isActive ? "bg-muted/40" : undefined}>
+                <TableRow key={document.id} className={isActive ? "bg-[#f8f3e8]/85" : undefined}>
                   <TableCell className="align-top">
                     <div className="space-y-2">
-                      <div className="max-w-[14rem] truncate font-medium text-foreground" title={displayName}>
+                      <div className="max-w-[14rem] truncate font-black text-[#15130f]" title={displayName}>
                         {displayName}
                       </div>
-                      <div className="text-xs text-muted-foreground">{formatSourceName(document.source)}</div>
+                      <div className="text-xs font-semibold text-[#8a7759]">{formatSourceName(document.source)}</div>
                       {showFallbackNote ? (
                         <div className="text-xs text-[#6c5d45]">模型没接住。已回退完成。</div>
                       ) : null}
                       {showLastError ? (
-                        <div className="text-xs text-amber-700">
+                        <div className="text-xs font-semibold text-[#7a4b14]">
                           最近错误：{cleanDisplayText(document.last_error_message)}
                           {document.last_error_at ? ` | ${formatTimestamp(document.last_error_at)}` : ""}
                         </div>
@@ -127,7 +127,7 @@ export function DocumentsTable({
                       </Button>
                     </div>
                   </TableCell>
-                  <TableCell className="align-top text-muted-foreground">
+                  <TableCell className="align-top text-[#5d503b]">
                     {formatDocumentType(document.classified_type ?? document.document_type)}
                   </TableCell>
                   <TableCell className="align-top">
@@ -135,11 +135,11 @@ export function DocumentsTable({
                   </TableCell>
                   <TableCell className="align-top">
                     <div className="space-y-1">
-                      <div className="text-sm text-foreground">{formatAnalysisStatus(document.analysis_status)}</div>
-                      <div className="text-xs text-muted-foreground">{formatAnalysisMode(document.analysis_mode)}</div>
+                      <div className="text-sm font-semibold text-[#15130f]">{formatAnalysisStatus(document.analysis_status)}</div>
+                      <div className="text-xs font-semibold text-[#8a7759]">{formatAnalysisMode(document.analysis_mode)}</div>
                     </div>
                   </TableCell>
-                  <TableCell className="align-top text-muted-foreground">
+                  <TableCell className="align-top text-[#5d503b]">
                     {formatTimestamp(document.analyzed_at ?? document.created_at)}
                   </TableCell>
                 </TableRow>

@@ -397,99 +397,6 @@ class DocumentService:
             groups.append("governance")
         return [group for group in self.ANALYSIS_GROUPS if group in groups]
 
-    def _parse_document_record(self, db: Session, document: DocumentMeta) -> DocumentMeta:
-        if not document.file_path and not document.content_text:
-            raise ValueError("文档缺少文件路径和正文内容。")
-
-        document.parse_status = "parsing"
-        self._build_analysis_meta(
-            document,
-            analysis_status="running",
-            analysis_mode=None,
-            candidate_count=0,
-            extract_count=0,
-            analysis_groups=[],
-            analyzed_at=None,
-            last_error=None,
-        )
-        db.commit()
-        classification_meta: dict[str, Any] = {}
-        try:
-            text = document.content_text or parse_document_text(document.file_path or "")
-            document.content_text = text
-            override = self._latest_override(db, document_id=document.id, scope="classification")
-            classified_type, classification_source = self.classify_service.classify(document, text, override)
-
-            document.classified_type = classified_type
-            document.classification_version = self.classify_service.CLASSIFICATION_VERSION
-            document.classification_source = classification_source
-            document.parse_status = "parsed"
-            document.parser_version = self.EXTRACT_VERSION
-            if document.sync_status == "parse_queued":
-                document.sync_status = "stored"
-
-            self._retire_current_rows(db, document.id)
-
-            self._last_extraction_trace = None
-            cleaned_entries = self._clean_document(text, classified_type)
-            extracts = self._build_structured_extracts(document, cleaned_entries, classified_type)
-            if not extracts:
-                extracts = self._fallback_extracts(document, cleaned_entries, classified_type)
-            extracts = self._apply_extract_overrides(db, document.id, extracts)
-            trace = self._last_extraction_trace or {
-                "analysis_mode": "rule_only",
-                "candidate_count_before_trim": 0,
-                "candidate_count_after_trim": 0,
-                "llm_attempted": False,
-                "llm_error": self._config_error_payload(),
-                "extract_count": len(extracts),
-            }
-
-            features = self.feature_service.build_features(extracts, enterprise_id=document.enterprise_id, document_id=document.id)
-            extract_rows = self._persist_extracts(db, document, extracts)
-            self._persist_features(db, document, features, extract_rows)
-            self.knowledge_index_service.replace_document_chunks(
-                db,
-                enterprise_id=document.enterprise_id,
-                document_id=document.id,
-                document_name=clean_document_title(document.document_name) or document.document_name,
-                version=self.EXTRACT_VERSION,
-                extracts=extracts,
-            )
-
-            self._build_analysis_meta(
-                document,
-                analysis_status="partial_fallback" if trace.get("analysis_mode") == "hybrid_fallback" else "succeeded",
-                analysis_mode=str(trace.get("analysis_mode") or "rule_only"),
-                candidate_count=int(trace.get("candidate_count_after_trim") or 0),
-                extract_count=len(extracts),
-                analysis_groups=self._derive_analysis_groups(document, extracts),
-                analyzed_at=datetime.now(timezone.utc).isoformat(),
-                last_error=trace.get("llm_error"),
-            )
-
-            db.commit()
-            db.refresh(document)
-            return document
-        except Exception as exc:
-            db.rollback()
-            document = db.get(DocumentMeta, document.id)
-            if document is not None:
-                document.parse_status = "failed"
-                document.sync_status = "parse_failed"
-                self._build_analysis_meta(
-                    document,
-                    analysis_status="failed",
-                    analysis_mode=None,
-                    candidate_count=0,
-                    extract_count=0,
-                    analysis_groups=[],
-                    analyzed_at=datetime.now(timezone.utc).isoformat(),
-                    last_error=self._analysis_error_payload(exc),
-                )
-                db.commit()
-            raise
-
     def _retire_current_rows(self, db: Session, document_id: int) -> None:
         db.execute(
             update(DocumentExtractResult)
@@ -757,93 +664,6 @@ class DocumentService:
             return not any(token in lowered for token in ("opinion", "material weakness", "internal control", "qualified", "adverse", "disclaimer"))
         return False
 
-    def _build_structured_extracts(self, document: DocumentMeta, entries: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
-        candidates = []
-        for index, entry in enumerate(entries, start=1):
-            candidate = self._build_candidate(document, entry, classified_type, index)
-            if candidate is not None:
-                candidates.append(candidate)
-        if not candidates:
-            self._set_extraction_trace(
-                analysis_mode="rule_only",
-                candidate_count_before_trim=0,
-                candidate_count_after_trim=0,
-                llm_attempted=False,
-                llm_error=self._config_error_payload(),
-                extract_count=0,
-            )
-            return []
-        trimmed_candidates = self._trim_candidates(candidates, classified_type)
-        if not trimmed_candidates:
-            self._set_extraction_trace(
-                analysis_mode="rule_only",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=0,
-                llm_attempted=False,
-                llm_error=self._config_error_payload(),
-                extract_count=0,
-            )
-            return self._fallback_extracts(document, [], classified_type)
-        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT])
-        if self.llm_client.config_error:
-            self._set_extraction_trace(
-                analysis_mode="rule_only",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=len(trimmed_candidates),
-                llm_attempted=False,
-                llm_error=self._config_error_payload(),
-                extract_count=0,
-            )
-            return self._fallback_extracts(document, trimmed_candidates, classified_type)
-        try:
-            llm_extracts = self._llm_extract(document, trimmed_candidates, classified_type)
-            if llm_extracts:
-                normalized = [self._normalize_extract_payload(document, item, index) for index, item in enumerate(llm_extracts, start=1)]
-                filtered = [item for item in normalized if not self._is_low_quality_extract(item)]
-                if filtered:
-                    self._set_extraction_trace(
-                        analysis_mode="llm_primary",
-                        candidate_count_before_trim=len(candidates),
-                        candidate_count_after_trim=len(trimmed_candidates),
-                        llm_attempted=True,
-                        llm_error=None,
-                        extract_count=len(filtered),
-                    )
-                    return filtered
-            self._set_extraction_trace(
-                analysis_mode="hybrid_fallback",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=len(trimmed_candidates),
-                llm_attempted=True,
-                llm_error=self._analysis_error_payload(
-                    LLMRequestError(
-                        "模型未返回有效的结构化抽取结果。",
-                        error_type="empty_result",
-                        retryable=False,
-                    )
-                ),
-                extract_count=0,
-            )
-        except Exception as exc:
-            self._set_extraction_trace(
-                analysis_mode="hybrid_fallback",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=len(trimmed_candidates),
-                llm_attempted=True,
-                llm_error=self._analysis_error_payload(exc),
-                extract_count=0,
-            )
-            logger.warning(
-                "document structured extraction failed document_id=%s classified_type=%s candidate_count_before_trim=%s candidate_count_after_trim=%s llm_input_chars=%s fallback_used=true error=%s",
-                document.id,
-                classified_type,
-                len(candidates),
-                len(trimmed_candidates),
-                llm_input_chars,
-                exc,
-            )
-        return self._fallback_extracts(document, trimmed_candidates, classified_type)
-
     def _build_candidate(self, document: DocumentMeta, entry: dict[str, Any], classified_type: str, index: int) -> dict[str, Any] | None:
         text = entry["text"]
         financial_topics = [topic for topic in self.FINANCIAL_TOPICS if topic in text]
@@ -1032,70 +852,6 @@ class DocumentService:
             if re.fullmatch(r"[^，。；]{2,30}(股份有限公司|内部控制审计报告|审计报告)", summary):
                 return True
         return False
-
-    def _build_llm_extract_prompts(
-        self,
-        document: DocumentMeta,
-        candidates: list[dict[str, Any]],
-        classified_type: str,
-    ) -> tuple[str, str]:
-        if self.llm_client.config_error:
-            return "", ""
-        lines = []
-        for index, item in enumerate(candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT], start=1):
-            evidence = self._trim_evidence_safe(str(item.get("evidence_excerpt") or ""), limit=120)
-            summary = self._trim_evidence_safe(str(item.get("summary") or ""), limit=120)
-            parameters = item.get("parameters") or {}
-            metric_name = item.get("metric_name") or parameters.get("metric_name") or ""
-            lines.append(
-                f"{index}. id={index}; event={item.get('event_type') or ''}; "
-                f"risk={item.get('canonical_risk_key') or ''}; metric={metric_name}; "
-                f"summary={summary}; evidence={evidence}"
-            )
-        system_prompt = "你是上市公司披露文档抽取助手。请仅对候选段做结构化归纳，返回 JSON 数组。每项必须包含 summary、parameters、event_type、extract_family、evidence_excerpt，不要回显整段原文，不要新增枚举外事件类型。"
-        user_prompt = f"文档名称: {document.document_name}\n分型: {classified_type}\n请从下面候选中挑选 3 到 10 条最重要结果，保留固定枚举 event_type，并让 parameters 为扁平 JSON 对象。\n" + "\n".join(lines)
-        system_prompt = (
-            "You extract audit-risk signals from listed-company disclosures. "
-            "Return JSON array only. Each item must contain only: "
-            "summary, parameters, event_type, evidence_excerpt. "
-            "Do not add markdown, prose, or extra raw text."
-        )
-        user_prompt = (
-            f"document: {clean_document_title(document.document_name) or document.document_name}\n"
-            f"type: {classified_type}\n"
-            "Pick 1 to 5 important items from candidates. Keep event_type stable. "
-            "parameters must be a flat JSON object.\n"
-            + "\n".join(lines)
-        )
-        user_prompt = user_prompt.replace(str(document.document_name), clean_document_title(document.document_name) or str(document.document_name), 1)
-        return system_prompt, user_prompt
-
-    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
-        system_prompt, user_prompt = self._build_llm_extract_prompts(document, candidates, classified_type)
-        if not system_prompt:
-            return []
-        result = self.llm_client.chat_completion(
-            system_prompt,
-            user_prompt,
-            json_mode=True,
-            request_kind="document_extract",
-            metadata={
-                "document_id": document.id,
-                "enterprise_id": document.enterprise_id,
-                "classified_type": classified_type,
-                "candidate_count": min(len(candidates), self.LLM_EXTRACT_CANDIDATE_LIMIT),
-                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
-            },
-            max_tokens=1024,
-            max_attempts=1,
-            timeout=30.0,
-            strict_json_instruction=False,
-        )
-        if isinstance(result, list):
-            return [item for item in result if isinstance(item, dict)]
-        if isinstance(result, dict) and isinstance(result.get("extracts"), list):
-            return [item for item in result["extracts"] if isinstance(item, dict)]
-        return []
 
     def _normalize_extract_payload(self, document: DocumentMeta, payload: dict[str, Any], index: int) -> dict[str, Any]:
         summary = str(payload.get("summary") or payload.get("problem_summary") or payload.get("evidence_excerpt") or payload.get("title") or document.document_name).strip()
@@ -1709,105 +1465,6 @@ class DocumentService:
                 return True
         return self._is_cover_like_noise(text)
 
-    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
-        system_prompt, user_prompt = self._build_llm_extract_prompts(document, candidates, classified_type)
-        if not system_prompt:
-            return []
-        result = self.llm_client.chat_completion(
-            system_prompt,
-            user_prompt,
-            json_mode=True,
-            request_kind="document_extract",
-            metadata={
-                "document_id": document.id,
-                "enterprise_id": document.enterprise_id,
-                "classified_type": classified_type,
-                "candidate_count": min(len(candidates), self.LLM_EXTRACT_CANDIDATE_LIMIT),
-                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
-            },
-            max_tokens=1024,
-            max_attempts=1,
-            timeout=30.0,
-            strict_json_instruction=False,
-        )
-        return self._extract_llm_items(result)
-
-    def _extract_llm_items(self, result: Any) -> list[dict[str, Any]]:
-        if isinstance(result, list):
-            return [item for item in result if isinstance(item, dict)]
-        if not isinstance(result, dict):
-            return []
-        if isinstance(result.get("items"), list):
-            if result.get("payload_mode") == "partial_list":
-                logger.info(
-                    "document_extract partial_json_recovered document_id=%s payload_mode=%s raw_prefix_kind=%s recovered_count=%s",
-                    None,
-                    result.get("payload_mode"),
-                    result.get("raw_prefix_kind"),
-                    len(result.get("items") or []),
-                )
-            return [item for item in result["items"] if isinstance(item, dict)]
-        if isinstance(result.get("extracts"), list):
-            return [item for item in result["extracts"] if isinstance(item, dict)]
-        raw = result.get("raw")
-        if isinstance(raw, str) and raw.strip():
-            recovered = self._recover_json_payload(raw)
-            if isinstance(recovered, list):
-                return [item for item in recovered if isinstance(item, dict)]
-            if isinstance(recovered, dict):
-                if isinstance(recovered.get("items"), list):
-                    return [item for item in recovered["items"] if isinstance(item, dict)]
-                if isinstance(recovered.get("extracts"), list):
-                    return [item for item in recovered["extracts"] if isinstance(item, dict)]
-        return []
-
-    def _recover_json_payload(self, raw: str) -> Any:
-        stripped = str(raw or "").strip()
-        if not stripped:
-            return None
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError:
-            pass
-        block = self._extract_json_block_from_raw(stripped)
-        if not block:
-            return None
-        try:
-            return json.loads(block)
-        except json.JSONDecodeError:
-            return None
-
-    def _extract_json_block_from_raw(self, raw: str) -> str | None:
-        start = None
-        depth = 0
-        in_string = False
-        escaped = False
-        for index, char in enumerate(raw):
-            if start is None:
-                if char in "{[":
-                    start = index
-                    depth = 1
-                continue
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-                continue
-            if char == '"':
-                in_string = True
-                continue
-            if char in "{[":
-                depth += 1
-                continue
-            if char in "}]":
-                depth -= 1
-                if depth == 0:
-                    return raw[start : index + 1].strip()
-        return None
-
     def _normalize_extract_payload(self, document: DocumentMeta, payload: dict[str, Any], index: int) -> dict[str, Any]:
         display_name = clean_document_title(document.document_name) or document.document_name
         summary = self._clean_summary_like_text(
@@ -1825,15 +1482,32 @@ class DocumentService:
         event_type = payload.get("event_type")
         opinion_type = payload.get("opinion_type")
         metric_name = payload.get("metric_name")
+        metric_unit = payload.get("metric_unit")
+        risk_points = self._dedupe_strings(list(payload.get("risk_points") or []))
+        evidence_keywords = self._dedupe_strings(
+            [
+                title,
+                summary,
+                str(event_type or ""),
+                str(opinion_type or ""),
+                str(metric_name or ""),
+                str(metric_unit or ""),
+                str(payload.get("amount") or ""),
+                str(payload.get("period") or document.report_period_label or ""),
+            ]
+            + risk_points
+            + [str(item) for item in payload.get("keywords") or []]
+            + [str(item) for item in payload.get("financial_topics") or []]
+        )
         evidence_excerpt = self.evidence_summary_service.summarize_evidence(
             title=title,
             text=raw_evidence_excerpt or summary,
             evidence_type="document_extract",
             report_period=str(payload.get("period") or document.report_period_label or ""),
             context=summary,
+            keywords=evidence_keywords,
         )
         evidence_excerpt = self._trim_evidence_safe(evidence_excerpt or raw_evidence_excerpt or summary)
-        risk_points = self._dedupe_strings(list(payload.get("risk_points") or []))
         applied_rules, canonical_risk_key = self._resolve_extract_rules(
             payload=payload,
             title=title,
@@ -1873,7 +1547,7 @@ class DocumentService:
             "risk_points": risk_points,
             "metric_name": metric_name,
             "metric_value": self._coerce_float(payload.get("metric_value")),
-            "metric_unit": payload.get("metric_unit"),
+            "metric_unit": metric_unit,
             "compare_target": payload.get("compare_target"),
             "compare_value": self._coerce_float(payload.get("compare_value")),
             "period": payload.get("period") or document.report_period_label,
@@ -1991,254 +1665,6 @@ class DocumentService:
                 extract["applied_rules"] = applied_rules
                 extract["canonical_risk_key"] = canonical_risk_key
         return extracts
-
-    def _build_structured_extracts(self, document: DocumentMeta, entries: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
-        setattr(self, "_last_llm_payload_diagnostics", None)
-        candidates = []
-        for index, entry in enumerate(entries, start=1):
-            candidate = self._build_candidate(document, entry, classified_type, index)
-            if candidate is not None:
-                candidates.append(candidate)
-        if not candidates:
-            self._set_extraction_trace(
-                analysis_mode="rule_only",
-                candidate_count_before_trim=0,
-                candidate_count_after_trim=0,
-                llm_attempted=False,
-                llm_error=self._config_error_payload(),
-                extract_count=0,
-            )
-            return []
-        trimmed_candidates = self._trim_candidates(candidates, classified_type)
-        if not trimmed_candidates:
-            self._set_extraction_trace(
-                analysis_mode="rule_only",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=0,
-                llm_attempted=False,
-                llm_error=self._config_error_payload(),
-                extract_count=0,
-            )
-            return self._fallback_extracts(document, [], classified_type)
-        llm_input_chars = sum(len(str(item.get("evidence_excerpt") or "")) for item in trimmed_candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT])
-        if self.llm_client.config_error:
-            self._set_extraction_trace(
-                analysis_mode="rule_only",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=len(trimmed_candidates),
-                llm_attempted=False,
-                llm_error=self._config_error_payload(),
-                extract_count=0,
-            )
-            return self._fallback_extracts(document, trimmed_candidates, classified_type)
-        try:
-            llm_extracts = self._llm_extract(document, trimmed_candidates, classified_type)
-            if llm_extracts:
-                normalized = [self._normalize_extract_payload(document, item, index) for index, item in enumerate(llm_extracts, start=1)]
-                filtered = [item for item in normalized if not self._is_low_quality_extract(item)]
-                if filtered:
-                    self._set_extraction_trace(
-                        analysis_mode="llm_primary",
-                        candidate_count_before_trim=len(candidates),
-                        candidate_count_after_trim=len(trimmed_candidates),
-                        llm_attempted=True,
-                        llm_error=None,
-                        extract_count=len(filtered),
-                    )
-                    return filtered
-            llm_error = self._build_llm_extract_fallback_error()
-            if llm_error is None:
-                llm_error = self._analysis_error_payload(
-                    LLMRequestError(
-                        "模型未返回有效的结构化抽取结果。",
-                        error_type="empty_result",
-                        retryable=False,
-                    )
-                )
-            self._set_extraction_trace(
-                analysis_mode="hybrid_fallback",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=len(trimmed_candidates),
-                llm_attempted=True,
-                llm_error=llm_error,
-                extract_count=0,
-            )
-        except Exception as exc:
-            self._set_extraction_trace(
-                analysis_mode="hybrid_fallback",
-                candidate_count_before_trim=len(candidates),
-                candidate_count_after_trim=len(trimmed_candidates),
-                llm_attempted=True,
-                llm_error=self._analysis_error_payload(exc),
-                extract_count=0,
-            )
-            logger.warning(
-                "document structured extraction failed document_id=%s classified_type=%s candidate_count_before_trim=%s candidate_count_after_trim=%s llm_input_chars=%s fallback_used=true error=%s",
-                document.id,
-                classified_type,
-                len(candidates),
-                len(trimmed_candidates),
-                llm_input_chars,
-                exc,
-            )
-        return self._fallback_extracts(document, trimmed_candidates, classified_type)
-
-    def _llm_extract(self, document: DocumentMeta, candidates: list[dict[str, Any]], classified_type: str) -> list[dict[str, Any]]:
-        setattr(self, "_last_llm_payload_diagnostics", None)
-        system_prompt, user_prompt = self._build_llm_extract_prompts(document, candidates, classified_type)
-        if not system_prompt:
-            return []
-        result = self.llm_client.chat_completion(
-            system_prompt,
-            user_prompt,
-            json_mode=True,
-            request_kind="document_extract",
-            metadata={
-                "document_id": document.id,
-                "enterprise_id": document.enterprise_id,
-                "classified_type": classified_type,
-                "candidate_count": min(len(candidates), self.LLM_EXTRACT_CANDIDATE_LIMIT),
-                "llm_input_chars": sum(len(str(item.get("evidence_excerpt") or "")) for item in candidates[: self.LLM_EXTRACT_CANDIDATE_LIMIT]),
-            },
-            max_tokens=1024,
-            max_attempts=2,
-            timeout=30.0,
-            strict_json_instruction=True,
-        )
-        return self._extract_llm_items(result, document_id=document.id)
-
-    def _extract_llm_items(self, result: Any, document_id: int | None = None) -> list[dict[str, Any]]:
-        setattr(self, "_last_llm_payload_diagnostics", None)
-        if isinstance(result, list):
-            return [item for item in result if isinstance(item, dict)]
-        if not isinstance(result, dict):
-            return []
-        if isinstance(result.get("items"), list):
-            if result.get("payload_mode") == "partial_list":
-                logger.info(
-                    "document_extract partial_json_recovered document_id=%s payload_mode=%s raw_prefix_kind=%s recovered_count=%s",
-                    document_id,
-                    result.get("payload_mode"),
-                    result.get("raw_prefix_kind"),
-                    len(result.get("items") or []),
-                )
-            return [item for item in result["items"] if isinstance(item, dict)]
-        if isinstance(result.get("extracts"), list):
-            return [item for item in result["extracts"] if isinstance(item, dict)]
-        raw = result.get("raw")
-        if isinstance(raw, str) and raw.strip():
-            recovered = self._recover_json_payload(raw)
-            if isinstance(recovered, list):
-                return [item for item in recovered if isinstance(item, dict)]
-            if isinstance(recovered, dict):
-                if isinstance(recovered.get("items"), list):
-                    return [item for item in recovered["items"] if isinstance(item, dict)]
-                if isinstance(recovered.get("extracts"), list):
-                    return [item for item in recovered["extracts"] if isinstance(item, dict)]
-            partial_items = self._recover_partial_json_items(raw, result.get("raw_prefix_kind"))
-            if partial_items:
-                setattr(
-                    self,
-                    "_last_llm_payload_diagnostics",
-                    {
-                        "mode": "partial_json_recovered",
-                        "payload_mode": result.get("payload_mode"),
-                        "raw_prefix_kind": result.get("raw_prefix_kind"),
-                        "recovered_count": len(partial_items),
-                    },
-                )
-                logger.info(
-                    "document_extract partial_json_recovered document_id=%s payload_mode=%s raw_prefix_kind=%s recovered_count=%s",
-                    document_id,
-                    result.get("payload_mode"),
-                    result.get("raw_prefix_kind"),
-                    len(partial_items),
-                )
-                return partial_items
-            if result.get("truncated_json_prefix"):
-                provider_response = self._trim_evidence_safe(raw)
-                setattr(
-                    self,
-                    "_last_llm_payload_diagnostics",
-                    {
-                        "mode": "truncated_json_fallback",
-                        "payload_mode": result.get("payload_mode"),
-                        "raw_prefix_kind": result.get("raw_prefix_kind"),
-                        "provider_response_text": provider_response,
-                    },
-                )
-                logger.info(
-                    "document_extract truncated_json_fallback document_id=%s payload_mode=%s raw_prefix_kind=%s",
-                    document_id,
-                    result.get("payload_mode"),
-                    result.get("raw_prefix_kind"),
-                )
-        return []
-
-    def _build_llm_extract_fallback_error(self) -> dict[str, Any] | None:
-        diagnostics = getattr(self, "_last_llm_payload_diagnostics", None)
-        setattr(self, "_last_llm_payload_diagnostics", None)
-        if not diagnostics:
-            return None
-        if diagnostics.get("mode") != "truncated_json_fallback":
-            return None
-        return self._analysis_error_payload(
-            LLMRequestError(
-                "模型返回了截断的 JSON，已回退到规则抽取结果。",
-                error_type="truncated_json_fallback",
-                provider_response_text=diagnostics.get("provider_response_text"),
-                retryable=False,
-            )
-        )
-
-    def _recover_partial_json_items(self, raw: str, prefix_kind: Any) -> list[dict[str, Any]]:
-        text = str(raw or "").strip()
-        if not text:
-            return []
-        kind = str(prefix_kind or "")
-        if kind == "object_prefix":
-            first_array = text.find("[")
-            if first_array != -1:
-                return self._recover_partial_json_array_items(text[first_array:])
-            first_object = text.find("{")
-            if first_object == -1:
-                return []
-            try:
-                payload, _ = json.JSONDecoder().raw_decode(text, first_object)
-            except json.JSONDecodeError:
-                return []
-            if isinstance(payload, dict):
-                if isinstance(payload.get("items"), list):
-                    return [item for item in payload["items"] if isinstance(item, dict)]
-                if isinstance(payload.get("extracts"), list):
-                    return [item for item in payload["extracts"] if isinstance(item, dict)]
-                return [payload]
-            return []
-        return self._recover_partial_json_array_items(text)
-
-    def _recover_partial_json_array_items(self, raw: str) -> list[dict[str, Any]]:
-        start = raw.find("[")
-        if start == -1:
-            return []
-        decoder = json.JSONDecoder()
-        items: list[dict[str, Any]] = []
-        index = start + 1
-        while index < len(raw):
-            while index < len(raw) and raw[index] in " \r\n\t,":
-                index += 1
-            if index >= len(raw) or raw[index] == "]":
-                break
-            if raw[index] != "{":
-                break
-            try:
-                payload, end = decoder.raw_decode(raw, index)
-            except json.JSONDecodeError:
-                break
-            if not isinstance(payload, dict):
-                break
-            items.append(payload)
-            index = end
-        return items
 
     def _parse_document_record(self, db: Session, document: DocumentMeta) -> DocumentMeta:
         if not document.file_path and not document.content_text:

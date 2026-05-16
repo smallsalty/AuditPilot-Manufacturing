@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.ai.risk_agent_skill_registry import RiskAgentSkillRegistry
+
 
 class FinancialDataRiskService:
+    AGENT_SKILL = RiskAgentSkillRegistry.get("data_risk_analysis").key
+
     FIELD_MAPPING = {
         "revenue": "revenue",
         "net_profit": "net_profit",
@@ -200,6 +204,7 @@ class FinancialDataRiskService:
             "judgment": f"{risk_name}：{self._risk_level(rounded_score)}风险",
             "evidence": evidence,
             "periods": [str(row.get("report_period")) for row in rows],
+            "agent_skill": self.AGENT_SKILL,
         }
 
     @staticmethod

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.ai.document_prompt_registry import DocumentPromptRegistry
 from app.ai.llm_client import LLMRequestError
+from app.ai.risk_agent_skill_registry import RiskAgentSkill, RiskAgentSkillRegistry
 from app.models import DocumentMeta
 from app.services.document_classify_service import DocumentClassificationResult
 from app.utils.display_text import clean_document_title
@@ -58,19 +59,30 @@ class DocumentAnalysisPipeline:
             }
 
         prompt_type = DocumentPromptRegistry.resolve_prompt_type(classified_type)
-        stage_configs: list[tuple[str, str, list[dict[str, Any]]]] = [("core", prompt_type, cleaned_entries)]
-        if classified_type == "annual_report":
+        core_entries = cleaned_entries
+        financial_entries: list[dict[str, Any]] = []
+        if classified_type in {"annual_report", "quarter_report"}:
             financial_entries = self.extract_financial_entries(cleaned_entries)
             cleaning_meta["financial_section_detected"] = bool(financial_entries)
             cleaning_meta["financial_section_count"] = len(financial_entries)
-            if financial_entries:
-                stage_configs.append(("financial_subanalysis", "annual_financial_subanalysis", financial_entries))
+            financial_hashes = {str(entry.get("paragraph_hash") or "") for entry in financial_entries}
+            core_entries = [
+                entry
+                for entry in cleaned_entries
+                if str(entry.get("paragraph_hash") or "") not in financial_hashes
+            ]
+        stage_configs: list[tuple[str, str, list[dict[str, Any]]]] = []
+        if core_entries:
+            stage_configs.append(("core", prompt_type, core_entries))
+        if financial_entries:
+            stage_configs.append(("financial_subanalysis", "annual_financial_subanalysis", financial_entries))
 
         all_extracts: list[dict[str, Any]] = []
         stage_diagnostics: list[dict[str, Any]] = []
         stage_mode_labels: list[str] = []
         last_error: dict[str, Any] | None = None
         had_partial_fallback = False
+        had_stage_failure = False
         candidate_count_before_trim = 0
         candidate_count_after_trim = 0
 
@@ -89,6 +101,8 @@ class DocumentAnalysisPipeline:
                 last_error = stage_result["last_error"]
             if stage_result["analysis_status"] == "partial_fallback":
                 had_partial_fallback = True
+            if stage_result["analysis_status"] == "failed":
+                had_stage_failure = True
             if stage_result.get("llm_diagnostics"):
                 stage_diagnostics.append(stage_result["llm_diagnostics"])
             if stage_result.get("analysis_mode"):
@@ -105,11 +119,19 @@ class DocumentAnalysisPipeline:
         if extracts:
             return {
                 "extracts": extracts,
-                "analysis_status": "partial_fallback" if had_partial_fallback else "succeeded",
-                "analysis_mode": "dual_stage_partial_fallback"
+                "analysis_status": "partial_failed"
+                if had_stage_failure
+                else "partial_fallback"
+                if had_partial_fallback
+                else "succeeded",
+                "analysis_mode": "dual_stage_partial_failed"
+                if len(stage_configs) > 1 and had_stage_failure
+                else "dual_stage_partial_fallback"
                 if len(stage_configs) > 1 and had_partial_fallback
                 else "dual_stage_llm"
                 if len(stage_configs) > 1
+                else "partial_failed"
+                if had_stage_failure
                 else "hybrid_fallback"
                 if had_partial_fallback
                 else "llm_primary",
@@ -225,6 +247,7 @@ class DocumentAnalysisPipeline:
                     retry_attempts=0,
                     max_tokens=stage_max_tokens,
                     raw_preview=None,
+                    agent_skill=prompt_bundle["agent_skill"],
                 ),
             }
 
@@ -242,6 +265,7 @@ class DocumentAnalysisPipeline:
                     "llm_input_chars": llm_input_chars,
                     "prompt_template": prompt_bundle["prompt_template"],
                     "schema_name": prompt_bundle["schema_name"],
+                    "agent_skill": prompt_bundle["agent_skill"],
                 },
                 max_tokens=stage_max_tokens,
                 max_attempts=2,
@@ -262,6 +286,7 @@ class DocumentAnalysisPipeline:
                 max_tokens=stage_max_tokens,
                 analysis_stage=analysis_stage,
                 prompt_type=prompt_type,
+                agent_skill=prompt_bundle["agent_skill"],
             )
         except Exception as exc:
             return self.build_stage_request_fallback(
@@ -277,6 +302,7 @@ class DocumentAnalysisPipeline:
                 max_tokens=stage_max_tokens,
                 analysis_stage=analysis_stage,
                 prompt_type=prompt_type,
+                agent_skill=prompt_bundle["agent_skill"],
             )
 
         items, llm_diagnostics, error = self.validate_llm_stage_result(
@@ -289,13 +315,22 @@ class DocumentAnalysisPipeline:
             candidate_count=min(len(trimmed_candidates), self.service.LLM_EXTRACT_CANDIDATE_LIMIT),
             llm_input_chars=llm_input_chars,
             max_tokens=stage_max_tokens,
+            agent_skill=prompt_bundle["agent_skill"],
         )
 
         if items:
             normalized: list[dict[str, Any]] = []
+            fixed_rejected_count = 0
+            fixed_rejection_reasons: dict[str, int] = {}
+            skill = self.resolve_agent_skill(prompt_bundle["agent_skill"])
             for index, item in enumerate(items, start=1):
                 payload = self.service._normalize_extract_payload(document, item, index)
                 payload = self.apply_stage_defaults(payload, analysis_stage, prompt_type, classified_type)
+                fixed_rejection_reason = self.validate_fixed_item_fields(payload, skill)
+                if fixed_rejection_reason:
+                    fixed_rejected_count += 1
+                    fixed_rejection_reasons[fixed_rejection_reason] = fixed_rejection_reasons.get(fixed_rejection_reason, 0) + 1
+                    continue
                 if self.service._is_low_quality_extract(payload):
                     continue
                 normalized.append(payload)
@@ -309,16 +344,38 @@ class DocumentAnalysisPipeline:
                     "last_error": None,
                     "llm_diagnostics": llm_diagnostics,
                 }
+            if fixed_rejected_count:
+                llm_diagnostics["rejected_item_count"] = int(llm_diagnostics.get("rejected_item_count") or 0) + fixed_rejected_count
+                rejection_reasons = dict(llm_diagnostics.get("rejection_reasons") or {})
+                for reason, count in fixed_rejection_reasons.items():
+                    rejection_reasons[reason] = int(rejection_reasons.get(reason) or 0) + count
+                llm_diagnostics["rejection_reasons"] = rejection_reasons
             error = self.make_error_payload(
-                "llm_extract_normalization_failed",
-                "模型返回了结构化结果，但规范化后没有保留有效抽取项。",
-                error_type="llm_extract_normalization_failed",
+                "llm_skill_contract_validation_error" if fixed_rejected_count else "llm_extract_normalization_failed",
+                "模型返回的 JSON 不符合当前 agent skill 输出合同。"
+                if fixed_rejected_count
+                else "模型返回了结构化结果，但规范化后没有保留有效抽取项。",
+                error_type="skill_contract_validation_error" if fixed_rejected_count else "llm_extract_normalization_failed",
                 payload_mode=llm_diagnostics.get("payload_mode"),
                 retry_attempts=llm_diagnostics.get("retry_attempts"),
                 prompt_template=prompt_bundle["prompt_template"],
                 schema_name=prompt_bundle["schema_name"],
                 raw_preview=llm_diagnostics.get("raw_preview"),
             )
+            if fixed_rejected_count:
+                error["rejected_item_count"] = llm_diagnostics.get("rejected_item_count")
+                error["rejection_reasons"] = llm_diagnostics.get("rejection_reasons")
+
+        if self.should_suppress_fallback(error):
+            return {
+                "extracts": [],
+                "analysis_status": "failed",
+                "analysis_mode": "skill_contract_failed",
+                "candidate_count_before_trim": len(candidates),
+                "candidate_count_after_trim": len(trimmed_candidates),
+                "last_error": error,
+                "llm_diagnostics": llm_diagnostics,
+            }
 
         fallback = self.service._fallback_extracts(document, trimmed_candidates, classified_type)
         fallback = [self.apply_stage_defaults(item, analysis_stage, prompt_type, classified_type) for item in fallback]
@@ -358,6 +415,7 @@ class DocumentAnalysisPipeline:
         max_tokens: int,
         analysis_stage: str,
         prompt_type: str,
+        agent_skill: str | None = None,
     ) -> dict[str, Any]:
         error = self.exception_to_error_payload(exc)
         raw_preview_source = str(error.get("provider_response_text") or error.get("message") or "")
@@ -372,6 +430,7 @@ class DocumentAnalysisPipeline:
             retry_attempts=None,
             max_tokens=max_tokens,
             raw_preview=raw_preview,
+            agent_skill=agent_skill,
         )
         fallback = self.service._fallback_extracts(document, trimmed_candidates, classified_type)
         fallback = [self.apply_stage_defaults(item, analysis_stage, prompt_type, classified_type) for item in fallback]
@@ -508,6 +567,10 @@ class DocumentAnalysisPipeline:
             "附注",
             "主要会计数据",
             "会计政策",
+            "资产负债表",
+            "利润表",
+            "现金流量表",
+            "所有者权益变动表",
         )
         topic_keywords = tuple(self.service.FINANCIAL_TOPICS) + (
             "资产负债表",
@@ -548,6 +611,7 @@ class DocumentAnalysisPipeline:
         candidate_count: int,
         llm_input_chars: int,
         max_tokens: int,
+        agent_skill: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
         if not isinstance(result, dict):
             llm_diagnostics = self.build_llm_diagnostics(
@@ -560,6 +624,7 @@ class DocumentAnalysisPipeline:
                 retry_attempts=None,
                 max_tokens=max_tokens,
                 raw_preview=None,
+                agent_skill=agent_skill,
             )
             error = self.make_error_payload(
                 "llm_empty_response",
@@ -575,6 +640,10 @@ class DocumentAnalysisPipeline:
         raw_preview = None
         if isinstance(result.get("raw"), str):
             raw_preview = self.service._trim_evidence_safe(str(result.get("raw")), limit=200)
+        skill = self.resolve_agent_skill(agent_skill)
+        if skill is not None:
+            required_item_keys = skill.required_item_keys
+            required_any_of = skill.required_any_of
 
         llm_diagnostics = self.build_llm_diagnostics(
             classified_type=classified_type,
@@ -586,6 +655,7 @@ class DocumentAnalysisPipeline:
             retry_attempts=retry_attempts,
             max_tokens=max_tokens,
             raw_preview=raw_preview,
+            agent_skill=agent_skill,
         )
 
         if result.get("parsed_ok") is False:
@@ -600,6 +670,29 @@ class DocumentAnalysisPipeline:
                 raw_preview=raw_preview,
             )
             return [], llm_diagnostics, error
+
+        if skill is not None:
+            missing_top_level_keys = [
+                key for key in skill.required_top_level_keys if not self.has_value(result.get(key))
+            ]
+            if missing_top_level_keys:
+                llm_diagnostics["rejected_item_count"] = 0
+                llm_diagnostics["rejection_reasons"] = {
+                    f"missing_top_level:{key}": 1 for key in missing_top_level_keys
+                }
+                error = self.make_error_payload(
+                    "llm_skill_contract_validation_error",
+                    "模型返回 JSON，但不符合当前 agent skill 的顶层输出合同。",
+                    error_type="skill_contract_validation_error",
+                    payload_mode=payload_mode,
+                    retry_attempts=retry_attempts,
+                    prompt_template=prompt_template,
+                    schema_name=schema_name,
+                    raw_preview=raw_preview,
+                )
+                error["rejected_item_count"] = 0
+                error["rejection_reasons"] = llm_diagnostics["rejection_reasons"]
+                return [], llm_diagnostics, error
 
         items = result.get("items")
         if not isinstance(items, list) and isinstance(result.get("extracts"), list):
@@ -618,31 +711,103 @@ class DocumentAnalysisPipeline:
             return [], llm_diagnostics, error
 
         normalized_items: list[dict[str, Any]] = []
+        rejected_item_count = 0
+        rejection_reasons: dict[str, int] = {}
         for item in items:
             if not isinstance(item, dict):
+                rejected_item_count += 1
+                rejection_reasons["non_object_item"] = rejection_reasons.get("non_object_item", 0) + 1
                 continue
-            if not all(self.has_value(item.get(key)) for key in required_item_keys):
-                continue
-            if required_any_of and not any(self.has_value(item.get(key)) for key in required_any_of):
+            rejection_reason = self.validate_item_against_skill_contract(
+                item,
+                skill=skill,
+                required_item_keys=required_item_keys,
+                required_any_of=required_any_of,
+            )
+            if rejection_reason:
+                rejected_item_count += 1
+                rejection_reasons[rejection_reason] = rejection_reasons.get(rejection_reason, 0) + 1
                 continue
             normalized_items.append(item)
 
+        if rejected_item_count:
+            llm_diagnostics["rejected_item_count"] = rejected_item_count
+            llm_diagnostics["rejection_reasons"] = rejection_reasons
+
         if not normalized_items:
             error_code = "llm_empty_response" if not items else "llm_schema_validation_error"
+            error_type = "schema_validation_error" if items else "llm_empty_response"
             error_message = "模型返回了空结果。" if not items else "模型返回的 JSON 结构不符合当前模板要求。"
+            if items and rejected_item_count:
+                error_code = "llm_skill_contract_validation_error"
+                error_type = "skill_contract_validation_error"
+                error_message = "模型返回的 JSON 不符合当前 agent skill 输出合同。"
             error = self.make_error_payload(
                 error_code,
                 error_message,
-                error_type="schema_validation_error" if items else "llm_empty_response",
+                error_type=error_type,
                 payload_mode=payload_mode,
                 retry_attempts=retry_attempts,
                 prompt_template=prompt_template,
                 schema_name=schema_name,
                 raw_preview=raw_preview,
             )
+            if rejected_item_count:
+                error["rejected_item_count"] = rejected_item_count
+                error["rejection_reasons"] = rejection_reasons
             return [], llm_diagnostics, error
 
         return normalized_items, llm_diagnostics, None
+
+    def resolve_agent_skill(self, agent_skill: str | None) -> RiskAgentSkill | None:
+        if not agent_skill:
+            return None
+        try:
+            return RiskAgentSkillRegistry.get(agent_skill)
+        except KeyError:
+            return None
+
+    def validate_item_against_skill_contract(
+        self,
+        item: dict[str, Any],
+        *,
+        skill: RiskAgentSkill | None,
+        required_item_keys: tuple[str, ...],
+        required_any_of: tuple[str, ...],
+    ) -> str | None:
+        for key in required_item_keys:
+            if not self.has_value(self.get_dotted_value(item, key)):
+                return f"missing_required:{key}"
+        if required_any_of and not any(self.has_value(self.get_dotted_value(item, key)) for key in required_any_of):
+            return "missing_required_any_of"
+        if skill is None:
+            return None
+        for key in skill.forbidden_item_fields:
+            if self.has_value(self.get_dotted_value(item, key)):
+                return f"forbidden_field:{key}"
+        for key, expected in skill.forbidden_item_values:
+            if self.get_dotted_value(item, key) == expected:
+                return f"forbidden_value:{key}"
+        return None
+
+    def get_dotted_value(self, payload: dict[str, Any], path: str) -> Any:
+        value: Any = payload
+        for part in path.split("."):
+            if not isinstance(value, dict):
+                return None
+            value = value.get(part)
+        return value
+
+    def validate_fixed_item_fields(self, item: dict[str, Any], skill: RiskAgentSkill | None) -> str | None:
+        if skill is None:
+            return None
+        for key, expected in skill.fixed_item_fields:
+            if self.get_dotted_value(item, key) != expected:
+                return f"fixed_field_mismatch:{key}"
+        return None
+
+    def should_suppress_fallback(self, error: dict[str, Any] | None) -> bool:
+        return bool(error and error.get("error_type") == "skill_contract_validation_error")
 
     def has_value(self, value: Any) -> bool:
         if value is None:
@@ -665,10 +830,12 @@ class DocumentAnalysisPipeline:
         retry_attempts: int | None,
         max_tokens: int,
         raw_preview: str | None,
+        agent_skill: str | None = None,
     ) -> dict[str, Any]:
         return {
             "model": self.service.llm_client.model,
             "request_kind": "document_extract",
+            "agent_skill": agent_skill,
             "classified_type": classified_type,
             "prompt_template": prompt_template,
             "schema_name": schema_name,
@@ -714,6 +881,8 @@ class DocumentAnalysisPipeline:
         }
 
     def _resolve_stage_max_tokens(self, prompt_template: str, schema_name: str) -> int:
+        if prompt_template == "document_extract:annual_financial_subanalysis":
+            return 4096
         if prompt_template.startswith("document_extract:"):
             return 2048
         return 1024

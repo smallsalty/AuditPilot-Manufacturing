@@ -90,19 +90,18 @@ export function EnterpriseSwitcher() {
   }, [enterpriseError, enterpriseLoading, enterpriseOptions.length, searchError, searching, searchKeyword]);
 
   return (
-    <div className="rounded-xl border bg-background p-4">
+    <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-muted p-2 text-muted-foreground">
+        <div className="rounded-full border border-[#d8c8aa] bg-[#fffdf7] p-2 text-[#8f3148]">
           <Building2 className="h-4 w-4" />
         </div>
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">企业上下文</p>
-          <p className="mt-1 text-sm text-muted-foreground">按企业名称或股票代码切换当前工作对象。</p>
+          <p className="audit-label">企业查询</p>
         </div>
       </div>
 
       <div className="relative mt-4">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a7759]" />
         <Input
           value={searchKeyword}
           onChange={(event) => setSearchKeyword(event.target.value)}
@@ -144,14 +143,14 @@ export function EnterpriseSwitcher() {
           </Select>
         </div>
       ) : (
-        <div className="mt-3 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+        <div className="mt-3 rounded-xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/75 px-4 py-3 text-sm font-semibold text-[#6c5d45]">
           暂无可选企业
         </div>
       )}
 
       <Alert
         variant={enterpriseError || searchError ? "destructive" : "default"}
-        className="mt-3 border-dashed bg-muted/30 text-xs"
+        className="mt-3 border-dashed text-xs"
       >
         <AlertTitle>当前状态</AlertTitle>
         <AlertDescription>{helperText}</AlertDescription>

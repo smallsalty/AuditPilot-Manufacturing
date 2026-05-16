@@ -42,8 +42,8 @@ function FinancialSection({
   return (
     <section className="financial-print-section flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
-        {description ? <p className="text-sm leading-6 text-muted-foreground">{description}</p> : null}
+        <h2 className="audit-title text-lg">{title}</h2>
+        {description ? <p className="audit-copy text-sm">{description}</p> : null}
       </div>
       {children}
     </section>
@@ -54,14 +54,14 @@ function MetricCard({ metric }: { metric: MetricCard }) {
   return (
     <Card className="financial-print-block flex min-h-[138px] flex-col justify-between gap-5 p-5">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-sm font-medium text-muted-foreground">{metric.label}</p>
-        <span className="rounded-md border bg-muted px-2 py-1 font-mono text-[0.68rem] font-semibold text-muted-foreground">
+        <p className="text-sm font-semibold text-[#5d503b]">{metric.label}</p>
+        <span className="rounded-full border border-[#d8c8aa] bg-[#f8f3e8] px-2 py-1 font-mono text-[0.68rem] font-bold text-[#6c5d45]">
           {metric.period}
         </span>
       </div>
       <div className="flex flex-col gap-2">
-        <p className="font-mono text-2xl font-semibold tracking-tight text-foreground">{metric.value}</p>
-        {metric.hint ? <p className="text-xs leading-5 text-muted-foreground">{metric.hint}</p> : null}
+        <p className="font-mono text-2xl font-black tracking-normal text-[#15130f]">{metric.value}</p>
+        {metric.hint ? <p className="text-xs font-semibold leading-5 text-[#5d503b]">{metric.hint}</p> : null}
       </div>
     </Card>
   );
@@ -291,34 +291,31 @@ export default function FinancialsPage() {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Financial Reports</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">财报数据总览</h1>
+              <p className="audit-label">Financial Reports</p>
+              <h1 className="audit-title text-3xl">财报数据总览</h1>
             </div>
-            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 text-sm font-semibold text-[#5d503b] sm:grid-cols-2 xl:grid-cols-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em]">公司名称</p>
-                <p className="mt-1 font-medium text-foreground">{report?.company_name ?? currentEnterprise?.name ?? "--"}</p>
+                <p className="mt-1 font-black text-[#15130f]">{report?.company_name ?? currentEnterprise?.name ?? "--"}</p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.18em]">股票代码</p>
-                <p className="mt-1 font-mono font-medium text-foreground">{report?.ticker ?? currentEnterprise?.ticker ?? "--"}</p>
+                <p className="mt-1 font-mono font-black text-[#15130f]">{report?.ticker ?? currentEnterprise?.ticker ?? "--"}</p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.18em]">展示区间</p>
-                <p className="mt-1 font-mono font-medium text-foreground">
+                <p className="mt-1 font-mono font-black text-[#15130f]">
                   {firstPeriod} - {lastPeriod}
                 </p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.18em]">最后更新</p>
-                <p className="mt-1 font-mono font-medium text-foreground">{updatedAt}</p>
+                <p className="mt-1 font-mono font-black text-[#15130f]">{updatedAt}</p>
               </div>
             </div>
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-              数据来源：{report?.data_source ?? "等待接口返回"}。页面只展示后端接口数据。
-            </p>
-            <p className="text-sm leading-6 text-muted-foreground">
-              运行状态：{statusText}。季度为 Q1-Q4 单季度数据，不是累计数。
+            <p className="audit-copy text-sm">
+              运行状态：{statusText}。
             </p>
           </div>
           <div className="flex flex-wrap gap-2" data-print-hidden>
@@ -382,7 +379,7 @@ export default function FinancialsPage() {
             </Alert>
           ) : null}
 
-          <FinancialSection title="核心指标摘要" description="展示最新一期财报。">
+          <FinancialSection title="核心指标摘要">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {metrics.map((metric) => (
                 <MetricCard key={metric.label} metric={metric} />
@@ -390,40 +387,40 @@ export default function FinancialsPage() {
             </div>
           </FinancialSection>
 
-          <FinancialSection title="季度趋势" description="只看近三年季度；Q1-Q4 为单季度数据，不是累计数。">
+          <FinancialSection title="季度趋势">
             <Card className="financial-print-block p-4">
               <EChart height={360} option={trendOption} />
             </Card>
           </FinancialSection>
 
-          <FinancialSection title="数据风险" description="近4个季度波动规则、风险判定、评分和数据依据。">
+          <FinancialSection title="数据风险">
             <Card className="financial-print-block">
               <ul className="flex flex-col gap-3 text-sm leading-6 text-foreground">
                 {dataRisks.length ? (
                   dataRisks.map((risk) => (
-                    <li key={risk.rule_code} className="border-l-2 border-primary/50 pl-3">
+                    <li key={risk.rule_code} className="border-l-4 border-[#e24c74] pl-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{risk.risk_name}</span>
-                        <span className="font-mono text-xs text-muted-foreground">
+                        <span className="font-mono text-xs font-semibold text-[#8a7759]">
                           {risk.risk_level} / {risk.risk_score.toFixed(2)}
                         </span>
                       </div>
-                      <p className="text-muted-foreground">{risk.judgment}</p>
+                      <p className="text-[#5d503b]">{risk.judgment}</p>
                       <p>{risk.evidence}</p>
                     </li>
                   ))
                 ) : (
-                  <li className="border-l-2 border-primary/50 pl-3">近4个季度未触发数据风险规则。</li>
+                  <li className="border-l-4 border-[#e24c74] pl-3">近4个季度未触发数据风险规则。</li>
                 )}
               </ul>
             </Card>
           </FinancialSection>
 
-          <FinancialSection title="财年对比" description="只输出近三年 FY。">
+          <FinancialSection title="财年对比">
             <FinancialReportTable rows={annualRows} />
           </FinancialSection>
 
-          <FinancialSection title="季度对比" description="只输出近三年季度；Q1-Q4 是每个季度单独数据。">
+          <FinancialSection title="季度对比">
             <FinancialReportTable rows={quarterlyRows} />
           </FinancialSection>
         </>

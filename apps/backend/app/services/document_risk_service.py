@@ -17,6 +17,41 @@ from app.utils.display_text import clean_document_title
 
 
 class DocumentRiskService:
+    GENERIC_REPORT_PHRASES = (
+        "审计报告",
+        "内部控制审计报告",
+        "内部控制评价报告",
+        "内部控制报告",
+        "年度报告",
+        "半年度报告",
+        "季度报告",
+    )
+    SUBSTANTIVE_TITLE_SIGNALS = (
+        "缺陷",
+        "非标",
+        "保留意见",
+        "否定意见",
+        "无法表示意见",
+        "强调事项",
+        "会计差错",
+        "更正",
+        "整改",
+        "处罚",
+        "问询",
+        "立案",
+        "诉讼",
+        "仲裁",
+        "担保",
+        "资金占用",
+        "违规",
+        "失控",
+        "重大风险",
+    )
+    TECHNICAL_EMPTY_EVENT_TYPES = {
+        "share_repurchase",
+        "litigation",
+        "litigation_arbitration",
+    }
     RULE_CODE_TO_RISK_KEY = {
         "REV_Q4_SPIKE": "revenue_recognition",
         "REV_Q4_RATIO": "revenue_recognition",
@@ -85,10 +120,16 @@ class DocumentRiskService:
             extracts = document_repo.list_extracts(document.id)
             features = document_repo.list_event_features(document.id)
             for extract in extracts:
+                if self._is_financial_report_extract(extract):
+                    continue
                 if self._should_ignore_extract(extract):
                     continue
                 self._add_extract_row(grouped, document, extract)
             for feature in features:
+                if self._is_financial_report_feature(feature):
+                    continue
+                if self._should_ignore_feature(feature):
+                    continue
                 self._add_feature_row(grouped, document, feature)
 
         persisted_results = RiskRepository(db).list_results(enterprise_id)
@@ -366,21 +407,114 @@ class DocumentRiskService:
         snapshot = result.feature_snapshot if isinstance(getattr(result, "feature_snapshot", None), dict) else {}
         announcement_risk = snapshot.get("announcement_risk") if isinstance(snapshot, dict) else None
         event_analysis = snapshot.get("event_analysis") if isinstance(snapshot, dict) else None
+        if self._is_generic_report_title(self._event_result_title(result, announcement_risk)):
+            return True
         if isinstance(announcement_risk, dict):
             if announcement_risk.get("analysis_status") == "analyzed":
-                return False
+                return not self._has_valid_event_analysis(event_analysis or announcement_risk.get("event_analysis"))
             event_analysis = event_analysis or announcement_risk.get("event_analysis")
             if self._has_valid_event_analysis(event_analysis):
                 return False
             return True
         return not self._has_valid_event_analysis(event_analysis)
 
+    def _is_financial_report_extract(self, extract: DocumentExtractResult) -> bool:
+        parameters = getattr(extract, "parameters", None)
+        if not isinstance(parameters, dict):
+            parameters = self._extract_payload(extract).get("parameters") or {}
+        return (
+            getattr(extract, "extract_family", None) == "financial_statement"
+            or getattr(extract, "detail_level", None) == "financial_deep_dive"
+            or parameters.get("analysis_stage") == "financial_subanalysis"
+        )
+
+    def _is_financial_report_feature(self, feature: DocumentEventFeature) -> bool:
+        payload = getattr(feature, "payload", None)
+        payload = payload if isinstance(payload, dict) else {}
+        parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+        return (
+            payload.get("extract_family") == "financial_statement"
+            or getattr(feature, "feature_type", None) == "metric"
+            or parameters.get("analysis_stage") == "financial_subanalysis"
+        )
+
+    def _should_ignore_feature(self, feature: DocumentEventFeature) -> bool:
+        event_code = str(getattr(feature, "event_type", None) or getattr(feature, "opinion_type", None) or "").strip()
+        if not self._is_technical_empty_event_code(event_code):
+            return False
+        if getattr(feature, "amount", None) is not None or getattr(feature, "metric_value", None) is not None:
+            return False
+
+        text_values = [
+            getattr(feature, "conditions", None),
+            getattr(feature, "conclusion", None),
+            clean_document_title(getattr(feature, "subject", None)),
+            getattr(feature, "affected_scope", None),
+            getattr(feature, "counterparty", None),
+        ]
+        evidence_text = " ".join(str(value).strip() for value in text_values if str(value or "").strip())
+        if self._contains_substantive_signal(evidence_text):
+            return False
+        return any(self._is_generic_report_title(str(value)) for value in text_values if str(value or "").strip())
+
+    def _is_technical_empty_event_code(self, value: str) -> bool:
+        normalized = str(value or "").strip().lower().replace("-", "_")
+        return normalized in self.TECHNICAL_EMPTY_EVENT_TYPES
+
     def _has_valid_event_analysis(self, event_analysis: Any) -> bool:
         if not isinstance(event_analysis, dict):
             return False
-        risk_points = event_analysis.get("risk_points")
-        has_risk_points = isinstance(risk_points, list) and any(str(item).strip() for item in risk_points)
-        return has_risk_points or bool(str(event_analysis.get("summary") or "").strip())
+        if self._analysis_list(event_analysis, "risk_points"):
+            return True
+        if self._analysis_list(event_analysis, "audit_focus") or self._analysis_list(event_analysis, "amounts"):
+            return True
+        key_facts = self._analysis_list(event_analysis, "key_facts")
+        evidence = str(event_analysis.get("evidence_excerpt") or "")
+        return bool(key_facts and self._contains_substantive_signal(" ".join([*key_facts, evidence])))
+
+    def _event_result_title(self, result: Any, announcement_risk: Any) -> str:
+        if isinstance(announcement_risk, dict):
+            title = str(announcement_risk.get("source_title") or "").strip()
+            if title:
+                return title
+        snapshot = result.feature_snapshot if isinstance(getattr(result, "feature_snapshot", None), dict) else {}
+        for key in ("source_title", "title", "event_title"):
+            title = str(snapshot.get(key) or "").strip()
+            if title:
+                return title
+        return str(getattr(result, "risk_name", "") or "")
+
+    def _is_generic_report_title(self, title: str) -> bool:
+        text = re.sub(r"<[^>]+>", "", str(title or ""))
+        compact = re.sub(r"[\s（）()【】\[\]《》<>:：,，.。_-]+", "", text)
+        if not compact:
+            return False
+        if any(signal in compact for signal in self.SUBSTANTIVE_TITLE_SIGNALS):
+            return False
+        if not any(phrase in compact for phrase in self.GENERIC_REPORT_PHRASES):
+            return False
+        report_only_patterns = (
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度|第一季度|一季度|第三季度|三季度|季度)?)?内部控制审计报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度)?)?内部控制评价报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度)?)?内部控制报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}(20\d{2}年?(年度|半年度)?)?审计报告(的公告)?$",
+            r"(关于)?[^，。；：:]{0,24}20\d{2}年?(年度|半年度|第一季度|一季度|第三季度|三季度|季度)?报告(摘要)?(的公告)?$",
+        )
+        return any(re.fullmatch(pattern, compact) for pattern in report_only_patterns)
+
+    def _contains_substantive_signal(self, text: str) -> bool:
+        compact = str(text or "").strip()
+        if not compact:
+            return False
+        if any(signal in compact for signal in self.SUBSTANTIVE_TITLE_SIGNALS):
+            return True
+        return bool(re.search(r"\d+(?:,\d{3})*(?:\.\d+)?\s*(亿元|万元|元|股|%|％|个百分点)", compact))
+
+    def _analysis_list(self, event_analysis: dict[str, Any], key: str) -> list[str]:
+        value = event_analysis.get(key)
+        if not isinstance(value, list):
+            return []
+        return self._dedupe_strings([str(item).strip() for item in value if str(item).strip()])
 
     def _score_extract(self, extract: DocumentExtractResult) -> float:
         score = 70.0

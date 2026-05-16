@@ -11,10 +11,10 @@ export function Alert({
     <div
       role="alert"
       className={cn(
-        "relative w-full rounded-lg border px-4 py-3 text-sm",
-        variant === "default" && "border-border bg-muted/60 text-foreground",
-        variant === "destructive" && "border-red-200 bg-red-50 text-red-700",
-        variant === "warning" && "border-amber-200 bg-amber-50 text-amber-700",
+        "relative w-full rounded-2xl border px-4 py-3 text-sm font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]",
+        variant === "default" && "border-[#d8c8aa] bg-[#f8f3e8]/75 text-[#5d503b]",
+        variant === "destructive" && "border-[#c94b35]/25 bg-[#c94b35]/10 text-[#8c2e22]",
+        variant === "warning" && "border-[#d6a65e]/35 bg-[#f4dfb9]/45 text-[#7a4b14]",
         className,
       )}
       {...props}
@@ -23,7 +23,7 @@ export function Alert({
 }
 
 export function AlertTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
-  return <h5 className={cn("font-medium leading-none tracking-tight", className)} {...props} />;
+  return <h5 className={cn("font-black leading-none tracking-normal text-[#15130f]", className)} {...props} />;
 }
 
 export function AlertDescription({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

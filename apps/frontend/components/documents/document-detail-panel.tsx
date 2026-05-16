@@ -78,7 +78,7 @@ export function DocumentDetailPanel({
 }) {
   if (!document) {
     return (
-      <div className="flex h-full min-h-[480px] items-center justify-center rounded-xl border border-dashed bg-muted/30 px-6 text-sm text-muted-foreground">
+      <div className="flex h-full min-h-[480px] items-center justify-center rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 px-6 text-sm font-semibold text-[#6c5d45]">
         当前未读取任何文档抽取结果。点击左侧“查看抽取”后再进入详情。
       </div>
     );
@@ -88,8 +88,8 @@ export function DocumentDetailPanel({
     <Tabs defaultValue="basic" className="h-full">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-lg font-semibold text-foreground">{document.document_name}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{formatSourceName(document.source)}</p>
+          <p className="truncate text-lg font-black text-[#15130f]">{document.document_name}</p>
+          <p className="mt-1 text-sm font-semibold text-[#5d503b]">{formatSourceName(document.source)}</p>
         </div>
         <Badge value={document.parse_status} label={formatParseStatus(document.parse_status)} />
       </div>
@@ -101,32 +101,32 @@ export function DocumentDetailPanel({
       </TabsList>
 
       <TabsContent value="basic" className="space-y-4">
-        <div className="rounded-xl border bg-muted/20 p-4">
+        <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">文档分类</p>
-              <p className="mt-2 text-sm text-foreground">
+              <p className="audit-label">文档分类</p>
+              <p className="mt-2 text-sm font-semibold text-[#15130f]">
                 {formatDocumentType(document.classified_type ?? document.document_type)}
               </p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">分析模式</p>
-              <p className="mt-2 text-sm text-foreground">{formatAnalysisMode(document.analysis_mode)}</p>
+              <p className="audit-label">分析模式</p>
+              <p className="mt-2 text-sm font-semibold text-[#15130f]">{formatAnalysisMode(document.analysis_mode)}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">分析状态</p>
-              <p className="mt-2 text-sm text-foreground">{formatAnalysisStatus(document.analysis_status)}</p>
+              <p className="audit-label">分析状态</p>
+              <p className="mt-2 text-sm font-semibold text-[#15130f]">{formatAnalysisStatus(document.analysis_status)}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">最近更新时间</p>
-              <p className="mt-2 text-sm text-foreground">{formatTimestamp(document.analyzed_at ?? document.created_at)}</p>
+              <p className="audit-label">最近更新时间</p>
+              <p className="mt-2 text-sm font-semibold text-[#15130f]">{formatTimestamp(document.analyzed_at ?? document.created_at)}</p>
             </div>
           </div>
           {document.analysis_groups?.length ? (
             <>
               <Separator className="my-4" />
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">分析分组</p>
+                <p className="audit-label">分析分组</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {document.analysis_groups.map((group) => (
                     <Badge key={group} value="default" label={formatAnalysisGroup(group)} />
@@ -138,7 +138,7 @@ export function DocumentDetailPanel({
           {document.last_error_message ? (
             <>
               <Separator className="my-4" />
-              <div className="text-sm text-amber-700">
+              <div className="text-sm font-semibold text-[#7a4b14]">
                 最近错误：{document.last_error_message}
                 {document.last_error_at ? ` | ${formatTimestamp(document.last_error_at)}` : ""}
               </div>
@@ -152,16 +152,16 @@ export function DocumentDetailPanel({
           extracts.map((extract, index) => {
             const structuredRows = renderStructuredFields(extract);
             return (
-              <div key={extract.id} className="rounded-xl border bg-background p-4">
+              <div key={extract.id} className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
                 <div className="flex items-start gap-3">
-                  <span className="pt-0.5 text-sm font-semibold text-primary">{index + 1}.</span>
+                  <span className="pt-0.5 font-mono text-sm font-black text-[#8f3148]">{index + 1}.</span>
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-foreground">{formatKnownLabel(extract.title)}</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{extract.problem_summary}</p>
+                    <p className="font-black text-[#15130f]">{formatKnownLabel(extract.title)}</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-[#5d503b]">{extract.problem_summary}</p>
                   </div>
                 </div>
                 <div className="mt-4 space-y-4">
-                  <div className="rounded-lg bg-muted/40 p-3 text-sm text-foreground">
+                  <div className="rounded-xl border border-[#1d1912]/10 bg-[#fffdf7]/85 p-3 text-sm font-semibold text-[#3f3628]">
                     {extract.applied_rules.length ? (
                       <p>规则：{extract.applied_rules.map((item) => formatRuleCode(item)).join(" / ")}</p>
                     ) : (
@@ -172,15 +172,15 @@ export function DocumentDetailPanel({
                     ) : null}
                   </div>
                   <div>
-                    <p className="mb-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">证据摘要</p>
-                    <div className="rounded-lg bg-muted/40 p-3 text-sm leading-6 text-foreground">
+                    <p className="audit-label mb-2">证据摘要</p>
+                    <div className="rounded-xl border border-[#1d1912]/10 bg-[#fffdf7]/85 p-3 text-sm font-semibold leading-6 text-[#3f3628]">
                       {extract.evidence_excerpt}
                     </div>
                   </div>
                   {structuredRows.length ? (
                     <div>
-                      <p className="mb-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">结构化字段</p>
-                      <div className="space-y-2 text-sm text-muted-foreground">
+                      <p className="audit-label mb-2">结构化字段</p>
+                      <div className="space-y-2 text-sm font-semibold text-[#5d503b]">
                         {structuredRows.map((row) => (
                           <p key={row}>{row}</p>
                         ))}
@@ -192,15 +192,15 @@ export function DocumentDetailPanel({
             );
           })
         ) : (
-          <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-[#d8c8aa] bg-[#f8f3e8]/70 p-4 text-sm font-semibold text-[#6c5d45]">
             当前文档还没有抽取结果。
           </div>
         )}
       </TabsContent>
 
       <TabsContent value="adjustments" className="space-y-4">
-        <div className="rounded-xl border bg-muted/20 p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">文档分类修正</p>
+        <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
+          <p className="audit-label">文档分类修正</p>
           <div className="mt-3">
             <Select
               value={document.classified_type ?? document.document_type}
@@ -221,16 +221,16 @@ export function DocumentDetailPanel({
           </div>
         </div>
 
-        <div className="rounded-xl border bg-muted/20 p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">事件类型修正</p>
+        <div className="audit-subpanel rounded-2xl border border-[#1d1912]/10 p-4">
+          <p className="audit-label">事件类型修正</p>
           {extracts.filter((extract) => extract.evidence_span_id).length > 0 ? (
             <div className="mt-3 space-y-3">
               {extracts
                 .filter((extract) => extract.evidence_span_id)
                 .map((extract) => (
-                  <div key={extract.id} className="rounded-lg border bg-background p-3">
-                    <p className="text-sm font-medium text-foreground">{formatKnownLabel(extract.title)}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{extract.problem_summary}</p>
+                  <div key={extract.id} className="rounded-xl border border-[#1d1912]/10 bg-[#fffdf7]/85 p-3">
+                    <p className="text-sm font-black text-[#15130f]">{formatKnownLabel(extract.title)}</p>
+                    <p className="mt-1 text-xs font-semibold text-[#5d503b]">{extract.problem_summary}</p>
                     <div className="mt-3">
                       <Select value={extract.event_type ?? undefined} onValueChange={(value) => onUpdateEventType(extract, value)} disabled={busy}>
                         <SelectTrigger>
@@ -249,7 +249,7 @@ export function DocumentDetailPanel({
                 ))}
             </div>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">当前文档没有可人工修正的事件抽取。</p>
+            <p className="mt-3 text-sm font-semibold text-[#5d503b]">当前文档没有可人工修正的事件抽取。</p>
           )}
         </div>
       </TabsContent>

@@ -1,10 +1,11 @@
-from collections import defaultdict
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.services.document_risk_service import DocumentRiskService
+from app.services.financial_analysis_service import FinancialAnalysisService
+from app.services.financial_data_risk_service import FinancialDataRiskService
 from app.services.risk_analysis_service import RiskAnalysisService
 
 
@@ -63,6 +64,25 @@ class DashboardService:
             key=lambda item: (-float(item.get("risk_score") or 0), str(item.get("risk_name") or "")),
         )
 
+    def _average_score(self, risks: list[dict[str, Any]]) -> float:
+        scores = [float(risk.get("risk_score") or 0) for risk in risks if risk.get("risk_score") is not None]
+        return round(sum(scores) / len(scores), 1) if scores else 0.0
+
+    def _is_announcement_risk(self, risk: dict[str, Any]) -> bool:
+        return (
+            risk.get("source_type") == "event"
+            or risk.get("source_mode") == "announcement_event"
+            or risk.get("evidence_status") == "announcement_event"
+            or bool(risk.get("source_events"))
+        )
+
+    def _is_document_risk(self, risk: dict[str, Any]) -> bool:
+        return (
+            bool(risk.get("source_documents"))
+            or risk.get("source_mode") in {"document_primary", "document_plus_rule", "document_rule"}
+            or risk.get("evidence_status") in {"document_supported", "document_plus_rule"}
+        )
+
     def build_dashboard(self, db: Session, enterprise_id: int) -> dict:
         enterprise_repo = EnterpriseRepository(db)
         enterprise = enterprise_repo.get_by_id(enterprise_id)
@@ -71,15 +91,20 @@ class DashboardService:
 
         analysis_state = RiskAnalysisService().get_analysis_state(db, enterprise_id)
         scored_results = self._sort_risks(DocumentRiskService().list_risks(db, enterprise_id))
-        score_buckets = defaultdict(list)
-        for result in scored_results:
-            bucket = self._resolve_bucket(result)
-            score_buckets[bucket].append(float(result.get("risk_score") or 0))
+        financial_analysis_service = FinancialAnalysisService()
+        financial_analysis = financial_analysis_service.build_analysis(db, enterprise_id)
+        latest_financial_anomalies = financial_analysis_service.latest_financial_anomalies(
+            list(financial_analysis.get("anomalies") or [])
+        )
+        data_risks = FinancialDataRiskService().evaluate_indicators(enterprise_repo.get_financials(enterprise_id, official_only=True))
+        announcement_risks = [risk for risk in scored_results if self._is_announcement_risk(risk)]
+        document_risks = [risk for risk in scored_results if self._is_document_risk(risk) and not self._is_announcement_risk(risk)]
 
-        financial = round(sum(score_buckets["financial"]) / max(1, len(score_buckets["financial"])), 1)
-        operational = round(sum(score_buckets["operational"]) / max(1, len(score_buckets["operational"])), 1)
-        compliance = round(sum(score_buckets["compliance"]) / max(1, len(score_buckets["compliance"])), 1)
-        total = round((financial + operational + compliance) / 3 if scored_results else 0, 1)
+        financial = self._average_score(latest_financial_anomalies)
+        operational = self._average_score(data_risks)
+        compliance = self._average_score(announcement_risks)
+        text_warning = self._average_score(document_risks)
+        total = round((financial + operational + compliance + text_warning) / 4, 1)
         trend = [
             {"report_period": f"T{idx}", "risk_score": float(result.get("risk_score") or 0)}
             for idx, result in enumerate(scored_results[:6], 1)
@@ -98,6 +123,7 @@ class DashboardService:
                 "financial": financial,
                 "operational": operational,
                 "compliance": compliance,
+                "text_warning": text_warning,
             },
             "analysis_status": analysis_state["analysis_status"],
             "last_run_at": analysis_state["last_run_at"],
@@ -106,8 +132,8 @@ class DashboardService:
                 {"name": "财务风险", "value": financial},
                 {"name": "经营风险", "value": operational},
                 {"name": "合规风险", "value": compliance},
-                {"name": "文本预警", "value": min(100, total + 8)},
-                {"name": "规则命中", "value": min(100, len(scored_results) * 12)},
+                {"name": "文本预警", "value": text_warning},
+                {"name": "综合风险", "value": total},
             ],
             "trend": trend or [{"report_period": "未分析", "risk_score": 0}],
             "top_risks": [

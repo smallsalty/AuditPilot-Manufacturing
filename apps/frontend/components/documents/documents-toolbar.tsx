@@ -49,14 +49,14 @@ export function DocumentsToolbar({
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div className="space-y-2">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">文档中心</p>
-          <h2 className="mt-3 text-3xl font-semibold text-foreground">
+          <p className="audit-label">文档中心</p>
+          <h2 className="audit-title mt-3 text-3xl">
             {enterpriseName ? `${enterpriseName} 文档中心` : "文档中心"}
           </h2>
         </div>
-        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{message}</p>
+        {message ? <p className="audit-copy max-w-3xl text-sm">{message}</p> : null}
         {currentEnterpriseId ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm font-semibold text-[#5d503b]">
             企业 ID：{currentEnterpriseId} | 官方文档 {officialDocCount} 份
           </p>
         ) : null}
@@ -87,7 +87,7 @@ export function DocumentsToolbar({
                 accept=".pdf,.txt"
                 onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
               />
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm font-semibold text-[#5d503b]">
                 {fileName ? `已选择：${fileName}` : "尚未选择文件"}
               </p>
             </div>

@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { RiskResultPayload } from "@auditpilot/shared-types";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { FinancialReportPayload, RiskResultPayload } from "@auditpilot/shared-types";
 
-import { DocumentFinancialPanel } from "@/components/documents/document-financial-panel";
 import { useEnterpriseContext } from "@/components/enterprise-provider";
 import { RiskTable } from "@/components/risk-table";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import {
   useDashboardResource,
@@ -15,6 +13,28 @@ import {
   useReadinessResource,
   useRiskResultsResource,
 } from "@/lib/enterprise-resources";
+import { buildUnifiedRiskItems, getLatestFinancialAnomalies } from "@/lib/risk-display";
+
+function RiskStateBox({
+  tone = "muted",
+  children,
+}: {
+  tone?: "muted" | "error";
+  children: ReactNode;
+}) {
+  const className =
+    tone === "error"
+      ? "border-[#c94b35]/25 bg-[#c94b35]/10 text-[#8c2e22]"
+      : "border-[#d8c8aa] bg-[#f8f3e8]/75 text-[#6c5d45]";
+
+  return (
+    <section className="audit-overview-panel rounded-[28px] border border-[#1d1912]/10 p-6 shadow-[0_20px_55px_rgba(21,19,15,0.08)]">
+      <div className={`rounded-2xl border border-dashed px-5 py-5 text-sm font-semibold leading-6 ${className}`}>
+        {children}
+      </div>
+    </section>
+  );
+}
 
 export default function RisksPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError, invalidateEnterpriseResources, setCachedResource } =
@@ -28,15 +48,61 @@ export default function RisksPage() {
   const {
     data: financialAnalysis,
     loading: financialAnalysisLoading,
+    error: financialAnalysisError,
     refresh: refreshFinancialAnalysis,
   } = useFinancialAnalysisResource(currentEnterpriseId);
 
   const [running, setRunning] = useState(false);
   const [displayRisks, setDisplayRisks] = useState<RiskResultPayload[]>([]);
-  const [actionMessage, setActionMessage] = useState("请选择企业并准备官方文档。");
+  const [actionMessage, setActionMessage] = useState("请选择企业，并准备官方文档。");
+  const [financialReport, setFinancialReport] = useState<FinancialReportPayload | null>(null);
+  const [financialReportLoading, setFinancialReportLoading] = useState(false);
+  const [financialReportError, setFinancialReportError] = useState<string | null>(null);
+
+  const unifiedRisks = useMemo(
+    () => buildUnifiedRiskItems(displayRisks, financialAnalysis, financialReport),
+    [displayRisks, financialAnalysis, financialReport],
+  );
+  const latestFinancialAnomalies = useMemo(() => getLatestFinancialAnomalies(financialAnalysis), [financialAnalysis]);
+  const showResults = unifiedRisks.length > 0;
+
+  const loadFinancialReport = useCallback(
+    async (options?: { force?: boolean; signal?: AbortSignal }) => {
+      if (!currentEnterpriseId) {
+        setFinancialReport(null);
+        setFinancialReportError(null);
+        setFinancialReportLoading(false);
+        return;
+      }
+      setFinancialReportLoading(true);
+      setFinancialReportError(null);
+      try {
+        const payload = await api.getFinancialReport(currentEnterpriseId, {
+          includeQuarterly: true,
+          force: options?.force,
+          signal: options?.signal,
+        });
+        setFinancialReport(payload);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setFinancialReport(null);
+        setFinancialReportError(error instanceof Error ? error.message : "财报数据读取失败。");
+      } finally {
+        if (!options?.signal?.aborted) {
+          setFinancialReportLoading(false);
+        }
+      }
+    },
+    [currentEnterpriseId],
+  );
 
   useEffect(() => {
     setDisplayRisks([]);
+    setFinancialReport(null);
+    setFinancialReportError(null);
+    setFinancialReportLoading(false);
   }, [currentEnterpriseId]);
 
   useEffect(() => {
@@ -44,39 +110,48 @@ export default function RisksPage() {
   }, [risks]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void loadFinancialReport({ signal: controller.signal });
+    return () => {
+      controller.abort();
+    };
+  }, [loadFinancialReport]);
+
+  useEffect(() => {
     if (!currentEnterpriseId) {
       setActionMessage("请先选择企业。");
       return;
     }
     if (running) {
-      setActionMessage("正在执行风险分析并刷新财报专项聚合...");
+      setActionMessage("正在执行风险分析，并刷新财报聚合。");
       return;
     }
-    if (risksLoading || readinessLoading || dashboardLoading) {
-      setActionMessage("正在加载风险清单...");
+    if (risksLoading || readinessLoading || dashboardLoading || financialAnalysisLoading || financialReportLoading) {
+      setActionMessage("正在汇集风险分析。");
       return;
     }
-    if (displayRisks.length > 0) {
-      setActionMessage(`当前已生成 ${displayRisks.length} 条风险项。`);
+    if (showResults) {
       return;
     }
     if (readiness?.manual_parse_required) {
-      setActionMessage(`官方文档已同步，仍有 ${readiness.documents_pending_parse} 份待手动解析。`);
+      setActionMessage(`官方文档已同步，还有 ${readiness.documents_pending_parse} 份待解析。`);
       return;
     }
     if (readiness && !readiness.risk_analysis_ready) {
       setActionMessage(readiness.risk_analysis_message);
       return;
     }
-    setActionMessage("当前尚无风险项，可先运行风险分析或补充更多文档。");
+    setActionMessage("暂无风险项。可先运行风险分析，或补充更多文档。");
   }, [
     currentEnterpriseId,
     dashboardLoading,
-    displayRisks.length,
+    financialAnalysisLoading,
+    financialReportLoading,
     readiness,
     readinessLoading,
     risksLoading,
     running,
+    showResults,
   ]);
 
   const runAnalysis = async () => {
@@ -90,7 +165,13 @@ export default function RisksPage() {
       setDisplayRisks(result.results);
       setCachedResource("riskResults", currentEnterpriseId, result.results);
       invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "readiness", "financialAnalysis"]);
-      await Promise.allSettled([refreshDashboard(), refreshRisks(), refreshReadiness(), refreshFinancialAnalysis()]);
+      await Promise.allSettled([
+        refreshDashboard(),
+        refreshRisks(),
+        refreshReadiness(),
+        refreshFinancialAnalysis(),
+        loadFinancialReport({ force: true }),
+      ]);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "风险分析运行失败。");
     } finally {
@@ -98,86 +179,94 @@ export default function RisksPage() {
     }
   };
 
-  const showResults = displayRisks.length > 0;
-
   const pageTitle = useMemo(() => {
     if (!currentEnterprise) {
-      return "风险清单与证据";
+      return "风险分析";
     }
-    return `${currentEnterprise.name} 风险清单与证据`;
+    return `${currentEnterprise.name} 风险分析`;
   }, [currentEnterprise]);
 
   return (
     <div className="space-y-6 pb-10">
-      <Card>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="audit-overview-panel relative overflow-hidden rounded-[28px] border border-[#1d1912]/10 px-6 py-6 text-[#15130f] shadow-[0_20px_55px_rgba(21,19,15,0.08)]">
+        <div className="relative z-10 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">风险清单</p>
-            <h2 className="mt-3 text-3xl font-semibold text-foreground">{pageTitle}</h2>
-            <p className="mt-2 text-muted-foreground">{actionMessage}</p>
-            {currentEnterpriseId ? <p className="mt-3 text-sm text-muted-foreground">企业 ID：{currentEnterpriseId}</p> : null}
+            <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#8f3148]">
+              风险分析
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-normal text-[#15130f]">{pageTitle}</h2>
+            {!showResults ? (
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#5d503b]">{actionMessage}</p>
+            ) : null}
+            {currentEnterpriseId ? (
+              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#8a7759]">
+                企业 ID：{currentEnterpriseId}
+              </p>
+            ) : null}
           </div>
           <Button
             onClick={() => void runAnalysis()}
             disabled={running || dashboard?.analysis_status === "running" || !currentEnterpriseId || !readiness?.risk_analysis_ready}
+            className="min-h-11 bg-[#15130f] px-5 font-bold text-[#fffaf0] hover:bg-[#3f3628]"
           >
             {running || dashboard?.analysis_status === "running" ? "分析中..." : "运行风险分析"}
           </Button>
         </div>
-      </Card>
+
+        <div className="relative z-10 mt-5 grid gap-3 md:grid-cols-5">
+          <SummaryChip label="来源覆盖" value={sourceCoverageText(unifiedRisks)} />
+          <SummaryChip label="风险总数" value={`${unifiedRisks.length} 项`} />
+          <SummaryChip label="高风险" value={`${unifiedRisks.filter((item) => item.riskLevel === "HIGH" || (item.riskScore ?? 0) >= 80).length} 项`} />
+          <SummaryChip label="数据并入" value={`${financialReport?.data_risks?.length ?? 0} 条`} />
+          <SummaryChip label="财报并入" value={`${latestFinancialAnomalies.length} 条`} />
+        </div>
+      </section>
 
       {enterpriseError ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">{enterpriseError}</div>
-        </Card>
+        <RiskStateBox tone="error">{enterpriseError}</RiskStateBox>
       ) : !currentEnterpriseId ? (
-        <Card>
-          <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">当前没有可用企业。</div>
-        </Card>
+        <RiskStateBox>当前没有可用企业。</RiskStateBox>
       ) : readinessError ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">{readinessError}</div>
-        </Card>
+        <RiskStateBox tone="error">{readinessError}</RiskStateBox>
       ) : dashboardError && !showResults ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">{dashboardError}</div>
-        </Card>
+        <RiskStateBox tone="error">{dashboardError}</RiskStateBox>
       ) : risksError && !showResults ? (
-        <Card>
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">{risksError}</div>
-        </Card>
-      ) : dashboardLoading || risksLoading ? (
-        <Card>
-          <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">正在加载风险清单...</div>
-        </Card>
+        <RiskStateBox tone="error">{risksError}</RiskStateBox>
+      ) : financialAnalysisError && !showResults ? (
+        <RiskStateBox tone="error">{financialAnalysisError}</RiskStateBox>
+      ) : financialReportError && !showResults ? (
+        <RiskStateBox tone="error">{financialReportError}</RiskStateBox>
+      ) : dashboardLoading || risksLoading || financialAnalysisLoading || financialReportLoading ? (
+        <RiskStateBox>正在加载风险分析...</RiskStateBox>
+      ) : showResults ? (
+        <RiskTable
+          risks={unifiedRisks}
+          enterpriseId={currentEnterpriseId}
+          onChanged={async () => {
+            if (!currentEnterpriseId) {
+              return;
+            }
+            invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "riskResults"]);
+            await Promise.allSettled([refreshRisks({ force: true }), refreshDashboard({ force: true })]);
+          }}
+        />
       ) : (
-        <>
-          {showResults ? (
-            <RiskTable
-              risks={displayRisks}
-              enterpriseId={currentEnterpriseId}
-              onChanged={async () => {
-                if (!currentEnterpriseId) {
-                  return;
-                }
-                invalidateEnterpriseResources(currentEnterpriseId, ["dashboard", "auditFocus", "riskResults"]);
-                await Promise.allSettled([refreshRisks({ force: true }), refreshDashboard({ force: true })]);
-              }}
-            />
-          ) : (
-            <Card>
-              <div className="rounded-xl border border-dashed bg-muted/30 p-5 text-sm text-muted-foreground">
-                当前企业尚无可展示风险项。完成文档抽取后，这里会优先显示文档驱动的风险结果。
-              </div>
-            </Card>
-          )}
-
-          <Card>
-            <DocumentFinancialPanel financialAnalysis={financialAnalysis} loading={financialAnalysisLoading} />
-          </Card>
-        </>
+        <RiskStateBox>当前企业暂无可展示风险项。完成文档解析后，这里会统一展示文档、公告、数据和财报风险。</RiskStateBox>
       )}
     </div>
   );
 }
 
+function SummaryChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 px-4 py-3">
+      <p className="font-mono text-[0.65rem] font-bold uppercase tracking-[0.18em] text-[#8f3148]">{label}</p>
+      <p className="mt-2 text-lg font-black text-[#15130f]">{value}</p>
+    </div>
+  );
+}
+
+function sourceCoverageText(items: ReturnType<typeof buildUnifiedRiskItems>): string {
+  const sources = items.flatMap((item) => item.sourceLabels).filter((value, index, array) => array.indexOf(value) === index);
+  return sources.length ? sources.join("、") : "暂无";
+}

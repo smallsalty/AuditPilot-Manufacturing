@@ -252,6 +252,11 @@ export const api = {
       method: "DELETE",
       signal: options?.signal,
     }),
+  deleteEvent: (eventId: number, options?: ApiRequestOptions) =>
+    request<{ event_id: number; event_title: string; deleted: boolean }>(`/events/${eventId}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    }),
   overrideDocumentClassification: (documentId: number, classifiedType: string, options?: ApiRequestOptions) =>
     request<{ document_id: number; classified_type: string }>(`/documents/${documentId}/classification`, {
       method: "PATCH",

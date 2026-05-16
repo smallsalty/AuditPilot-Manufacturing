@@ -1,0 +1,87 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - paragraph [ref=e8]: AuditPilot
+          - heading "制造业审计风险工作台" [level=1] [ref=e9]
+        - paragraph [ref=e10]: 面向上市制造企业的文档、风险与审计判断后台。
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - img [ref=e14]
+          - generic [ref=e18]:
+            - paragraph [ref=e19]: 企业上下文
+            - paragraph [ref=e20]: 按企业名称或股票代码切换当前工作对象。
+        - generic [ref=e21]:
+          - img
+          - textbox "搜索企业名称或股票代码" [ref=e22]
+        - generic [ref=e23]:
+          - button "刷新企业列表" [disabled]:
+            - img
+            - text: 刷新企业列表
+        - generic [ref=e24]: 暂无可选企业
+        - alert [ref=e25]:
+          - heading "当前状态" [level=5] [ref=e26]
+          - generic [ref=e27]: 正在加载企业列表...
+      - generic [ref=e28]:
+        - paragraph [ref=e29]: 主导航
+        - navigation [ref=e30]:
+          - link "总览" [ref=e31] [cursor=pointer]:
+            - /url: /
+            - img [ref=e32]
+            - generic [ref=e37]: 总览
+          - link "财报数据" [ref=e38] [cursor=pointer]:
+            - /url: /financials
+            - img [ref=e39]
+            - generic [ref=e41]: 财报数据
+          - link "风险分析" [ref=e42] [cursor=pointer]:
+            - /url: /risks
+            - img [ref=e43]
+            - generic [ref=e46]: 风险分析
+          - link "审计建议" [ref=e47] [cursor=pointer]:
+            - /url: /audit-focus
+            - img [ref=e48]
+            - generic [ref=e51]: 审计建议
+          - link "文档中心" [ref=e52] [cursor=pointer]:
+            - /url: /documents
+            - img [ref=e53]
+            - generic [ref=e56]: 文档中心
+          - link "AI问答" [ref=e57] [cursor=pointer]:
+            - /url: /chat
+            - img [ref=e58]
+            - generic [ref=e61]: AI问答
+      - generic [ref=e62]:
+        - paragraph [ref=e63]: 数据范围
+        - generic [ref=e64]:
+          - paragraph [ref=e65]: 企业主数据：AkShare
+          - paragraph [ref=e66]: 公告来源：巨潮资讯
+          - paragraph [ref=e67]: 上传文档参与解析、风险聚合和问答。
+  - generic [ref=e68]:
+    - banner [ref=e69]:
+      - generic [ref=e70]:
+        - generic [ref=e72]:
+          - paragraph [ref=e73]: 当前模块
+          - heading "文档中心" [level=2] [ref=e74]
+        - generic [ref=e76]:
+          - paragraph [ref=e77]: 尚未选择企业
+          - paragraph [ref=e78]: 围绕官方文档、手动上传与结构化抽取组织企业文档工作流。
+    - main [ref=e79]:
+      - generic [ref=e81]:
+        - generic [ref=e83]:
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - paragraph [ref=e86]: 文档中心
+              - heading "文档中心" [level=2] [ref=e87]
+            - paragraph [ref=e88]: 支持 PDF 或文本文件。文档需手动解析，解析结果会显示规则命中、结构化字段和财报专项结果。
+          - generic [ref=e89]:
+            - button "全部解析" [disabled]
+            - button "重新收集巨潮资讯" [ref=e90] [cursor=pointer]
+            - button "上传文档" [active] [ref=e91] [cursor=pointer]:
+              - img [ref=e92]
+              - text: 上传文档
+        - alert [ref=e95]:
+          - heading "空闲" [level=5] [ref=e96]
+          - generic [ref=e97]: 支持 PDF 或文本文件。文档需手动解析，解析结果会显示规则命中、结构化字段和财报专项结果。
+        - alert [ref=e98]:
+          - heading "请先选择企业" [level=5] [ref=e99]
+          - generic [ref=e100]: 当前没有可用企业。

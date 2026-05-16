@@ -4,12 +4,21 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.models import DocumentEventFeature, DocumentExtractResult, DocumentMeta, ExternalEvent, KnowledgeChunk, ReviewOverride
+from app.models import (
+    AuditRecommendation,
+    DocumentEventFeature,
+    DocumentExtractResult,
+    DocumentMeta,
+    ExternalEvent,
+    KnowledgeChunk,
+    ReviewOverride,
+    RiskIdentificationResult,
+)
 from app.repositories.document_repository import DocumentRepository
 from app.services.document_service import DocumentService
 from app.utils.display_text import clean_display_text, clean_document_title
@@ -120,6 +129,37 @@ def delete_document(document_id: int, db: Session = Depends(get_db)) -> dict:
         except OSError as exc:
             logger.warning("failed to delete document file document_id=%s path=%s error=%s", document_id, local_path, exc)
     return {"document_id": document_id, "document_name": document_name, "deleted": True}
+
+
+@router.delete("/events/{event_id}")
+def delete_event(event_id: int, db: Session = Depends(get_db)) -> dict:
+    event = db.get(ExternalEvent, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="公告事件不存在。")
+    event_title = clean_document_title(event.title)
+    enterprise_id = event.enterprise_id
+
+    risk_result_ids = [
+        result.id
+        for result in db.scalars(
+            select(RiskIdentificationResult)
+            .where(RiskIdentificationResult.enterprise_id == enterprise_id)
+            .where(RiskIdentificationResult.source_type == "event")
+        ).all()
+        if _risk_result_uses_event(result, event_id)
+    ]
+    if risk_result_ids:
+        db.execute(delete(AuditRecommendation).where(AuditRecommendation.risk_result_id.in_(risk_result_ids)))
+        db.execute(delete(RiskIdentificationResult).where(RiskIdentificationResult.id.in_(risk_result_ids)))
+
+    db.execute(
+        delete(KnowledgeChunk)
+        .where(KnowledgeChunk.source_type == "document")
+        .where(KnowledgeChunk.source_id == -event_id)
+    )
+    db.execute(delete(ExternalEvent).where(ExternalEvent.id == event_id))
+    db.commit()
+    return {"event_id": event_id, "event_title": event_title, "deleted": True}
 
 
 @router.patch("/documents/{document_id}/classification")
@@ -249,6 +289,17 @@ def _infer_event_type_from_text(text: str) -> str | None:
     if _contains_any(text, EXECUTIVE_CHANGE_KEYWORDS):
         return "executive_change"
     return None
+
+
+def _risk_result_uses_event(result: RiskIdentificationResult, event_id: int) -> bool:
+    snapshot = result.feature_snapshot if isinstance(result.feature_snapshot, dict) else {}
+    announcement_risk = snapshot.get("announcement_risk") if isinstance(snapshot, dict) else None
+    if isinstance(announcement_risk, dict) and announcement_risk.get("source_event_id") == event_id:
+        return True
+    for evidence in result.evidence_chain or []:
+        if isinstance(evidence, dict) and evidence.get("source_event_id") == event_id:
+            return True
+    return False
 
 
 def _infer_event_type(

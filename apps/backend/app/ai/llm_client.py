@@ -163,7 +163,7 @@ class LLMClient:
                                     }
                                 ),
                             )
-                        if parsed.get("payload_mode") in {"partial_dict", "partial_list"}:
+                        if parsed.get("payload_mode") in {"partial_dict", "partial_list", "partial_items_dict"}:
                             logger.info(
                                 "llm json partial recovered %s",
                                 self._format_log_fields(
@@ -354,6 +354,9 @@ class LLMClient:
                 }
 
         if first_object != -1:
+            partial_items = self._recover_partial_items_dict(text)
+            if partial_items is not None:
+                return partial_items
             try:
                 payload, _ = json.JSONDecoder().raw_decode(text, first_object)
             except JSONDecodeError:
@@ -366,6 +369,24 @@ class LLMClient:
                 result["truncated_json_prefix"] = True
                 return result
         return None
+
+    def _recover_partial_items_dict(self, content: str) -> dict[str, Any] | None:
+        match = re.search(r'"items"\s*:', content)
+        if match is None:
+            return None
+        array_start = content.find("[", match.end())
+        if array_start == -1:
+            return None
+        items = self._recover_partial_json_array_items(content[array_start:])
+        if not items:
+            return None
+        return {
+            "items": items,
+            "parsed_ok": True,
+            "payload_mode": "partial_items_dict",
+            "raw_prefix_kind": self._detect_json_prefix_kind(content) or "object_prefix",
+            "truncated_json_prefix": True,
+        }
 
     def _recover_partial_json_array_items(self, raw: str) -> list[dict[str, Any]]:
         start = raw.find("[")

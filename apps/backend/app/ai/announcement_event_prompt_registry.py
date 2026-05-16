@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from app.ai.risk_agent_skill_registry import RiskAgentSkillRegistry
+
 
 @dataclass(frozen=True)
 class AnnouncementEventPromptSpec:
@@ -101,6 +103,8 @@ class AnnouncementEventPromptRegistry:
         fallback_summary: str,
     ) -> dict[str, Any]:
         spec = cls.get_spec(category_code)
+        agent_skill = "announcement_risk_analysis"
+        skill_contract = RiskAgentSkillRegistry.get(agent_skill).prompt_contract()
         json_example = {
             "summary": "等于最核心风险点，不写事件背景总结，最多100字。",
             "key_facts": ["正文关键事实，最多3条，每条不超过40字"],
@@ -119,6 +123,7 @@ class AnnouncementEventPromptRegistry:
         category_codes = ", ".join(code for code in cls.SPECS if code != cls.DEFAULT_CATEGORY)
         system_prompt = (
             "你是上市公司公告事件分析助手。只能基于给定公告标题和正文内容分析，不要编造正文外事实。"
+            f"当前生效 agent skill contract：\n{skill_contract}\n"
             "请按事件类型提取结构化审计关注信息，返回严格 JSON 对象，不要输出 Markdown、代码块或额外解释。"
             "summary 必须只保留风险点，不得复述公告全文或事件背景；所有数组只输出最重要的少量项目。"
             "key_facts 只能写正文事实，不得包含风险判断；risk_points 必须是可独立编号展示的审计风险短句。"
@@ -145,4 +150,5 @@ class AnnouncementEventPromptRegistry:
             "prompt_template": spec.prompt_template,
             "category_code": spec.category_code,
             "category_label": spec.category_label,
+            "agent_skill": agent_skill,
         }
