@@ -18,6 +18,7 @@ from app.models import (
     ExternalEvent,
     FinancialIndicator,
     IndustryBenchmark,
+    IndustryBenchmarkSnapshot,
     KnowledgeChunk,
     MacroIndicator,
     RiskAlertRecord,
@@ -75,6 +76,7 @@ def seed() -> None:
         db.execute(delete(FinancialIndicator))
         db.execute(delete(AuditRule))
         db.execute(delete(IndustryBenchmark))
+        db.execute(delete(IndustryBenchmarkSnapshot))
         db.execute(delete(MacroIndicator))
         db.execute(delete(EnterpriseProfile))
         db.commit()

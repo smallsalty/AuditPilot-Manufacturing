@@ -9,17 +9,22 @@ from sqlalchemy.orm import Session
 from app.models import FinancialIndicator
 from app.repositories.enterprise_repository import EnterpriseRepository
 from app.services.financial_data_risk_service import FinancialDataRiskService
+from app.services.industry_benchmark_service import IndustryBenchmarkService
 from app.services.ingestion_service import IngestionService
 
 
 class FinancialReportService:
     FIELD_MAPPING = {
         "revenue": "revenue",
+        "revenue_growth": "revenue_growth",
         "net_profit": "net_profit",
         "deduct_net_profit": "deduct_net_profit",
         "gross_margin": "gross_margin",
         "net_margin": "net_margin",
+        "ar_turnover": "ar_turnover",
+        "inventory_turnover": "inventory_turnover",
         "debt_ratio": "debt_ratio",
+        "expense_ratio": "expense_ratio",
         "operating_cash_flow": "ocf",
         "fixed_assets": "fixed_assets",
         "roe": "roe",
@@ -28,11 +33,15 @@ class FinancialReportService:
 
     SNAPSHOT_FIELDS = (
         "revenue",
+        "revenue_growth",
         "net_profit",
         "deduct_net_profit",
         "gross_margin",
         "net_margin",
+        "ar_turnover",
+        "inventory_turnover",
         "debt_ratio",
+        "expense_ratio",
         "ocf",
         "fixed_assets",
         "roe",
@@ -43,6 +52,7 @@ class FinancialReportService:
         self.enterprise_repo = EnterpriseRepository
         self.ingestion_service = IngestionService()
         self.data_risk_service = FinancialDataRiskService()
+        self.industry_benchmark_service = IndustryBenchmarkService()
 
     def build_report(
         self,
@@ -95,7 +105,8 @@ class FinancialReportService:
         latest_row = rows_desc[0]
         updated_at = self._resolve_updated_at(filtered_financials, documents)
         latest_period = latest_row["report_period"]
-        data_risks = self.data_risk_service.evaluate_rows(rows)
+        industry_comparison = self.industry_benchmark_service.build_comparison(db, enterprise, financials)
+        data_risks = self.data_risk_service.evaluate_rows(rows, industry_comparison=industry_comparison)
         period_range = {
             "start": rows_asc[0]["report_period"] if rows_asc else None,
             "end": rows_asc[-1]["report_period"] if rows_asc else None,
@@ -115,6 +126,7 @@ class FinancialReportService:
             "latest_metrics": self._build_latest_metrics(latest_row),
             "rows": rows_desc,
             "summaries": self._build_summaries(rows_desc),
+            "industry_comparison": industry_comparison,
             "data_risk_score": self.data_risk_service.max_score(data_risks),
             "data_risks": data_risks,
         }
@@ -156,13 +168,17 @@ class FinancialReportService:
                     "quarter": self._quarter_label(item.report_quarter, item.period_type, item.report_period),
                     "report_period": label,
                     "revenue": None,
+                    "revenue_growth": None,
                     "revenue_yoy": None,
                     "revenue_qoq": None,
                     "net_profit": None,
                     "deduct_net_profit": None,
                     "gross_margin": None,
                     "net_margin": None,
+                    "ar_turnover": None,
+                    "inventory_turnover": None,
                     "debt_ratio": None,
+                    "expense_ratio": None,
                     "ocf": None,
                     "fixed_assets": None,
                     "roe": None,
@@ -197,6 +213,8 @@ class FinancialReportService:
                 row["revenue_yoy"] = self._growth_rate(revenue, yoy_revenue)
             else:
                 row["revenue_yoy"] = None
+            if row.get("revenue_growth") is None:
+                row["revenue_growth"] = row.get("revenue_yoy")
 
     def _find_revenue_qoq_row(
         self,

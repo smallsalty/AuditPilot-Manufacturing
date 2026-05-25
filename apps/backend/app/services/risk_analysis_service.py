@@ -37,6 +37,58 @@ logger = logging.getLogger(__name__)
 
 
 class RiskAnalysisService:
+    DEFAULT_FINANCIAL_DATA_AUDIT_SCOPE = {
+        "focus_accounts": ["关键财务科目"],
+        "focus_processes": ["财报分析", "期末结账", "管理层沟通"],
+        "recommended_procedures": ["实施趋势分析", "复核异常波动原因", "结合附注与明细账核对指标口径"],
+        "evidence_types": ["financial_indicator", "management_interview"],
+        "evidence": ["财报指标明细", "财务报表附注", "管理层说明"],
+    }
+    FINANCIAL_DATA_AUDIT_SCOPES = {
+        "FIN_DATA_REVENUE_VOLATILITY": {
+            "focus_accounts": ["主营业务收入", "应收账款", "合同负债"],
+            "focus_processes": ["收入确认", "销售截止", "客户回款"],
+            "recommended_procedures": ["复核收入波动原因", "执行收入截止测试", "检查期后回款"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["收入明细表", "销售合同", "出库和验收单", "期后回款记录"],
+        },
+        "FIN_DATA_PROFIT_CASH_MISMATCH": {
+            "focus_accounts": ["经营活动现金流量", "净利润", "应收账款"],
+            "focus_processes": ["现金流量表编制", "收入回款", "期末结账"],
+            "recommended_procedures": ["核对现金流勾稽关系", "复核利润现金背离原因", "检查大额收付款凭证"],
+            "evidence_types": ["financial_indicator", "bank_statement", "management_interview"],
+            "evidence": ["现金流量表工作底稿", "银行流水", "大额收付款凭证", "管理层说明"],
+        },
+        "FIN_DATA_MARGIN_DECLINE": {
+            "focus_accounts": ["主营业务收入", "营业成本", "期间费用"],
+            "focus_processes": ["成本核算", "费用归集", "毛利分析"],
+            "recommended_procedures": ["分析毛利和费用波动", "复核成本结转口径", "抽查费用截止"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["毛利分析表", "成本结转明细", "费用明细账", "管理层说明"],
+        },
+        "FIN_DATA_LEVERAGE_PRESSURE": {
+            "focus_accounts": ["短期借款", "长期借款", "应付债券"],
+            "focus_processes": ["融资管理", "资金计划", "偿债安排"],
+            "recommended_procedures": ["分析债务到期结构", "检查授信额度", "执行偿债压力测试"],
+            "evidence_types": ["financial_indicator", "bank_statement", "management_interview"],
+            "evidence": ["债务台账", "授信合同", "还款计划", "银行流水"],
+        },
+        "FIN_DATA_FIXED_ASSET_VOLATILITY": {
+            "focus_accounts": ["固定资产", "在建工程", "累计折旧", "资产减值损失"],
+            "focus_processes": ["固定资产采购与转固", "资本化审批", "折旧与减值"],
+            "recommended_procedures": ["复核固定资产增减", "检查在建工程转固", "抽查资本化凭证", "复核折旧和减值"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["固定资产明细表", "在建工程转固资料", "资本化审批凭证", "折旧和减值测算"],
+        },
+        "FIN_DATA_INDUSTRY_DEVIATION": {
+            "focus_accounts": ["主营业务收入", "应收账款", "资产负债率相关科目"],
+            "focus_processes": ["经营分析", "行业对比", "管理层沟通"],
+            "recommended_procedures": ["复核行业偏离原因", "检查关键指标口径", "访谈管理层经营计划"],
+            "evidence_types": ["industry_signal", "financial_indicator", "management_interview"],
+            "evidence": ["行业对比明细", "财务指标底稿", "管理层说明"],
+        },
+    }
+
     def __init__(self) -> None:
         self.feature_engineering_service = FeatureEngineeringService()
         self.rule_evaluator = RuleEvaluator()
@@ -420,7 +472,7 @@ class RiskAnalysisService:
                 )
 
             self._persist_tax_risks(db, enterprise_id, run.id)
-            self._persist_financial_data_risk(db, enterprise_id, run.id, financials)
+            self._persist_financial_data_risk(db, enterprise_id, run.id, financials, industry_comparison)
             announcement_payload = self._persist_announcement_risks(db, enterprise_id, run.id)
 
             anomaly = self._run_anomaly_detection(enterprise_id, run.id, features, financials)
@@ -626,25 +678,35 @@ class RiskAnalysisService:
                 )
             )
 
+    def _financial_data_audit_scope(self, risk: dict[str, Any]) -> dict[str, list[str]]:
+        rule_code = str(risk.get("rule_code") or "")
+        return self.FINANCIAL_DATA_AUDIT_SCOPES.get(rule_code, self.DEFAULT_FINANCIAL_DATA_AUDIT_SCOPE)
+
     def _persist_financial_data_risk(
         self,
         db: Session,
         enterprise_id: int,
         run_id: int,
         financials: list,
+        industry_comparison: dict[str, Any] | None = None,
     ) -> None:
-        data_risks = self.financial_data_risk_service.evaluate_indicators(financials)
+        data_risks = self.financial_data_risk_service.evaluate_indicators(
+            financials,
+            industry_comparison=industry_comparison,
+        )
         if not data_risks:
             return
         top_risk = data_risks[0]
         risk_level = self.financial_data_risk_service.result_level_code(top_risk)
+        evidence_type = "industry_signal" if top_risk["rule_code"] == "FIN_DATA_INDUSTRY_DEVIATION" else "financial_indicator"
+        source_label = "行业对比" if evidence_type == "industry_signal" else "AkShare"
         evidence_chain = self._summarize_evidence_chain(
             [
                 {
                     "evidence_id": f"FD-{top_risk['rule_code']}",
-                    "evidence_type": "financial_indicator",
+                    "evidence_type": evidence_type,
                     "source": "akshare",
-                    "source_label": "AkShare",
+                    "source_label": source_label,
                     "title": top_risk["risk_name"],
                     "snippet": top_risk["evidence"],
                     "content": top_risk["evidence"],
@@ -666,12 +728,26 @@ class RiskAnalysisService:
             source_type="financial_data",
             reasons=[top_risk["judgment"], top_risk["evidence"]],
             evidence_chain=evidence_chain,
-            feature_snapshot={"data_risks": data_risks},
+            feature_snapshot={"data_risks": data_risks, "industry_comparison": industry_comparison},
             llm_summary=top_risk["judgment"],
             llm_explanation=self._serialize_llm_explanation(top_risk),
         )
         db.add(result)
         db.flush()
+        audit_scope = self._financial_data_audit_scope(top_risk)
+        db.add(
+            AuditRecommendation(
+                enterprise_id=enterprise_id,
+                run_id=run_id,
+                risk_result_id=result.id,
+                priority=risk_level.lower(),
+                focus_accounts=list(audit_scope["focus_accounts"]),
+                focus_processes=list(audit_scope["focus_processes"]),
+                recommended_procedures=list(audit_scope["recommended_procedures"]),
+                evidence_types=self._clean_text_list(["risk_rule", evidence_type] + list(audit_scope["evidence_types"])),
+                recommendation_text=f"{top_risk['risk_name']}：优先关注{'、'.join(audit_scope['focus_accounts'])}。",
+            )
+        )
 
     def _persist_announcement_risks(self, db: Session, enterprise_id: int, run_id: int) -> dict[str, Any]:
         payload = self.announcement_risk_service.build_announcement_risks(db, enterprise_id)

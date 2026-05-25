@@ -107,11 +107,15 @@ class DashboardPayload(BaseModel):
 class FinancialReportMetricSnapshot(BaseModel):
     report_period: str
     revenue: float | None = None
+    revenue_growth: float | None = None
     net_profit: float | None = None
     deduct_net_profit: float | None = None
     gross_margin: float | None = None
     net_margin: float | None = None
+    ar_turnover: float | None = None
+    inventory_turnover: float | None = None
     debt_ratio: float | None = None
+    expense_ratio: float | None = None
     ocf: float | None = None
     fixed_assets: float | None = None
     roe: float | None = None
@@ -123,13 +127,17 @@ class FinancialReportRowPayload(BaseModel):
     quarter: str
     report_period: str
     revenue: float | None = None
+    revenue_growth: float | None = None
     revenue_yoy: float | None = None
     revenue_qoq: float | None = None
     net_profit: float | None = None
     deduct_net_profit: float | None = None
     gross_margin: float | None = None
     net_margin: float | None = None
+    ar_turnover: float | None = None
+    inventory_turnover: float | None = None
     debt_ratio: float | None = None
+    expense_ratio: float | None = None
     ocf: float | None = None
     fixed_assets: float | None = None
     roe: float | None = None
@@ -139,6 +147,54 @@ class FinancialReportRowPayload(BaseModel):
 
 class FinancialReportSummaryItem(BaseModel):
     text: str
+
+
+class FinancialIndustryComparisonMetric(BaseModel):
+    company_value: float | None = None
+    industry_mean: float | None = None
+    industry_median: float | None = None
+    p25: float | None = None
+    p75: float | None = None
+    gap: float | None = None
+    gap_pct: float | None = None
+    zscore: float | None = None
+    percentile: float | None = None
+    available: bool = False
+    sample_count: int = 0
+    confidence: str | None = None
+    source: str | None = None
+    unavailable_reason: str | None = None
+    distribution_available: bool = False
+    metric: str | None = None
+    period: str | None = None
+    requested_period: str | None = None
+    actual_peer_period_range: list[str] = Field(default_factory=list)
+    period_aligned: bool = False
+    industry_name: str | None = None
+    industry_level: str | None = None
+    fallback_used: bool = False
+    aggregation_method: str | None = None
+
+
+class FinancialIndustryComparisonPayload(BaseModel):
+    industry_code: str
+    industry_name: str
+    industry_source: str
+    latest_year: int | None = None
+    reference_industry_name: str | None = None
+    industry_level: str | None = None
+    fallback_used: bool = False
+    original_industry: str | None = None
+    cache_state: str | None = None
+    cache_updated_at: str | None = None
+    revenue_growth: FinancialIndustryComparisonMetric
+    gross_margin: FinancialIndustryComparisonMetric
+    net_margin: FinancialIndustryComparisonMetric
+    revenue: FinancialIndustryComparisonMetric
+    ar_turnover: FinancialIndustryComparisonMetric
+    inventory_turnover: FinancialIndustryComparisonMetric
+    debt_ratio: FinancialIndustryComparisonMetric
+    expense_ratio: FinancialIndustryComparisonMetric
 
 
 class FinancialDataRiskItem(BaseModel):
@@ -164,5 +220,6 @@ class FinancialReportPayload(BaseModel):
     latest_metrics: FinancialReportMetricSnapshot
     rows: list[FinancialReportRowPayload]
     summaries: list[FinancialReportSummaryItem]
+    industry_comparison: FinancialIndustryComparisonPayload
     data_risk_score: float = 0.0
     data_risks: list[FinancialDataRiskItem] = Field(default_factory=list)

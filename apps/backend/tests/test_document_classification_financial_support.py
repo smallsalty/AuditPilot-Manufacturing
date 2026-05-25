@@ -23,4 +23,4 @@ def test_financial_analysis_supports_quarter_report_not_annual_summary():
     assert "quarter_report" in FinancialAnalysisService.SUPPORTED_DOCUMENT_TYPES
     assert "annual_summary" not in FinancialAnalysisService.SUPPORTED_DOCUMENT_TYPES
     assert DocumentPromptRegistry.resolve_prompt_type("quarter_report") == "annual_report"
-    assert FinancialAnalysisService.SNAPSHOT_VERSION == "financial-analysis-snapshot:v3"
+    assert FinancialAnalysisService.SNAPSHOT_VERSION == "financial-analysis-snapshot:v4"

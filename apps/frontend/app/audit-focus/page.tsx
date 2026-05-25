@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type { AuditFocusPayload, RiskResultPayload } from "@auditpilot/shared-types";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
+import { Button } from "@/components/ui/button";
 import {
   useAuditFocusResource,
   useReadinessResource,
@@ -17,12 +18,24 @@ type FocusItem = NonNullable<AuditFocusPayload["items"]>[number];
 export default function AuditFocusPage() {
   const { currentEnterprise, currentEnterpriseId, enterpriseError } = useEnterpriseContext();
   const { data: readiness, loading: readinessLoading, error: readinessError } = useReadinessResource(currentEnterpriseId);
-  const { data: focus, loading: focusLoading, error: focusError } = useAuditFocusResource(currentEnterpriseId);
+  const { data: focus, loading: focusLoading, error: focusError, refresh: refreshFocus } = useAuditFocusResource(currentEnterpriseId);
   const { data: risks, loading: risksLoading } = useRiskResultsResource(currentEnterpriseId);
+  const [refreshingAdvice, setRefreshingAdvice] = useState(false);
 
   const items = focus?.items ?? [];
   const riskByTitle = useMemo(() => buildRiskLookup(risks ?? []), [risks]);
   const pageSummary = useMemo(() => buildAdviceSummary(items, riskByTitle), [items, riskByTitle]);
+  const handleRefreshAdvice = useCallback(async () => {
+    if (!currentEnterpriseId || refreshingAdvice) {
+      return;
+    }
+    setRefreshingAdvice(true);
+    try {
+      await refreshFocus({ force: true });
+    } finally {
+      setRefreshingAdvice(false);
+    }
+  }, [currentEnterpriseId, refreshFocus, refreshingAdvice]);
 
   const pageState = useMemo(() => {
     if (enterpriseError) {
@@ -60,17 +73,26 @@ export default function AuditFocusPage() {
   return (
     <div className="space-y-6 pb-10">
       <section className="audit-overview-panel relative overflow-hidden rounded-[28px] border border-[#1d1912]/10 px-6 py-6 text-[#15130f] shadow-[0_20px_55px_rgba(21,19,15,0.08)]">
-        <div className="relative z-10">
-          <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#8f3148]">
-            审计建议
-          </p>
-          <h2 className="mt-3 text-3xl font-black tracking-normal text-[#15130f]">
-            {currentEnterprise ? `${currentEnterprise.name} 审计建议` : "审计建议"}
-          </h2>
-          {pageState.kind !== "ready" ? (
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#5d503b]">{pageState.message}</p>
-          ) : null}
-          <div className="mt-5 rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4">
+        <div className="relative z-10 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div>
+            <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#8f3148]">
+              审计建议
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-normal text-[#15130f]">
+              {currentEnterprise ? `${currentEnterprise.name} 审计建议` : "审计建议"}
+            </h2>
+            {pageState.kind !== "ready" ? (
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#5d503b]">{pageState.message}</p>
+            ) : null}
+          </div>
+          <Button
+            onClick={() => void handleRefreshAdvice()}
+            disabled={!currentEnterpriseId || refreshingAdvice || focusLoading}
+            className="min-h-11 bg-[#15130f] px-5 font-bold text-[#fffaf0] hover:bg-[#3f3628]"
+          >
+            {refreshingAdvice ? "刷新中..." : "刷新审计建议"}
+          </Button>
+          <div className="mt-5 rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4 lg:col-span-2">
             <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
               总结
             </p>

@@ -207,6 +207,11 @@ export const api = {
       signal: options?.signal,
     });
   },
+  refreshIndustryBenchmarks: (enterpriseId: number, options?: ApiRequestOptions) =>
+    request<FinancialReportPayload>(`/enterprises/${enterpriseId}/industry-benchmarks/refresh`, {
+      method: "POST",
+      signal: options?.signal,
+    }),
   syncCompany: (enterpriseId: number, sources: string[] = ["akshare_fast", "cninfo"], options?: ApiRequestOptions) =>
     request<SyncCompanyPayload>(`/sync/company`, {
       method: "POST",
@@ -222,7 +227,9 @@ export const api = {
   getRiskResults: (enterpriseId: number, options?: ApiRequestOptions) =>
     request<RiskResultPayload[]>(`/risk-analysis/${enterpriseId}/results`, { signal: options?.signal }),
   getAuditFocus: (enterpriseId: number, options?: ApiRequestOptions) =>
-    request<AuditFocusPayload>(`/audit-focus/${enterpriseId}`, { signal: options?.signal }),
+    request<AuditFocusPayload>(`/audit-focus/${enterpriseId}${options?.force ? "?refresh=true" : ""}`, {
+      signal: options?.signal,
+    }),
   getReport: (enterpriseId: number, format = "json", options?: ApiRequestOptions) =>
     request(`/reports/${enterpriseId}?format=${format}`, { signal: options?.signal }),
   ingestFinancial: (enterpriseId: number, options?: ApiRequestOptions) =>

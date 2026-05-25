@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -330,6 +330,94 @@ class IndustryBenchmark(TimestampMixin, Base):
     metric_name: Mapped[str] = mapped_column(String(128), nullable=False)
     value: Mapped[float] = mapped_column(Float, nullable=False)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="mock")
+
+
+class CompanyIndustryMapping(TimestampMixin, Base):
+    __tablename__ = "company_industry_mapping"
+    __table_args__ = (
+        Index("ix_company_industry_mapping_lookup", "ticker", "source", "standard"),
+        Index("ix_company_industry_mapping_industry", "industry_name", "industry_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    standard: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    industry_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    industry_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    industry_level: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class IndustrySamplePool(TimestampMixin, Base):
+    __tablename__ = "industry_sample_pool"
+    __table_args__ = (
+        Index(
+            "ix_industry_sample_pool_lookup",
+            "industry_source",
+            "industry_code",
+            "period",
+            "metric",
+        ),
+        Index("ix_industry_sample_pool_name_lookup", "industry_name", "period", "metric"),
+        Index("ix_industry_sample_pool_sample", "sample_ticker", "period"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    industry_source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    industry_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    industry_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    period: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    sample_ticker: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    sample_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    numerator: Mapped[float | None] = mapped_column(Float, nullable=True)
+    denominator: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_period: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="akshare")
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+class IndustryBenchmarkSnapshot(TimestampMixin, Base):
+    __tablename__ = "industry_benchmark_snapshot"
+    __table_args__ = (
+        Index(
+            "ix_industry_benchmark_snapshot_lookup",
+            "industry_code",
+            "industry_level",
+            "period",
+            "metric",
+        ),
+        Index(
+            "ix_industry_benchmark_snapshot_original",
+            "original_industry",
+            "period",
+            "metric",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    industry_code: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    industry_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    industry_level: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    original_industry: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    period: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    mean: Mapped[float | None] = mapped_column(Float, nullable=True)
+    median: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p25: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p75: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    confidence: Mapped[str] = mapped_column(String(32), nullable=False, default="unavailable")
+    period_aligned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    actual_peer_period_range: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    aggregation_method: Mapped[str] = mapped_column(String(64), nullable=False, default="weighted_ratio")
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="akshare")
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class KnowledgeChunk(TimestampMixin, Base):

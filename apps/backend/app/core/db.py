@@ -22,8 +22,23 @@ def get_db() -> Generator[Session, None, None]:
 def create_all() -> None:
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    ensure_industry_mapping_tables()
+    ensure_industry_benchmark_snapshot_table()
     ensure_phase1_sync_columns()
     ensure_phase2_document_columns()
+
+
+def ensure_industry_mapping_tables() -> None:
+    for table_name in ("company_industry_mapping", "industry_sample_pool"):
+        table = Base.metadata.tables.get(table_name)
+        if table is not None:
+            table.create(bind=engine, checkfirst=True)
+
+
+def ensure_industry_benchmark_snapshot_table() -> None:
+    table = Base.metadata.tables.get("industry_benchmark_snapshot")
+    if table is not None:
+        table.create(bind=engine, checkfirst=True)
 
 
 def ensure_phase1_sync_columns() -> None:

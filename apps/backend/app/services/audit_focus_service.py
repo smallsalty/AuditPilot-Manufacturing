@@ -14,11 +14,14 @@ from app.services.document_risk_service import DocumentRiskService
 
 class AuditFocusService:
     SNAPSHOT_KEY = "audit_focus_snapshot"
-    SNAPSHOT_VERSION = "audit-focus:v1"
+    SNAPSHOT_VERSION = "audit-focus:v3"
+    FINANCIAL_ANALYSIS_SNAPSHOT_KEY = "financial_analysis_snapshot"
     MAX_RISKS = 8
 
     SOURCE_LABELS = {
         "financial_anomaly": "来自财务异常",
+        "financial_indicator": "来自财务指标",
+        "industry_signal": "来自行业对比",
         "risk_rule": "来自规则命中",
         "announcement_event": "来自公告事件",
         "penalty_event": "来自处罚/问询",
@@ -89,6 +92,18 @@ class AuditFocusService:
             "accounts": ["短期借款", "长期借款", "应付债券"],
             "processes": ["融资管理", "担保管理", "资金预算"],
         },
+        "financial_fixed_asset_volatility": {
+            "procedures": ["复核固定资产增减", "检查在建工程转固", "抽查资本化凭证", "复核折旧和减值"],
+            "evidence": ["固定资产明细表", "在建工程转固资料", "资本化审批凭证", "折旧和减值测算"],
+            "accounts": ["固定资产", "在建工程", "累计折旧", "资产减值损失"],
+            "processes": ["固定资产采购与转固", "资本化审批", "折旧与减值"],
+        },
+        "financial_analysis": {
+            "procedures": ["实施趋势分析并复核异常波动原因", "结合附注与披露复核关键财务指标口径", "核对经营现金流、收入与利润的匹配关系", "对重点科目执行穿行测试和截止测试"],
+            "evidence": ["财务报表附注", "财报指标明细", "管理层说明", "审计测试底稿"],
+            "accounts": ["关键财务科目"],
+            "processes": ["财报分析", "期末结账", "管理层沟通"],
+        },
         "tax": {
             "procedures": ["核对纳税申报", "复核税会差异", "检查递延所得税确认", "执行税费支付截止测试"],
             "evidence": ["纳税申报表", "税会差异明细", "递延所得税测算", "税费支付凭证"],
@@ -112,17 +127,20 @@ class AuditFocusService:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.llm_client = llm_client or LLMClient()
 
-    def build_focus(self, db: Session, enterprise_id: int) -> dict:
+    def build_focus(self, db: Session, enterprise_id: int, *, refresh: bool = False) -> dict:
         from app.services.risk_analysis_service import RiskAnalysisService
 
         repo = EnterpriseRepository(db)
         enterprise = repo.get_by_id(enterprise_id)
         analysis_state = RiskAnalysisService().get_analysis_state(db, enterprise_id)
         risk_items = DocumentRiskService().list_risks(db, enterprise_id)
-        selected_risks = risk_items[: self.MAX_RISKS]
+        financial_anomaly_risks = self._financial_analysis_risks_from_snapshot(enterprise)
+        selected_risks = self._select_focus_risks(risk_items, financial_anomaly_risks)
         input_hash = self._input_hash(enterprise_id, selected_risks)
 
-        cached = self._load_snapshot(enterprise, input_hash, analysis_state) if enterprise is not None else None
+        cached = None
+        if not refresh and enterprise is not None:
+            cached = self._load_snapshot(enterprise, input_hash, analysis_state)
         if cached is not None:
             return cached
 
@@ -145,8 +163,107 @@ class AuditFocusService:
             self._store_snapshot(db, enterprise, input_hash, payload)
         return payload
 
+    def _select_focus_risks(
+        self,
+        risk_items: list[dict[str, Any]],
+        financial_anomaly_risks: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def add_risk(item: dict[str, Any]) -> None:
+            if len(selected) >= self.MAX_RISKS:
+                return
+            identity = (str(item.get("risk_name") or "").strip(), str(item.get("summary") or "").strip())
+            if identity in seen:
+                return
+            seen.add(identity)
+            selected.append(item)
+
+        for item in risk_items:
+            add_risk(item)
+        for item in financial_anomaly_risks:
+            add_risk(item)
+        return selected
+
+    def _financial_analysis_risks_from_snapshot(self, enterprise: Any) -> list[dict[str, Any]]:
+        portrait = enterprise.portrait if isinstance(getattr(enterprise, "portrait", None), dict) else {}
+        snapshot = portrait.get(self.FINANCIAL_ANALYSIS_SNAPSHOT_KEY) if isinstance(portrait, dict) else None
+        if not isinstance(snapshot, dict):
+            return []
+
+        anomalies = [item for item in (snapshot.get("anomalies") or []) if isinstance(item, dict)]
+        latest_anomalies = self._latest_financial_anomalies(anomalies)
+        if not latest_anomalies:
+            return []
+
+        snapshot_procedures = self._coerce_list(snapshot.get("recommended_procedures"))
+        if not snapshot_procedures:
+            snapshot_procedures = list(self.PRESET_OPERATIONS["financial_analysis"]["procedures"])
+        snapshot_accounts = self._coerce_list(snapshot.get("focus_accounts"))
+        enterprise_id = getattr(enterprise, "id", None)
+        risks: list[dict[str, Any]] = []
+        for index, anomaly in enumerate(latest_anomalies, start=1):
+            title = str(anomaly.get("title") or anomaly.get("metric_name") or "财报分析异常").strip()
+            summary = str(anomaly.get("summary") or title).strip()
+            document_id = anomaly.get("document_id")
+            document_name = str(anomaly.get("document_name") or "财报分析快照").strip()
+            period = anomaly.get("period") or anomaly.get("document_report_period")
+            metric_name = str(anomaly.get("metric_name") or "").strip()
+            focus_accounts = self._dedupe(snapshot_accounts + ([metric_name] if metric_name else []))
+            evidence_id = f"FA-{document_id or 'snapshot'}-{index}"
+            risks.append(
+                {
+                    "enterprise_id": enterprise_id,
+                    "risk_name": title,
+                    "canonical_risk_key": anomaly.get("canonical_risk_key") or "financial_analysis",
+                    "risk_level": anomaly.get("risk_level") or "MEDIUM",
+                    "risk_score": self._float_value(anomaly.get("risk_score"), 64.0),
+                    "summary": summary,
+                    "source_mode": "financial_analysis",
+                    "evidence_status": "financial_anomaly",
+                    "evidence_types": ["financial_anomaly"],
+                    "recommended_procedures": snapshot_procedures,
+                    "focus_accounts": focus_accounts,
+                    "evidence": [
+                        {
+                            "evidence_id": evidence_id,
+                            "evidence_type": "financial_anomaly",
+                            "source": "financial_analysis",
+                            "source_label": document_name,
+                            "document_id": document_id,
+                            "title": title,
+                            "snippet": summary,
+                            "content": summary,
+                            "period": period,
+                            "published_at": anomaly.get("announcement_date"),
+                        }
+                    ],
+                }
+            )
+        return risks
+
+    def _latest_financial_anomalies(self, anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not anomalies:
+            return []
+        latest = max(anomalies, key=self._financial_anomaly_sort_key)
+        latest_document_id = latest.get("document_id")
+        if latest_document_id is None:
+            return [latest]
+        return [item for item in anomalies if item.get("document_id") == latest_document_id]
+
+    def _financial_anomaly_sort_key(self, anomaly: dict[str, Any]) -> tuple[int, int, int, int]:
+        return (
+            self._int_value(anomaly.get("fiscal_year")),
+            self._int_value(anomaly.get("fiscal_quarter")),
+            self._date_rank(anomaly.get("announcement_date")),
+            self._int_value(anomaly.get("document_id")),
+        )
+
     def _build_focus_item(self, *, enterprise_name: str, risk: dict[str, Any], index: int) -> dict[str, Any]:
         preset = self._preset_for_risk(risk)
+        if risk.get("source_mode") == "financial_analysis":
+            preset = self._merge_financial_analysis_preset(risk, preset)
         llm_result = self._generate_focus_with_llm(enterprise_name=enterprise_name, risk=risk, preset=preset)
         if llm_result is None:
             llm_result = self._fallback_focus(risk, preset)
@@ -154,8 +271,14 @@ class AuditFocusService:
         else:
             cache_state = "generated"
 
-        procedures = self._dedupe(self._coerce_list(llm_result.get("procedures")) or preset["procedures"])[:5]
-        evidence_to_obtain = self._dedupe(self._coerce_list(llm_result.get("evidence_to_obtain")) or preset["evidence"])[:5]
+        llm_procedures = self._coerce_list(llm_result.get("procedures"))
+        llm_evidence = self._coerce_list(llm_result.get("evidence_to_obtain"))
+        if self._requires_preset_operations(risk):
+            procedures = self._dedupe(preset["procedures"] + llm_procedures)[:5]
+            evidence_to_obtain = self._dedupe(preset["evidence"] + llm_evidence)[:5]
+        else:
+            procedures = self._dedupe(llm_procedures or preset["procedures"])[:5]
+            evidence_to_obtain = self._dedupe(llm_evidence or preset["evidence"])[:5]
         focus_accounts = self._dedupe(self._coerce_list(llm_result.get("focus_accounts")) or preset["accounts"])[:6]
         focus_processes = self._dedupe(self._coerce_list(llm_result.get("focus_processes")) or preset["processes"])[:6]
         targeted_advice = str(llm_result.get("targeted_advice") or "").strip() or self._fallback_advice(risk, preset)
@@ -412,6 +535,21 @@ class AuditFocusService:
         db.add(enterprise)
         db.commit()
 
+    def _merge_financial_analysis_preset(
+        self,
+        risk: dict[str, Any],
+        preset: dict[str, list[str]],
+    ) -> dict[str, list[str]]:
+        financial_preset = self.PRESET_OPERATIONS["financial_analysis"]
+        financial_procedures = self._coerce_list(risk.get("recommended_procedures")) or list(financial_preset["procedures"])
+        financial_accounts = self._coerce_list(risk.get("focus_accounts"))
+        return {
+            "procedures": self._dedupe(list(preset["procedures"]) + financial_procedures)[:8],
+            "evidence": self._dedupe(list(preset["evidence"]) + list(financial_preset["evidence"]))[:8],
+            "accounts": self._dedupe(list(preset["accounts"]) + financial_accounts + list(financial_preset["accounts"]))[:8],
+            "processes": self._dedupe(list(preset["processes"]) + list(financial_preset["processes"]))[:8],
+        }
+
     def _preset_for_risk(self, risk: dict[str, Any]) -> dict[str, list[str]]:
         key = str(risk.get("canonical_risk_key") or "").lower()
         name = str(risk.get("risk_name") or "").lower()
@@ -420,6 +558,16 @@ class AuditFocusService:
             return self.PRESET_OPERATIONS["tax"]
         if "announcement_" in key or "公告" in name or "governance" in key:
             return self.PRESET_OPERATIONS["announcement"]
+        if "fixed_asset" in key or "固定资产" in name:
+            return self.PRESET_OPERATIONS["financial_fixed_asset_volatility"]
+        if "financial_leverage" in key:
+            return self.PRESET_OPERATIONS["financing_pressure"]
+        if "financial_revenue" in key:
+            return self.PRESET_OPERATIONS["revenue_recognition"]
+        if "financial_profit_cash" in key or "financial_margin" in key:
+            return self.PRESET_OPERATIONS["cashflow_quality"]
+        if risk.get("source_mode") == "financial_analysis" and key == "financial_analysis":
+            return self.PRESET_OPERATIONS["financial_analysis"]
         for candidate in (
             "revenue_recognition",
             "receivable_recoverability",
@@ -435,6 +583,11 @@ class AuditFocusService:
             if candidate in combined:
                 return self.PRESET_OPERATIONS[candidate]
         return self.PRESET_OPERATIONS["default"]
+
+    def _requires_preset_operations(self, risk: dict[str, Any]) -> bool:
+        key = str(risk.get("canonical_risk_key") or "").lower()
+        name = str(risk.get("risk_name") or "").lower()
+        return risk.get("source_mode") == "financial_analysis" or "fixed_asset" in key or "固定资产" in name
 
     @staticmethod
     def _dedupe(values: list[str]) -> list[str]:
@@ -458,3 +611,24 @@ class AuditFocusService:
                     return [item.strip() for item in text.split(sep) if item.strip()]
             return [text]
         return []
+
+    @staticmethod
+    def _int_value(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _float_value(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _date_rank(value: Any) -> int:
+        digits = "".join(char for char in str(value or "") if char.isdigit())
+        if len(digits) >= 8:
+            return int(digits[:8])
+        return int(digits) if digits else 0

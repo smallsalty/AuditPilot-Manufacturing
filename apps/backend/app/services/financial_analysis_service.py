@@ -16,6 +16,7 @@ from app.ai.risk_agent_skill_registry import RiskAgentSkillRegistry
 from app.ai.llm_client import LLMClient, LLMRequestError
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.enterprise_repository import EnterpriseRepository
+from app.services.financial_report_service import FinancialReportService
 from app.utils.display_text import clean_document_title
 
 
@@ -46,7 +47,7 @@ class _SummaryInflightState:
 class FinancialAnalysisService:
     AGENT_SKILL = RiskAgentSkillRegistry.get("financial_report_risk_analysis").key
     SNAPSHOT_KEY = "financial_analysis_snapshot"
-    SNAPSHOT_VERSION = "financial-analysis-snapshot:v3"
+    SNAPSHOT_VERSION = "financial-analysis-snapshot:v4"
     SUPPORTED_DOCUMENT_TYPES = {"annual_report", "quarter_report", "audit_report", "internal_control_report"}
     DEFAULT_PROCEDURES = [
         "实施趋势分析并复核异常波动原因",
@@ -81,6 +82,15 @@ class FinancialAnalysisService:
         source_document_ids: list[int] = []
         source_extract_count = 0
         input_documents: list[dict[str, Any]] = []
+        structured_key_metrics = self._structured_key_metrics(enterprise_repo.get_financials(enterprise_id, official_only=True))
+        key_metrics.extend(structured_key_metrics)
+        for metric in structured_key_metrics:
+            period = metric.get("period")
+            metric_name = metric.get("metric_name")
+            if period and period not in periods:
+                periods.append(str(period))
+            if metric_name and metric_name not in focus_accounts:
+                focus_accounts.append(str(metric_name))
 
         for document in enterprise_repo.get_documents(enterprise_id, official_only=True):
             document_type = document.classified_type or document.document_type or "general"
@@ -179,7 +189,7 @@ class FinancialAnalysisService:
             )
 
         recommended_procedures = self._build_recommended_procedures(key_metrics, anomalies)
-        input_hash = self._financial_input_hash(enterprise_id, input_documents)
+        input_hash = self._financial_input_hash(enterprise_id, input_documents, structured_key_metrics)
         persisted_payload = self._load_financial_snapshot(enterprise, input_hash)
         if persisted_payload is not None:
             return persisted_payload
@@ -246,11 +256,60 @@ class FinancialAnalysisService:
             ],
         }
 
-    def _financial_input_hash(self, enterprise_id: int, documents: list[dict[str, Any]]) -> str:
+    def _structured_key_metrics(self, financials: list[Any]) -> list[dict[str, Any]]:
+        if not financials:
+            return []
+        try:
+            rows = FinancialReportService()._build_rows(financials, set())
+        except Exception:
+            return []
+        if not rows:
+            return []
+        latest = sorted(rows, key=FinancialReportService()._row_sort_key, reverse=True)[0]
+        metric_defs = [
+            ("revenue_growth", "营业收入增长率", "pct"),
+            ("gross_margin", "毛利率", "pct"),
+            ("net_margin", "净利率", "pct"),
+            ("revenue", "营业收入", "cny"),
+            ("ar_turnover", "应收账款周转率", "ratio"),
+            ("inventory_turnover", "存货周转率", "ratio"),
+            ("debt_ratio", "资产负债率", "pct"),
+            ("expense_ratio", "费用率", "pct"),
+        ]
+        metrics: list[dict[str, Any]] = []
+        for field_name, metric_name, unit in metric_defs:
+            value = latest.get(field_name)
+            if value is None:
+                continue
+            metrics.append(
+                {
+                    "document_id": None,
+                    "document_name": "AkShare结构化财报",
+                    "metric_name": metric_name,
+                    "metric_code": field_name,
+                    "metric_value": value,
+                    "metric_unit": unit,
+                    "period": latest.get("report_period"),
+                    "fiscal_year": latest.get("year"),
+                    "source": "akshare",
+                }
+            )
+        return metrics
+
+    def _financial_input_hash(
+        self,
+        enterprise_id: int,
+        documents: list[dict[str, Any]],
+        structured_key_metrics: list[dict[str, Any]],
+    ) -> str:
         payload = {
             "enterprise_id": enterprise_id,
             "analysis_version": self.SNAPSHOT_VERSION,
             "documents": sorted(documents, key=lambda item: item.get("document_id") or 0),
+            "structured_key_metrics": sorted(
+                structured_key_metrics,
+                key=lambda item: (str(item.get("period") or ""), str(item.get("metric_code") or item.get("metric_name") or "")),
+            ),
         }
         return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 

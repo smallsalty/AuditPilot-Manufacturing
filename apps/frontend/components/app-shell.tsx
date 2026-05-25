@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { BarChart3, Bot, ClipboardList, FileText, LayoutDashboard, Menu, ShieldCheck } from "lucide-react";
 
 import { useEnterpriseContext } from "@/components/enterprise-provider";
@@ -14,9 +14,9 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "总览", icon: LayoutDashboard },
-  { href: "/financials", label: "财报数据", icon: BarChart3 },
   { href: "/risks", label: "风险分析", icon: ShieldCheck },
   { href: "/audit-focus", label: "审计建议", icon: ClipboardList },
+  { href: "/financials", label: "财报数据", icon: BarChart3 },
   { href: "/documents", label: "文档中心", icon: FileText },
   { href: "/chat", label: "AI问答", icon: Bot },
 ];
@@ -42,21 +42,49 @@ const PAGE_META = new Map(
   ]),
 );
 
-function AppNavigation({ pathname }: { pathname: string }) {
+function buildNavHref(href: string, enterpriseId: number | null): string {
+  if (!enterpriseId) {
+    return href;
+  }
+  return `${href}${href.includes("?") ? "&" : "?"}enterpriseId=${enterpriseId}`;
+}
+
+function parseEnterpriseId(value: string | null): number | null {
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function AppNavigation({
+  pathname,
+  currentEnterpriseId,
+  pendingHref,
+  onNavigate,
+}: {
+  pathname: string;
+  currentEnterpriseId: number | null;
+  pendingHref: string | null;
+  onNavigate: (href: string) => void;
+}) {
   return (
     <nav className="space-y-1.5">
       {NAV_ITEMS.map((item) => {
         const Icon = item.icon;
         const active =
           item.href === "/" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const href = buildNavHref(item.href, currentEnterpriseId);
+        const pending = pendingHref === href && !active;
         return (
           <Link
             key={item.href}
-            href={item.href}
+            href={href}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onNavigate(href)}
             className={cn(
               "audit-hover-lift flex items-center gap-3 rounded-full border px-3 py-2.5 text-sm font-bold",
               active
                 ? "border-[#15130f] bg-[#15130f] text-[#fffaf0] shadow-[6px_6px_0_rgba(226,76,116,0.18)]"
+                : pending
+                  ? "border-[#d8c8aa] bg-[#f8f3e8] text-[#15130f] opacity-80 shadow-[3px_3px_0_rgba(216,200,170,0.34)]"
                 : "border-transparent text-[#5d503b] hover:border-[#d8c8aa] hover:bg-[#f8f3e8]/85 hover:text-[#15130f]",
             )}
           >
@@ -71,14 +99,23 @@ function AppNavigation({ pathname }: { pathname: string }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const { currentEnterprise, currentEnterpriseId } = useEnterpriseContext();
+  const navEnterpriseId = currentEnterpriseId ?? parseEnterpriseId(searchParams.get("enterpriseId"));
   const currentPage =
     PAGE_META.get(pathname) ??
     PAGE_META.get(
       NAV_ITEMS.find((item) => item.href !== "/" && pathname.startsWith(`${item.href}/`))?.href ?? "/",
     ) ??
     PAGE_META.get("/")!;
+
+  useEffect(() => {
+    setPendingHref(null);
+    setMobileNavOpen(false);
+  }, [pathname, searchParamsKey]);
 
   return (
     <div className="min-h-screen text-[#15130f]">
@@ -99,7 +136,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
             <div className="space-y-3">
               <p className="audit-label">主导航</p>
-              <AppNavigation pathname={pathname} />
+              <AppNavigation
+                pathname={pathname}
+                currentEnterpriseId={navEnterpriseId}
+                pendingHref={pendingHref}
+                onNavigate={setPendingHref}
+              />
             </div>
 
           </div>
@@ -126,7 +168,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                       </SheetHeader>
                       <EnterpriseSwitcher />
                       <Separator />
-                      <AppNavigation pathname={pathname} />
+                      <AppNavigation
+                        pathname={pathname}
+                        currentEnterpriseId={navEnterpriseId}
+                        pendingHref={pendingHref}
+                        onNavigate={setPendingHref}
+                      />
                     </div>
                   </SheetContent>
                 </Sheet>

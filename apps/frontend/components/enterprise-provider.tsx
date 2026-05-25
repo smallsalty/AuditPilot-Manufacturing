@@ -54,15 +54,26 @@ function parseUrlEnterpriseId(pathname: string, searchParams: URLSearchParams): 
   return null;
 }
 
+function buildEnterpriseUrl(pathname: string, searchParams: URLSearchParams, enterpriseId: number): string {
+  const nextParams = new URLSearchParams(searchParams.toString());
+  nextParams.set("enterpriseId", String(enterpriseId));
+  const query = nextParams.toString();
+  return `${pathname}${query ? `?${query}` : ""}`;
+}
+
 export function EnterpriseProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsKey = searchParams.toString();
+  const urlEnterpriseId = useMemo(
+    () => parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey)),
+    [pathname, searchParamsKey],
+  );
 
   const [enterpriseOptions, setEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
   const [defaultEnterpriseOptions, setDefaultEnterpriseOptions] = useState<EnterpriseSearchItem[]>([]);
-  const [currentEnterpriseId, setCurrentEnterpriseId] = useState<number | null>(null);
+  const [currentEnterpriseId, setCurrentEnterpriseId] = useState<number | null>(urlEnterpriseId);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [enterpriseLoading, setEnterpriseLoading] = useState(true);
   const [enterpriseError, setEnterpriseError] = useState<string | null>(null);
@@ -88,11 +99,6 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
     readiness: new Map(),
     financialAnalysis: new Map(),
   });
-
-  const urlEnterpriseId = useMemo(
-    () => parseUrlEnterpriseId(pathname, new URLSearchParams(searchParamsKey)),
-    [pathname, searchParamsKey],
-  );
 
   const invalidateEnterpriseResources = useCallback((enterpriseId: number, kinds?: ResourceKind[]) => {
     const targets = kinds ?? ["dashboard", "riskResults", "auditFocus", "documents", "events", "readiness", "financialAnalysis"];
@@ -134,6 +140,9 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (currentEnterpriseId === enterpriseId) {
+        if (!pathname.startsWith("/enterprises/") && searchParams.get("enterpriseId") !== String(enterpriseId)) {
+          router.replace(buildEnterpriseUrl(pathname, searchParams, enterpriseId));
+        }
         return;
       }
 
@@ -150,7 +159,7 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
       if (pathname.startsWith("/enterprises/")) {
         router.replace(`/enterprises/${enterpriseId}`);
       } else if (searchParams.get("enterpriseId") !== String(enterpriseId)) {
-        router.replace(`${pathname}?enterpriseId=${enterpriseId}`);
+        router.replace(buildEnterpriseUrl(pathname, searchParams, enterpriseId));
       }
     },
     [currentEnterpriseId, invalidateEnterpriseResources, pathname, router, searchParams],
@@ -175,6 +184,10 @@ export function EnterpriseProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (initializedRef.current) {
+      return;
+    }
+
     let cancelled = false;
 
     async function initialize() {

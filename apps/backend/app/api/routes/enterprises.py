@@ -11,6 +11,7 @@ from app.services.announcement_risk_service import AnnouncementRiskService
 from app.services.enterprise_runtime_service import EnterpriseRuntimeService
 from app.services.financial_analysis_service import FinancialAnalysisService
 from app.services.financial_report_service import FinancialReportService
+from app.services.industry_benchmark_refresh_service import IndustryBenchmarkRefreshService
 from app.services.tax_risk_service import TaxRiskService
 from app.utils.display_text import clean_display_text, clean_document_title
 
@@ -268,6 +269,64 @@ def get_financials(
         detail = str(exc)
         status_code = 404 if detail == "企业不存在。" else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/enterprises/{enterprise_id}/industry-benchmarks/refresh", response_model=FinancialReportPayload)
+def refresh_industry_benchmarks(enterprise_id: int, db: Session = Depends(get_db)) -> dict:
+    repo = EnterpriseRepository(db)
+    enterprise = repo.get_by_id(enterprise_id)
+    if enterprise is None:
+        raise HTTPException(status_code=404, detail="企业不存在")
+
+    financials = repo.get_financials(enterprise_id, official_only=True)
+    period = _latest_financial_period_label(financials, enterprise.report_year)
+    try:
+        IndustryBenchmarkRefreshService().refresh(
+            db,
+            enterprise_ids=[enterprise_id],
+            period=period,
+        )
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail="行业基准刷新暂时不可用，请稍后再试。") from exc
+
+    try:
+        return FinancialReportService().build_report(
+            db,
+            enterprise_id,
+            refresh=False,
+            include_quarterly=True,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "企业不存在。" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+def _latest_financial_period_label(financials: list, fallback_year: int) -> str:
+    candidates: list[tuple[int, str]] = []
+    for item in financials:
+        year = int(getattr(item, "report_year", 0) or 0)
+        if year <= 0:
+            continue
+        period_type = str(getattr(item, "period_type", "") or "")
+        if period_type == "annual":
+            candidates.append((year * 10 + 5, f"{year}FY"))
+            continue
+        quarter = getattr(item, "report_quarter", None) or _quarter_from_report_period(getattr(item, "report_period", ""))
+        candidates.append((year * 10 + int(quarter or 0), f"{year}Q{quarter}"))
+    if not candidates:
+        return f"{int(fallback_year)}FY"
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _quarter_from_report_period(report_period: object) -> int:
+    text = str(report_period or "")
+    month = int(text[4:6]) if len(text) >= 6 and text[4:6].isdigit() else 12
+    return max(1, min(4, (month - 1) // 3 + 1))
 
 
 @router.get("/enterprises/{enterprise_id}/tax-risks")

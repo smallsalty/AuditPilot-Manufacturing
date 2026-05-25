@@ -249,6 +249,7 @@ const RULE_CODE_LABELS: Record<string, string> = {
   FIN_DATA_MARGIN_DECLINE: "利润率下滑",
   FIN_DATA_LEVERAGE_PRESSURE: "杠杆压力",
   FIN_DATA_FIXED_ASSET_VOLATILITY: "固定资产异常波动",
+  FIN_DATA_INDUSTRY_DEVIATION: "行业对比偏离",
 };
 
 export const CANONICAL_RISK_KEYS = [

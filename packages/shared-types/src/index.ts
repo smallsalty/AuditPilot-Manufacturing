@@ -452,9 +452,10 @@ export type FinancialAnalysisDocument = {
 };
 
 export type FinancialMetricPoint = {
-  document_id: number;
+  document_id: number | null;
   document_name: string;
   metric_name: string;
+  metric_code?: string;
   metric_value?: number | null;
   metric_unit?: string | null;
   period?: string | null;
@@ -512,11 +513,15 @@ export type FinancialAnalysisPayload = {
 export type FinancialReportMetricSnapshot = {
   report_period: string;
   revenue?: number | null;
+  revenue_growth?: number | null;
   net_profit?: number | null;
   deduct_net_profit?: number | null;
   gross_margin?: number | null;
   net_margin?: number | null;
+  ar_turnover?: number | null;
+  inventory_turnover?: number | null;
   debt_ratio?: number | null;
+  expense_ratio?: number | null;
   ocf?: number | null;
   fixed_assets?: number | null;
   roe?: number | null;
@@ -528,13 +533,17 @@ export type FinancialReportRowPayload = {
   quarter: string;
   report_period: string;
   revenue?: number | null;
+  revenue_growth?: number | null;
   revenue_yoy?: number | null;
   revenue_qoq?: number | null;
   net_profit?: number | null;
   deduct_net_profit?: number | null;
   gross_margin?: number | null;
   net_margin?: number | null;
+  ar_turnover?: number | null;
+  inventory_turnover?: number | null;
   debt_ratio?: number | null;
+  expense_ratio?: number | null;
   ocf?: number | null;
   fixed_assets?: number | null;
   roe?: number | null;
@@ -544,6 +553,54 @@ export type FinancialReportRowPayload = {
 
 export type FinancialReportSummaryItem = {
   text: string;
+};
+
+export type FinancialIndustryComparisonMetric = {
+  company_value?: number | null;
+  industry_mean?: number | null;
+  industry_median?: number | null;
+  p25?: number | null;
+  p75?: number | null;
+  gap?: number | null;
+  gap_pct?: number | null;
+  zscore?: number | null;
+  percentile?: number | null;
+  available: boolean;
+  sample_count: number;
+  confidence?: string | null;
+  source?: string | null;
+  unavailable_reason?: string | null;
+  distribution_available: boolean;
+  metric?: string | null;
+  period?: string | null;
+  requested_period?: string | null;
+  actual_peer_period_range?: string[];
+  period_aligned?: boolean;
+  industry_name?: string | null;
+  industry_level?: string | null;
+  fallback_used?: boolean;
+  aggregation_method?: string | null;
+};
+
+export type FinancialIndustryComparisonPayload = {
+  industry_code: string;
+  industry_name: string;
+  industry_source: string;
+  latest_year?: number | null;
+  reference_industry_name?: string | null;
+  industry_level?: string | null;
+  fallback_used?: boolean;
+  original_industry?: string | null;
+  cache_state?: string | null;
+  cache_updated_at?: string | null;
+  revenue_growth: FinancialIndustryComparisonMetric;
+  gross_margin: FinancialIndustryComparisonMetric;
+  net_margin: FinancialIndustryComparisonMetric;
+  revenue: FinancialIndustryComparisonMetric;
+  ar_turnover: FinancialIndustryComparisonMetric;
+  inventory_turnover: FinancialIndustryComparisonMetric;
+  debt_ratio: FinancialIndustryComparisonMetric;
+  expense_ratio: FinancialIndustryComparisonMetric;
 };
 
 export type FinancialDataRiskItem = {
@@ -572,6 +629,7 @@ export type FinancialReportPayload = {
   latest_metrics: FinancialReportMetricSnapshot;
   rows: FinancialReportRowPayload[];
   summaries: FinancialReportSummaryItem[];
+  industry_comparison: FinancialIndustryComparisonPayload;
   data_risk_score: number;
   data_risks: FinancialDataRiskItem[];
 };

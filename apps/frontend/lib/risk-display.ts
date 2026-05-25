@@ -420,19 +420,7 @@ function buildFinancialEvidence(anomaly: FinancialAnomalyItem, index: number): U
       : anomaly.page_start
         ? `页码：${anomaly.page_start}`
         : null;
-  const rawText = [
-    anomaly.document_name ? `原始文档：${anomaly.document_name}` : null,
-    anomaly.canonical_risk_key ? `关联风险类型：${formatCanonicalRiskKey(anomaly.canonical_risk_key)}` : null,
-    anomaly.metric_name ? `指标：${anomaly.metric_name}` : null,
-    anomaly.metric_value !== undefined && anomaly.metric_value !== null
-      ? `数值：${anomaly.metric_value}${anomaly.metric_unit ?? ""}`
-      : null,
-    anomaly.period ? `期间：${anomaly.period}` : null,
-    typeof anomaly.risk_score === "number" ? `评分：${anomaly.risk_score.toFixed(1)}` : null,
-    anomaly.summary ? `原文：${anomaly.summary}` : null,
-  ]
-    .filter(Boolean)
-    .join("；");
+  const rawText = anomaly.summary ? `原文：${anomaly.summary}` : null;
 
   return {
     id: `financial-${anomaly.document_id}-${index}-${anomaly.title}`,
