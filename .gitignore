@@ -15,6 +15,7 @@ uploads/
 *.log
 .DS_Store
 .env
+apps/frontend/.env.local
 .agent/
 .codex-runtime/
 .playwright-mcp/
