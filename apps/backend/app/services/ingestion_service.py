@@ -29,15 +29,19 @@ class IngestionService:
         if provider is None:
             raise ValueError(f"未知财务 provider: {provider_name}")
 
-        rows = provider.fetch_financials(enterprise.ticker, include_quarterly=include_quarterly)
+        enterprise_id = int(enterprise.id)
+        ticker = enterprise.ticker
+        db.rollback()
+
+        rows = provider.fetch_financials(ticker, include_quarterly=include_quarterly)
         if not rows:
             raise ValueError("当前企业尚未获取到可用的官方财务数据，请先同步或检查 AkShare 数据源。")
 
-        db.execute(delete(FinancialIndicator).where(FinancialIndicator.enterprise_id == enterprise.id))
+        db.execute(delete(FinancialIndicator).where(FinancialIndicator.enterprise_id == enterprise_id))
         for row in rows:
             db.add(
                 FinancialIndicator(
-                    enterprise_id=enterprise.id,
+                    enterprise_id=enterprise_id,
                     period_type=row["period_type"],
                     report_period=str(row["report_period"]),
                     report_year=int(row["report_year"]),
@@ -126,15 +130,19 @@ class IngestionService:
         if provider is None:
             raise ValueError(f"未知财务 provider: {provider_name}")
 
-        rows = provider.fetch_financials(enterprise.ticker, include_quarterly=include_quarterly)
+        enterprise_id = int(enterprise.id)
+        ticker = enterprise.ticker
+        db.rollback()
+
+        rows = provider.fetch_financials(ticker, include_quarterly=include_quarterly)
         if not rows:
             return 0, provider.provider_name
 
-        db.execute(delete(FinancialIndicator).where(FinancialIndicator.enterprise_id == enterprise.id))
+        db.execute(delete(FinancialIndicator).where(FinancialIndicator.enterprise_id == enterprise_id))
         for row in rows:
             db.add(
                 FinancialIndicator(
-                    enterprise_id=enterprise.id,
+                    enterprise_id=enterprise_id,
                     period_type=row["period_type"],
                     report_period=str(row["report_period"]),
                     report_year=int(row["report_year"]),
