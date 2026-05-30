@@ -96,9 +96,12 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         rows.extend(self._fetch_tax_report_rows(ak, ticker, exchange_symbol, include_quarterly))
         rows.extend(self._fetch_operating_cash_flow_rows(ak, ticker, exchange_symbol, include_quarterly))
         rows.extend(self._fetch_fixed_asset_rows(ak, ticker, exchange_symbol, include_quarterly))
+        rows.extend(self._fetch_interest_bearing_debt_ratio_rows(ak, ticker, exchange_symbol, include_quarterly))
         rows.extend(self._fetch_expense_ratio_rows(ak, ticker, exchange_symbol, include_quarterly))
         rows.extend(self._fetch_turnover_rows(ak, ticker, exchange_symbol, include_quarterly))
-        return self._dedupe_rows(rows, include_quarterly=include_quarterly)
+        deduped = self._dedupe_rows(rows, include_quarterly=include_quarterly)
+        deduped.extend(self._derive_profit_cash_content_rows(deduped))
+        return self._dedupe_rows(deduped, include_quarterly=include_quarterly)
 
     def _fetch_em_analysis_indicator_rows(
         self,
@@ -494,6 +497,79 @@ class AkshareFinancialProvider(BaseFinancialProvider):
             )
         return rows
 
+    def _fetch_interest_bearing_debt_ratio_rows(
+        self,
+        ak_module: Any,
+        ticker: str,
+        exchange_symbol: str,
+        include_quarterly: bool,
+    ) -> list[dict[str, Any]]:
+        if not exchange_symbol:
+            return []
+        try:
+            df = ak_module.stock_balance_sheet_by_report_em(symbol=exchange_symbol)
+        except Exception:
+            return []
+        if df is None or df.empty:
+            return []
+
+        normalized = df.copy()
+        normalized.columns = [str(column).strip() for column in normalized.columns]
+        date_column = self._first_existing_column(normalized, ["REPORT_DATE", "REPORT_DATE_NAME"])
+        if not date_column:
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for _, record in normalized.iterrows():
+            period_meta = self._build_period_meta(record.get(date_column), include_quarterly=include_quarterly)
+            if not period_meta:
+                continue
+            value = self._interest_bearing_debt_ratio_from_balance_record(record)
+            if value is None:
+                continue
+            rows.append(
+                self._financial_row(
+                    ticker=ticker,
+                    **period_meta,
+                    indicator_code="interest_bearing_debt_ratio",
+                    indicator_name="有息负债率",
+                    value=value,
+                    unit="pct",
+                )
+            )
+        return rows
+
+    def _derive_profit_cash_content_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        periods: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+        for row in rows:
+            key = (row["report_period"], row["period_type"])
+            periods.setdefault(key, {})[row["indicator_code"]] = row
+
+        derived: list[dict[str, Any]] = []
+        for period_rows in periods.values():
+            cash_flow = period_rows.get("operating_cash_flow")
+            net_profit = period_rows.get("net_profit")
+            if cash_flow is None or net_profit is None:
+                continue
+            net_profit_value = self._coerce_number(net_profit.get("value"))
+            cash_flow_value = self._coerce_number(cash_flow.get("value"))
+            if net_profit_value in (None, 0) or cash_flow_value is None:
+                continue
+            derived.append(
+                self._financial_row(
+                    ticker=str(net_profit["ticker"]),
+                    period_type=str(net_profit["period_type"]),
+                    report_period=str(net_profit["report_period"]),
+                    report_year=int(net_profit["report_year"]),
+                    report_quarter=net_profit.get("report_quarter"),
+                    indicator_code="profit_cash_content",
+                    indicator_name="净利润现金含量",
+                    value=cash_flow_value / net_profit_value,
+                    unit="ratio",
+                )
+            )
+        return derived
+
     def _fetch_turnover_rows(
         self,
         ak_module: Any,
@@ -618,6 +694,25 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         if not expenses:
             return None
         return (sum(expenses) / abs(revenue)) * 100.0
+
+    def _interest_bearing_debt_ratio_from_balance_record(self, record: pd.Series) -> float | None:
+        total_assets = self._first_number(record, ["TOTAL_ASSETS"])
+        if total_assets in (None, 0):
+            return None
+
+        debt_columns = (
+            "SHORT_LOAN",
+            "NONCURRENT_LIAB_1YEAR",
+            "LONG_LOAN",
+            "BOND_PAYABLE",
+            "SHORT_BOND_PAYABLE",
+            "LEASE_LIAB",
+        )
+        debt_values = [self._first_number(record, [column]) for column in debt_columns]
+        available_values = [value for value in debt_values if value is not None]
+        if not available_values:
+            return None
+        return (sum(available_values) / abs(total_assets)) * 100.0
 
     def _first_number(self, record: pd.Series, candidates: list[str]) -> float | None:
         for candidate in candidates:

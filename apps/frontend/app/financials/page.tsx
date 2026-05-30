@@ -29,6 +29,12 @@ type MetricCard = {
   hint?: string;
 };
 
+type MetricGroup = {
+  title: string;
+  description: string;
+  metrics: MetricCard[];
+};
+
 type IndustryComparisonCardModel = {
   label: string;
   value: string;
@@ -147,13 +153,15 @@ function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
             <TableHead className="text-right">扣非净利</TableHead>
             <TableHead className="text-right">毛利率</TableHead>
             <TableHead className="text-right">净利率</TableHead>
+            <TableHead className="text-right">净利润现金含量</TableHead>
+            <TableHead className="text-right">费用率</TableHead>
+            <TableHead className="text-right">ROE</TableHead>
             <TableHead className="text-right">应收周转</TableHead>
             <TableHead className="text-right">存货周转</TableHead>
-            <TableHead className="text-right">资产负债率</TableHead>
-            <TableHead className="text-right">费用率</TableHead>
             <TableHead className="text-right">经营现金流</TableHead>
+            <TableHead className="text-right">资产负债率</TableHead>
+            <TableHead className="text-right">有息负债率</TableHead>
             <TableHead className="text-right">固定资产</TableHead>
-            <TableHead className="text-right">ROE</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -170,13 +178,15 @@ function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
               <TableCell className="text-right font-mono">{formatMoney(row.deduct_net_profit)}</TableCell>
               <TableCell className="text-right font-mono">{formatPercent(row.gross_margin)}</TableCell>
               <TableCell className="text-right font-mono">{formatPercent(row.net_margin)}</TableCell>
+              <TableCell className="text-right font-mono">{formatNumber(row.profit_cash_content)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.expense_ratio)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.roe)}</TableCell>
               <TableCell className="text-right font-mono">{formatNumber(row.ar_turnover)}</TableCell>
               <TableCell className="text-right font-mono">{formatNumber(row.inventory_turnover)}</TableCell>
-              <TableCell className="text-right font-mono">{formatPercent(row.debt_ratio)}</TableCell>
-              <TableCell className="text-right font-mono">{formatPercent(row.expense_ratio)}</TableCell>
               <TableCell className="text-right font-mono">{formatMoney(row.ocf)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.debt_ratio)}</TableCell>
+              <TableCell className="text-right font-mono">{formatPercent(row.interest_bearing_debt_ratio)}</TableCell>
               <TableCell className="text-right font-mono">{formatMoney(row.fixed_assets)}</TableCell>
-              <TableCell className="text-right font-mono">{formatPercent(row.roe)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -185,86 +195,122 @@ function FinancialReportTable({ rows }: { rows: FinancialReportRow[] }) {
   );
 }
 
-function buildMetricCards(latest: FinancialReportRow | null): MetricCard[] {
+function buildMetricGroups(latest: FinancialReportRow | null): MetricGroup[] {
   const period = latest?.report_period ?? "--";
   return [
     {
-      label: "营业收入",
-      value: formatMoney(latest?.revenue),
-      period,
-      hint: `同比 ${formatPercent(latest?.revenue_yoy)} / 环比 ${formatPercent(latest?.revenue_qoq)}`,
+      title: "盈利质量",
+      description: "赚了多少。钱从哪来。",
+      metrics: [
+        {
+          label: "营业收入",
+          value: formatMoney(latest?.revenue),
+          period,
+          hint: `同比 ${formatPercent(latest?.revenue_yoy)} / 环比 ${formatPercent(latest?.revenue_qoq)}`,
+        },
+        {
+          label: "营业收入增长率",
+          value: formatPercent(latest?.revenue_growth),
+          period,
+          hint: "本期收入 / 上年同期",
+        },
+        {
+          label: "归母净利",
+          value: formatMoney(latest?.net_profit),
+          period,
+          hint: "归属公司股东",
+        },
+        {
+          label: "扣非净利",
+          value: formatMoney(latest?.deduct_net_profit),
+          period,
+          hint: "扣除非经常损益",
+        },
+        {
+          label: "毛利率",
+          value: formatPercent(latest?.gross_margin),
+          period,
+          hint: "收入口径",
+        },
+        {
+          label: "净利率",
+          value: formatPercent(latest?.net_margin),
+          period,
+          hint: "净利 / 收入",
+        },
+        {
+          label: "净利润现金含量",
+          value: formatNumber(latest?.profit_cash_content),
+          period,
+          hint: "经营现金流 / 归母净利",
+        },
+        {
+          label: "费用率",
+          value: formatPercent(latest?.expense_ratio),
+          period,
+          hint: "销售、管理、研发、财务",
+        },
+        {
+          label: "ROE",
+          value: formatPercent(latest?.roe),
+          period,
+          hint: "净资产收益率",
+        },
+      ],
     },
     {
-      label: "营业收入增长率",
-      value: formatPercent(latest?.revenue_growth),
-      period,
-      hint: "本期收入 / 上年同期",
+      title: "营运效率",
+      description: "货转得快不快。",
+      metrics: [
+        {
+          label: "应收账款周转率",
+          value: formatNumber(latest?.ar_turnover),
+          period,
+          hint: "收入 / 平均应收账款",
+        },
+        {
+          label: "存货周转率",
+          value: formatNumber(latest?.inventory_turnover),
+          period,
+          hint: "成本 / 平均存货",
+        },
+      ],
     },
     {
-      label: "归母净利",
-      value: formatMoney(latest?.net_profit),
-      period,
-      hint: "归属公司股东",
+      title: "现金流量",
+      description: "账上真进了多少。",
+      metrics: [
+        {
+          label: "经营活动现金流量净额",
+          value: formatMoney(latest?.ocf),
+          period,
+          hint: "现金流量表",
+        },
+      ],
     },
     {
-      label: "扣非净利",
-      value: formatMoney(latest?.deduct_net_profit),
-      period,
-      hint: "扣除非经常损益",
-    },
-    {
-      label: "毛利率",
-      value: formatPercent(latest?.gross_margin),
-      period,
-      hint: "收入口径",
-    },
-    {
-      label: "净利率",
-      value: formatPercent(latest?.net_margin),
-      period,
-      hint: "净利 / 收入",
-    },
-    {
-      label: "应收账款周转率",
-      value: formatNumber(latest?.ar_turnover),
-      period,
-      hint: "收入 / 平均应收账款",
-    },
-    {
-      label: "存货周转率",
-      value: formatNumber(latest?.inventory_turnover),
-      period,
-      hint: "成本 / 平均存货",
-    },
-    {
-      label: "经营现金流",
-      value: formatMoney(latest?.ocf),
-      period,
-      hint: "现金流量表",
-    },
-    {
-      label: "固定资产",
-      value: formatMoney(latest?.fixed_assets),
-      period,
-      hint: "期末余额",
-    },
-    {
-      label: "资产负债率",
-      value: formatPercent(latest?.debt_ratio),
-      period,
-      hint: "总负债 / 总资产",
-    },
-    {
-      label: "费用率",
-      value: formatPercent(latest?.expense_ratio),
-      period,
-      hint: "销售、管理、研发、财务",
-    },
-    {
-      label: "ROE",
-      value: formatPercent(latest?.roe),
-      period,
-      hint: "净资产收益率",
+      title: "偿债能力",
+      description: "欠的钱扛得住吗。",
+      metrics: [
+        {
+          label: "资产负债率",
+          value: formatPercent(latest?.debt_ratio),
+          period,
+          hint: "总负债 / 总资产",
+        },
+        {
+          label: "有息负债率",
+          value: formatPercent(latest?.interest_bearing_debt_ratio),
+          period,
+          hint: "广义有息负债 / 总资产",
+        },
+        {
+          label: "固定资产",
+          value: formatMoney(latest?.fixed_assets),
+          period,
+          hint: "期末余额",
+        },
+      ],
     },
   ];
 }
@@ -504,7 +550,7 @@ export default function FinancialsPage() {
   const displayedRows = useMemo(() => sortFinancialRowsDesc([...annualRows, ...quarterlyRows]), [annualRows, quarterlyRows]);
   const ascendingRows = useMemo(() => sortFinancialRowsAsc(displayedRows), [displayedRows]);
   const latest = useMemo(() => getLatestFinancialRow(displayedRows), [displayedRows]);
-  const metrics = useMemo(() => buildMetricCards(latest), [latest]);
+  const metricGroups = useMemo(() => buildMetricGroups(latest), [latest]);
   const industryCards = useMemo(() => buildIndustryComparisonCards(report), [report]);
   const industryStatusText = useMemo(() => buildIndustryStatusText(report), [report]);
   const dataRisks = report?.data_risks ?? [];
@@ -657,9 +703,19 @@ export default function FinancialsPage() {
           ) : null}
 
           <FinancialSection title="核心指标摘要">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {metrics.map((metric) => (
-                <MetricCard key={metric.label} metric={metric} />
+            <div className="flex flex-col gap-6">
+              {metricGroups.map((group) => (
+                <section key={group.title} className="flex flex-col gap-3">
+                  <div>
+                    <h3 className="audit-title text-base">{group.title}</h3>
+                    <p className="audit-copy mt-1 text-xs">{group.description}</p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {group.metrics.map((metric) => (
+                      <MetricCard key={metric.label} metric={metric} />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           </FinancialSection>

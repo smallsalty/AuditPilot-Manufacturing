@@ -518,9 +518,11 @@ export type FinancialReportMetricSnapshot = {
   deduct_net_profit?: number | null;
   gross_margin?: number | null;
   net_margin?: number | null;
+  profit_cash_content?: number | null;
   ar_turnover?: number | null;
   inventory_turnover?: number | null;
   debt_ratio?: number | null;
+  interest_bearing_debt_ratio?: number | null;
   expense_ratio?: number | null;
   ocf?: number | null;
   fixed_assets?: number | null;
@@ -540,9 +542,11 @@ export type FinancialReportRowPayload = {
   deduct_net_profit?: number | null;
   gross_margin?: number | null;
   net_margin?: number | null;
+  profit_cash_content?: number | null;
   ar_turnover?: number | null;
   inventory_turnover?: number | null;
   debt_ratio?: number | null;
+  interest_bearing_debt_ratio?: number | null;
   expense_ratio?: number | null;
   ocf?: number | null;
   fixed_assets?: number | null;

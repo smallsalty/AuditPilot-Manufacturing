@@ -81,8 +81,10 @@ def test_build_rows_includes_fixed_assets_and_data_risk_payload_fields():
     financials = [
         SimpleNamespace(report_year=2025, report_quarter=1, period_type="quarterly", report_period="20250331", indicator_code="fixed_assets", value=100.0),
         SimpleNamespace(report_year=2025, report_quarter=1, period_type="quarterly", report_period="20250331", indicator_code="operating_cash_flow", value=10.0),
+        SimpleNamespace(report_year=2025, report_quarter=1, period_type="quarterly", report_period="20250331", indicator_code="profit_cash_content", value=0.5),
         SimpleNamespace(report_year=2025, report_quarter=1, period_type="quarterly", report_period="20250331", indicator_code="ar_turnover", value=2.0),
         SimpleNamespace(report_year=2025, report_quarter=1, period_type="quarterly", report_period="20250331", indicator_code="inventory_turnover", value=3.0),
+        SimpleNamespace(report_year=2025, report_quarter=1, period_type="quarterly", report_period="20250331", indicator_code="interest_bearing_debt_ratio", value=12.0),
     ]
 
     rows = service._build_rows(financials, set())
@@ -90,8 +92,10 @@ def test_build_rows_includes_fixed_assets_and_data_risk_payload_fields():
 
     assert rows[0]["fixed_assets"] == 100.0
     assert rows[0]["ocf"] == 10.0
+    assert rows[0]["profit_cash_content"] == 0.5
     assert rows[0]["ar_turnover"] == 2.0
     assert rows[0]["inventory_turnover"] == 3.0
+    assert rows[0]["interest_bearing_debt_ratio"] == 12.0
     assert data_risks == []
 
 
@@ -118,6 +122,21 @@ def test_revenue_qoq_for_fiscal_year_uses_previous_fiscal_year():
     rows = {row["report_period"]: row for row in service._build_rows(financials, set())}
 
     assert rows["2025FY"]["revenue_qoq"] == 10.0
+
+
+def test_latest_metrics_includes_new_derived_fields():
+    service = FinancialReportService()
+
+    snapshot = service._build_latest_metrics(
+        {
+            "report_period": "2025Q1",
+            "profit_cash_content": 1.25,
+            "interest_bearing_debt_ratio": 18.5,
+        }
+    )
+
+    assert snapshot["profit_cash_content"] == 1.25
+    assert snapshot["interest_bearing_debt_ratio"] == 18.5
 
 
 def test_build_report_includes_industry_comparison_and_data_risk():

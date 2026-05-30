@@ -112,9 +112,11 @@ class FinancialReportMetricSnapshot(BaseModel):
     deduct_net_profit: float | None = None
     gross_margin: float | None = None
     net_margin: float | None = None
+    profit_cash_content: float | None = None
     ar_turnover: float | None = None
     inventory_turnover: float | None = None
     debt_ratio: float | None = None
+    interest_bearing_debt_ratio: float | None = None
     expense_ratio: float | None = None
     ocf: float | None = None
     fixed_assets: float | None = None
@@ -134,9 +136,11 @@ class FinancialReportRowPayload(BaseModel):
     deduct_net_profit: float | None = None
     gross_margin: float | None = None
     net_margin: float | None = None
+    profit_cash_content: float | None = None
     ar_turnover: float | None = None
     inventory_turnover: float | None = None
     debt_ratio: float | None = None
+    interest_bearing_debt_ratio: float | None = None
     expense_ratio: float | None = None
     ocf: float | None = None
     fixed_assets: float | None = None
