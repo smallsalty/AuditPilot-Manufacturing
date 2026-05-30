@@ -81,7 +81,7 @@ def test_build_rows_includes_fixed_assets_and_data_risk_payload_fields():
     assert rows[0]["ar_turnover"] == 2.0
     assert rows[0]["inventory_turnover"] == 3.0
     assert rows[0]["interest_bearing_debt_ratio"] == 12.0
-    assert data_risks == []
+    assert {risk["rule_code"] for risk in data_risks} == {"FIN_DATA_PROFIT_CASH_MISMATCH"}
 
 
 def test_revenue_qoq_uses_previous_quarter_not_fiscal_year_for_q1():

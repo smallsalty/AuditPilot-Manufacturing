@@ -13,7 +13,7 @@ import {
   useReadinessResource,
   useRiskResultsResource,
 } from "@/lib/enterprise-resources";
-import { buildUnifiedRiskItems, getLatestFinancialAnomalies } from "@/lib/risk-display";
+import { buildUnifiedRiskItems } from "@/lib/risk-display";
 
 function RiskStateBox({
   tone = "muted",
@@ -63,7 +63,17 @@ export default function RisksPage() {
     () => buildUnifiedRiskItems(displayRisks, financialAnalysis, financialReport),
     [displayRisks, financialAnalysis, financialReport],
   );
-  const latestFinancialAnomalies = useMemo(() => getLatestFinancialAnomalies(financialAnalysis), [financialAnalysis]);
+  const riskSummary = useMemo(
+    () => ({
+      total: unifiedRisks.length,
+      document: unifiedRisks.filter((item) => item.sourceKinds.includes("document")).length,
+      announcement: unifiedRisks.filter((item) => item.sourceKinds.includes("announcement")).length,
+      data: unifiedRisks.filter((item) => item.sourceKinds.includes("data")).length,
+      financial: unifiedRisks.filter((item) => item.sourceKinds.includes("financial")).length,
+      score: Math.max(0, ...unifiedRisks.map((item) => item.riskScore ?? 0)),
+    }),
+    [unifiedRisks],
+  );
   const showResults = unifiedRisks.length > 0;
 
   const loadFinancialReport = useCallback(
@@ -213,12 +223,13 @@ export default function RisksPage() {
           </Button>
         </div>
 
-        <div className="relative z-10 mt-5 grid gap-3 md:grid-cols-5">
-          <SummaryChip label="来源覆盖" value={sourceCoverageText(unifiedRisks)} />
-          <SummaryChip label="风险总数" value={`${unifiedRisks.length} 项`} />
-          <SummaryChip label="高风险" value={`${unifiedRisks.filter((item) => item.riskLevel === "HIGH" || (item.riskScore ?? 0) >= 80).length} 项`} />
-          <SummaryChip label="数据并入" value={`${financialReport?.data_risks?.length ?? 0} 条`} />
-          <SummaryChip label="财报并入" value={`${latestFinancialAnomalies.length} 条`} />
+        <div className="relative z-10 mt-5 grid gap-3 md:grid-cols-6">
+          <SummaryChip label="风险总数" value={`${riskSummary.total} 项`} />
+          <SummaryChip label="文档风险数量" value={`${riskSummary.document} 项`} />
+          <SummaryChip label="公告风险数量" value={`${riskSummary.announcement} 项`} />
+          <SummaryChip label="数据风险数量" value={`${riskSummary.data} 项`} />
+          <SummaryChip label="财报风险数量" value={`${riskSummary.financial} 项`} />
+          <SummaryChip label="总得分" value={riskSummary.score.toFixed(1)} />
         </div>
       </section>
 
@@ -266,7 +277,3 @@ function SummaryChip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function sourceCoverageText(items: ReturnType<typeof buildUnifiedRiskItems>): string {
-  const sources = items.flatMap((item) => item.sourceLabels).filter((value, index, array) => array.indexOf(value) === index);
-  return sources.length ? sources.join("、") : "暂无";
-}

@@ -11,13 +11,18 @@ class FinancialDataRiskService:
     FIELD_MAPPING = {
         "revenue": "revenue",
         "net_profit": "net_profit",
+        "deduct_net_profit": "deduct_net_profit",
         "gross_margin": "gross_margin",
         "net_margin": "net_margin",
+        "profit_cash_content": "profit_cash_content",
         "ar_turnover": "ar_turnover",
         "inventory_turnover": "inventory_turnover",
         "debt_ratio": "debt_ratio",
+        "interest_bearing_debt_ratio": "interest_bearing_debt_ratio",
+        "expense_ratio": "expense_ratio",
         "operating_cash_flow": "ocf",
         "fixed_assets": "fixed_assets",
+        "roe": "roe",
     }
 
     def evaluate_rows(
@@ -30,19 +35,47 @@ class FinancialDataRiskService:
         recent = quarterly_rows[-4:]
 
         risks: list[dict[str, Any]] = []
+        if recent:
+            cash_risk = self._profit_cash_mismatch(recent)
+            if cash_risk:
+                risks.append(cash_risk)
+            deduct_profit_risk = self._deduct_profit_dependence(recent)
+            if deduct_profit_risk:
+                risks.append(deduct_profit_risk)
         if len(recent) >= 2:
             revenue_risk = self._revenue_volatility(recent)
             if revenue_risk:
                 risks.append(revenue_risk)
-            cash_risk = self._profit_cash_mismatch(recent)
-            if cash_risk:
-                risks.append(cash_risk)
             margin_risk = self._margin_decline(recent)
             if margin_risk:
                 risks.append(margin_risk)
             leverage_risk = self._leverage_pressure(recent)
             if leverage_risk:
                 risks.append(leverage_risk)
+            ar_turnover_risk = self._turnover_decline(
+                recent,
+                field_name="ar_turnover",
+                rule_code="FIN_DATA_AR_TURNOVER_DECLINE",
+                risk_name="应收账款周转放缓",
+                indicator_name="应收账款周转率",
+            )
+            if ar_turnover_risk:
+                risks.append(ar_turnover_risk)
+            inventory_turnover_risk = self._turnover_decline(
+                recent,
+                field_name="inventory_turnover",
+                rule_code="FIN_DATA_INVENTORY_TURNOVER_DECLINE",
+                risk_name="存货周转放缓",
+                indicator_name="存货周转率",
+            )
+            if inventory_turnover_risk:
+                risks.append(inventory_turnover_risk)
+            interest_debt_risk = self._interest_debt_pressure(recent)
+            if interest_debt_risk:
+                risks.append(interest_debt_risk)
+            expense_ratio_risk = self._expense_ratio_increase(recent)
+            if expense_ratio_risk:
+                risks.append(expense_ratio_risk)
             fixed_asset_risk = self._fixed_asset_volatility(recent)
             if fixed_asset_risk:
                 risks.append(fixed_asset_risk)
@@ -77,13 +110,18 @@ class FinancialDataRiskService:
                     "revenue": None,
                     "revenue_qoq": None,
                     "net_profit": None,
+                    "deduct_net_profit": None,
                     "gross_margin": None,
                     "net_margin": None,
+                    "profit_cash_content": None,
                     "ar_turnover": None,
                     "inventory_turnover": None,
                     "debt_ratio": None,
+                    "interest_bearing_debt_ratio": None,
+                    "expense_ratio": None,
                     "ocf": None,
                     "fixed_assets": None,
+                    "roe": None,
                 },
             )
             row[field_name] = self._number(getattr(item, "value", None))
@@ -125,6 +163,12 @@ class FinancialDataRiskService:
         )
 
     def _profit_cash_mismatch(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+        cash_content_mismatches = [
+            (row, float(row["profit_cash_content"]))
+            for row in rows
+            if self._number(row.get("profit_cash_content")) is not None
+            and float(row["profit_cash_content"]) < 0.8
+        ]
         mismatches = [
             row
             for row in rows
@@ -136,19 +180,36 @@ class FinancialDataRiskService:
         total_profit = sum(float(row["net_profit"]) for row in rows if self._number(row.get("net_profit")) is not None)
         total_ocf = sum(float(row["ocf"]) for row in rows if self._number(row.get("ocf")) is not None)
         ratio = total_ocf / total_profit if total_profit > 0 else None
-        if not mismatches and (ratio is None or ratio >= 0.8):
+        if not cash_content_mismatches and not mismatches and (ratio is None or ratio >= 0.8):
             return None
 
         score = 75.0
-        evidence = ""
+        evidence_parts: list[str] = []
+        if cash_content_mismatches:
+            row, cash_content = min(cash_content_mismatches, key=lambda item: item[1])
+            score = max(score, min(100.0, 75.0 + (0.8 - cash_content) * 25.0))
+            evidence_parts.append(f"{row['report_period']} 净利润现金含量为 {cash_content:.2f}，低于 0.80")
         if mismatches:
             row = mismatches[-1]
-            score = 82.0
-            evidence = f"{row['report_period']} 净利为正但经营现金流为负。"
+            score = max(score, 82.0)
+            evidence_parts.append(f"{row['report_period']} 净利为正但经营现金流为负")
         if ratio is not None and ratio < 0.8:
             score = max(score, min(100.0, 75.0 + (0.8 - ratio) * 25.0))
-            evidence = f"近4季经营现金流/净利为 {ratio:.2f}，低于 0.80。"
-        return self._risk("FIN_DATA_PROFIT_CASH_MISMATCH", "利润现金错配", score, evidence, rows)
+            evidence_parts.append(f"近4季经营现金流/净利为 {ratio:.2f}，低于 0.80")
+        return self._risk("FIN_DATA_PROFIT_CASH_MISMATCH", "利润现金错配", score, "；".join(evidence_parts) + "。", rows)
+
+    def _deduct_profit_dependence(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+        latest = rows[-1]
+        net_profit = self._number(latest.get("net_profit"))
+        deduct_net_profit = self._number(latest.get("deduct_net_profit"))
+        if net_profit is None or net_profit <= 0 or deduct_net_profit is None:
+            return None
+        ratio = deduct_net_profit / net_profit
+        if ratio >= 0.8:
+            return None
+        score = min(100.0, 70.0 + (0.8 - ratio) * 50.0)
+        evidence = f"{latest['report_period']} 扣非净利润/归母净利润为 {ratio:.2f}，低于 0.80。"
+        return self._risk("FIN_DATA_DEDUCT_PROFIT_DEPENDENCE", "扣非利润偏低", score, evidence, rows)
 
     def _margin_decline(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         first = rows[0]
@@ -185,6 +246,56 @@ class FinancialDataRiskService:
             evidence_parts.append(f"近4季上升 {change:.2f} 个百分点")
         return self._risk("FIN_DATA_LEVERAGE_PRESSURE", "杠杆压力", score, "；".join(evidence_parts) + "。", rows)
 
+    def _turnover_decline(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        field_name: str,
+        rule_code: str,
+        risk_name: str,
+        indicator_name: str,
+    ) -> dict[str, Any] | None:
+        first = self._number(rows[0].get(field_name))
+        latest = self._number(rows[-1].get(field_name))
+        if first in (None, 0) or latest is None:
+            return None
+        decline_ratio = (first - latest) / abs(first)
+        if decline_ratio < 0.30:
+            return None
+        score = min(100.0, 65.0 + (decline_ratio - 0.30) * 80.0)
+        evidence = f"{indicator_name}由 {first:.2f} 降至 {latest:.2f}，近4季下降 {decline_ratio:.2%}。"
+        return self._risk(rule_code, risk_name, score, evidence, rows)
+
+    def _interest_debt_pressure(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+        first = self._number(rows[0].get("interest_bearing_debt_ratio"))
+        latest = self._number(rows[-1].get("interest_bearing_debt_ratio"))
+        if latest is None:
+            return None
+        change = latest - first if first is not None else None
+        if latest < 30 and (change is None or change < 5):
+            return None
+        score = 70.0
+        evidence_parts = []
+        if latest >= 30:
+            score = max(score, min(100.0, 70.0 + (latest - 30.0) * 1.2))
+            evidence_parts.append(f"最新有息负债率 {latest:.2f}%")
+        if change is not None and change >= 5:
+            score = max(score, min(100.0, 70.0 + (change - 5.0) * 2.0))
+            evidence_parts.append(f"近4季上升 {change:.2f} 个百分点")
+        return self._risk("FIN_DATA_INTEREST_DEBT_PRESSURE", "有息负债压力", score, "；".join(evidence_parts) + "。", rows)
+
+    def _expense_ratio_increase(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+        first = self._number(rows[0].get("expense_ratio"))
+        latest = self._number(rows[-1].get("expense_ratio"))
+        if first is None or latest is None:
+            return None
+        change = latest - first
+        if change < 3:
+            return None
+        score = min(100.0, 65.0 + (change - 3.0) * 4.0)
+        evidence = f"期间费用率由 {first:.2f}% 上升至 {latest:.2f}%，近4季上升 {change:.2f} 个百分点。"
+        return self._risk("FIN_DATA_EXPENSE_RATIO_INCREASE", "期间费用率上升", score, evidence, rows)
+
     def _fixed_asset_volatility(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         values = [self._number(row.get("fixed_assets")) for row in rows]
         values = [value for value in values if value is not None]
@@ -203,30 +314,39 @@ class FinancialDataRiskService:
         )
 
     def _industry_deviation(self, industry_comparison: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not isinstance(industry_comparison, dict):
+        if not isinstance(industry_comparison, dict) or industry_comparison.get("status") != "ready":
             return None
 
         hits: list[str] = []
+        revenue_growth = self._comparison_metric(industry_comparison, "revenue_growth")
+        if self._metric_available(revenue_growth) and self._lte(revenue_growth.get("gap"), -20.0):
+            hits.append(self._format_industry_hit("营收增长率低于龙头基准", revenue_growth, percent_gap=False))
+
         gross_margin = self._comparison_metric(industry_comparison, "gross_margin")
-        if (
-            self._metric_available(gross_margin)
-            and self._gte(gross_margin.get("gap"), 8.0)
-        ):
-            hits.append(self._format_industry_hit("毛利率高于龙头基准", gross_margin, percent_gap=False))
+        if self._metric_available(gross_margin) and self._abs_gte(gross_margin.get("gap"), 8.0):
+            label = "毛利率高于龙头基准" if self._gte(gross_margin.get("gap"), 0.0) else "毛利率低于龙头基准"
+            hits.append(self._format_industry_hit(label, gross_margin, percent_gap=False))
+
+        net_margin = self._comparison_metric(industry_comparison, "net_margin")
+        if self._metric_available(net_margin) and self._abs_gte(net_margin.get("gap"), 5.0):
+            label = "净利率高于龙头基准" if self._gte(net_margin.get("gap"), 0.0) else "净利率低于龙头基准"
+            hits.append(self._format_industry_hit(label, net_margin, percent_gap=False))
 
         ar_turnover = self._comparison_metric(industry_comparison, "ar_turnover")
-        if (
-            self._metric_available(ar_turnover)
-            and self._lte(ar_turnover.get("gap_pct"), -0.30)
-        ):
+        if self._metric_available(ar_turnover) and self._lte(ar_turnover.get("gap_pct"), -0.30):
             hits.append(self._format_industry_hit("应收账款周转率低于龙头基准", ar_turnover, percent_gap=True))
 
+        inventory_turnover = self._comparison_metric(industry_comparison, "inventory_turnover")
+        if self._metric_available(inventory_turnover) and self._lte(inventory_turnover.get("gap_pct"), -0.30):
+            hits.append(self._format_industry_hit("存货周转率低于龙头基准", inventory_turnover, percent_gap=True))
+
         debt_ratio = self._comparison_metric(industry_comparison, "debt_ratio")
-        if (
-            self._metric_available(debt_ratio)
-            and self._gte(debt_ratio.get("gap"), 10.0)
-        ):
+        if self._metric_available(debt_ratio) and self._gte(debt_ratio.get("gap"), 10.0):
             hits.append(self._format_industry_hit("资产负债率高于龙头基准", debt_ratio, percent_gap=False))
+
+        expense_ratio = self._comparison_metric(industry_comparison, "expense_ratio")
+        if self._metric_available(expense_ratio) and self._gte(expense_ratio.get("gap"), 3.0):
+            hits.append(self._format_industry_hit("期间费用率高于龙头基准", expense_ratio, percent_gap=False))
 
         if len(hits) < 2:
             return None
@@ -237,7 +357,7 @@ class FinancialDataRiskService:
             "FIN_DATA_INDUSTRY_DEVIATION",
             "行业对比偏离",
             score,
-            "；".join(hits) + "。",
+            f"{period} " + "；".join(hits) + "。",
             [],
             periods=[period],
         )
@@ -316,6 +436,10 @@ class FinancialDataRiskService:
     def _lte(self, value: Any, threshold: float) -> bool:
         number = self._number(value)
         return number is not None and number <= threshold
+
+    def _abs_gte(self, value: Any, threshold: float) -> bool:
+        number = self._number(value)
+        return number is not None and abs(number) >= threshold
 
     @staticmethod
     def _number(value: Any) -> float | None:

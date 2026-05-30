@@ -226,7 +226,7 @@
     "name": "超额盈利与回款质量背离风险",
     "risk_category": "财务风险",
     "risk_level": "HIGH",
-    "description": "毛利率显著高于行业且应收周转弱于行业，并伴随现金流或应收质量异常。",
+    "description": "毛利率显著高于龙头基准且应收周转弱于龙头基准，并伴随现金流或应收质量异常。",
     "conditions": {
       "logic": "all",
       "conditions": [
@@ -234,13 +234,13 @@
           "metric": "excess_profit_risk_signal",
           "operator": ">=",
           "value": 1,
-          "label": "个体毛利率高于行业且回款质量偏弱"
+          "label": "个体毛利率高于龙头基准且回款质量偏弱"
         }
       ]
     },
     "focus_accounts": ["主营业务收入", "营业成本", "应收账款"],
     "focus_processes": ["收入确认", "成本归集", "销售回款"],
-    "recommended_procedures": ["对比行业毛利率", "执行收入截止测试", "复核期后回款和坏账准备"],
+    "recommended_procedures": ["对比龙头基准毛利率", "执行收入截止测试", "复核期后回款和坏账准备"],
     "evidence_types": ["行业数据", "财务指标", "应收账款账龄"],
     "weight": 3.4,
     "enabled": true

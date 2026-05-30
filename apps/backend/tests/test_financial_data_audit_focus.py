@@ -17,6 +17,21 @@ def test_financial_data_fixed_asset_rule_maps_to_formal_risk_title():
     assert DocumentRiskService.RISK_TITLES[risk_key] == "固定资产异常波动风险"
 
 
+def test_new_financial_data_rules_map_to_formal_risk_titles():
+    expected = {
+        "FIN_DATA_DEDUCT_PROFIT_DEPENDENCE": "扣非利润偏低风险",
+        "FIN_DATA_AR_TURNOVER_DECLINE": "应收账款周转放缓风险",
+        "FIN_DATA_INVENTORY_TURNOVER_DECLINE": "存货周转放缓风险",
+        "FIN_DATA_INTEREST_DEBT_PRESSURE": "有息负债压力风险",
+        "FIN_DATA_EXPENSE_RATIO_INCREASE": "期间费用率上升风险",
+    }
+
+    for rule_code, title in expected.items():
+        risk_key = DocumentRiskService.RULE_CODE_TO_RISK_KEY[rule_code]
+        assert risk_key != "uncategorized"
+        assert DocumentRiskService.RISK_TITLES[risk_key] == title
+
+
 def test_financial_data_risk_persists_fixed_asset_audit_recommendation():
     top_risk = {
         "rule_code": "FIN_DATA_FIXED_ASSET_VOLATILITY",
@@ -61,6 +76,65 @@ def test_financial_data_risk_persists_fixed_asset_audit_recommendation():
         "复核折旧和减值",
     ]
     assert "financial_indicator" in recommendations[0].evidence_types
+
+
+def test_financial_data_risk_persists_all_matches_with_separate_recommendations():
+    risks = [
+        {
+            "rule_code": "FIN_DATA_EXPENSE_RATIO_INCREASE",
+            "risk_name": "期间费用率上升",
+            "risk_level": "中",
+            "risk_score": 69.0,
+            "judgment": "期间费用率上升：中风险",
+            "evidence": "期间费用率由 6.00% 上升至 10.00%。",
+            "periods": ["2025Q1", "2025Q2"],
+        },
+        {
+            "rule_code": "FIN_DATA_INDUSTRY_DEVIATION",
+            "risk_name": "行业对比偏离",
+            "risk_level": "高",
+            "risk_score": 88.0,
+            "judgment": "行业对比偏离：高风险",
+            "evidence": "2025Q2 毛利率高于龙头基准；存货周转率低于龙头基准。",
+            "periods": ["2025Q2"],
+        },
+    ]
+
+    class FakeDb:
+        def __init__(self) -> None:
+            self.added = []
+            self.next_id = 30
+
+        def add(self, item):
+            self.added.append(item)
+
+        def flush(self) -> None:
+            for item in self.added:
+                if isinstance(item, RiskIdentificationResult) and item.id is None:
+                    item.id = self.next_id
+                    self.next_id += 1
+
+    service = RiskAnalysisService.__new__(RiskAnalysisService)
+    service.financial_data_risk_service = SimpleNamespace(
+        evaluate_indicators=lambda financials, industry_comparison=None: risks,
+        result_level_code=lambda risk: "HIGH" if risk["risk_level"] == "高" else "MEDIUM",
+    )
+    service.evidence_summary_service = SimpleNamespace(summarize_evidence=lambda **kwargs: kwargs["text"])
+    db = FakeDb()
+
+    service._persist_financial_data_risk(db, enterprise_id=6, run_id=12, financials=[])
+
+    results = [item for item in db.added if isinstance(item, RiskIdentificationResult)]
+    recommendations = [item for item in db.added if isinstance(item, AuditRecommendation)]
+    assert [item.rule_code for item in results] == [
+        "FIN_DATA_EXPENSE_RATIO_INCREASE",
+        "FIN_DATA_INDUSTRY_DEVIATION",
+    ]
+    assert [item.risk_result_id for item in recommendations] == [30, 31]
+    assert results[0].evidence_chain[0]["evidence_type"] == "financial_indicator"
+    assert results[0].evidence_chain[0]["source"] == "akshare"
+    assert results[1].evidence_chain[0]["evidence_type"] == "industry_signal"
+    assert results[1].evidence_chain[0]["source"] == "eastmoney_yjbb"
 
 
 def test_audit_focus_refresh_bypasses_matching_snapshot(monkeypatch):

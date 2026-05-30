@@ -129,11 +129,24 @@ class FeatureEngineeringService:
 
     def _merge_industry_comparison(self, features: dict, industry_comparison: dict) -> None:
         features["industry_comparison"] = industry_comparison or {}
-        gross_margin = self._comparison_metric(industry_comparison, "gross_margin")
-        ar_turnover = self._comparison_metric(industry_comparison, "ar_turnover")
-        debt_ratio = self._comparison_metric(industry_comparison, "debt_ratio")
+        metrics = {
+            metric_name: self._comparison_metric(industry_comparison, metric_name)
+            for metric_name in (
+                "revenue_growth",
+                "gross_margin",
+                "net_margin",
+                "revenue",
+                "ar_turnover",
+                "inventory_turnover",
+                "debt_ratio",
+                "expense_ratio",
+            )
+        }
+        gross_margin = metrics["gross_margin"]
+        ar_turnover = metrics["ar_turnover"]
+        debt_ratio = metrics["debt_ratio"]
 
-        features["industry_benchmark_available"] = 1.0 if gross_margin.get("available") or ar_turnover.get("available") else 0.0
+        features["industry_benchmark_available"] = 1.0 if any(metric.get("available") for metric in metrics.values()) else 0.0
         features["gross_margin_industry_outlier_high"] = 1.0 if self._gross_margin_high(gross_margin) else 0.0
         features["ar_turnover_industry_outlier_low"] = 1.0 if self._ar_turnover_low(ar_turnover) else 0.0
         features["debt_ratio_industry_high"] = 1.0 if self._debt_ratio_high(debt_ratio) else 0.0
@@ -146,11 +159,8 @@ class FeatureEngineeringService:
             else 0.0
         )
 
-        for metric_name, metric in {
-            "gross_margin": gross_margin,
-            "ar_turnover": ar_turnover,
-            "debt_ratio": debt_ratio,
-        }.items():
+        for metric_name, metric in metrics.items():
+            features[f"{metric_name}_available"] = 1.0 if metric.get("available") else 0.0
             for key in ("company_value", "leader_benchmark", "gap", "gap_pct", "sample_count"):
                 value = metric.get(key)
                 if value is not None:

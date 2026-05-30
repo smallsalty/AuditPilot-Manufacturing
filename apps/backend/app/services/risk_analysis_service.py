@@ -71,6 +71,41 @@ class RiskAnalysisService:
             "evidence_types": ["financial_indicator", "bank_statement", "management_interview"],
             "evidence": ["债务台账", "授信合同", "还款计划", "银行流水"],
         },
+        "FIN_DATA_DEDUCT_PROFIT_DEPENDENCE": {
+            "focus_accounts": ["归母净利润", "扣非净利润", "非经常性损益"],
+            "focus_processes": ["利润分析", "非经常性损益识别", "期末结账"],
+            "recommended_procedures": ["核对非经常性损益明细", "复核扣非口径", "检查重大一次性收益"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["利润表", "非经常性损益明细", "重大交易凭证", "管理层说明"],
+        },
+        "FIN_DATA_AR_TURNOVER_DECLINE": {
+            "focus_accounts": ["应收账款", "坏账准备", "主营业务收入"],
+            "focus_processes": ["信用管理", "销售回款", "减值测试"],
+            "recommended_procedures": ["分析应收账款周转变化", "检查账龄结构", "执行期后回款测试", "复核坏账准备"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["应收账款明细", "账龄分析", "期后回款记录", "坏账准备测算"],
+        },
+        "FIN_DATA_INVENTORY_TURNOVER_DECLINE": {
+            "focus_accounts": ["存货", "营业成本", "存货跌价准备"],
+            "focus_processes": ["生产排产", "库存管理", "减值测试"],
+            "recommended_procedures": ["分析存货周转变化", "实施存货监盘", "检查库龄结构", "复核跌价准备"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["库存台账", "库龄清单", "盘点记录", "跌价准备测算"],
+        },
+        "FIN_DATA_INTEREST_DEBT_PRESSURE": {
+            "focus_accounts": ["短期借款", "长期借款", "应付债券", "租赁负债"],
+            "focus_processes": ["融资管理", "资金计划", "偿债安排"],
+            "recommended_procedures": ["分析有息负债结构", "检查债务到期安排", "核对授信额度", "执行偿债压力测试"],
+            "evidence_types": ["financial_indicator", "bank_statement", "management_interview"],
+            "evidence": ["债务台账", "授信合同", "还款计划", "银行流水"],
+        },
+        "FIN_DATA_EXPENSE_RATIO_INCREASE": {
+            "focus_accounts": ["销售费用", "管理费用", "研发费用", "财务费用"],
+            "focus_processes": ["费用归集", "预算执行", "期末截止"],
+            "recommended_procedures": ["分析费用率变化", "抽查大额费用", "执行费用截止测试", "复核费用归属期间"],
+            "evidence_types": ["financial_indicator", "management_interview"],
+            "evidence": ["费用明细账", "预算执行表", "大额费用凭证", "管理层说明"],
+        },
         "FIN_DATA_FIXED_ASSET_VOLATILITY": {
             "focus_accounts": ["固定资产", "在建工程", "累计折旧", "资产减值损失"],
             "focus_processes": ["固定资产采购与转固", "资本化审批", "折旧与减值"],
@@ -79,7 +114,7 @@ class RiskAnalysisService:
             "evidence": ["固定资产明细表", "在建工程转固资料", "资本化审批凭证", "折旧和减值测算"],
         },
         "FIN_DATA_INDUSTRY_DEVIATION": {
-            "focus_accounts": ["主营业务收入", "应收账款", "资产负债率相关科目"],
+            "focus_accounts": ["主营业务收入", "营业成本", "应收账款", "存货", "期间费用", "负债相关科目"],
             "focus_processes": ["经营分析", "行业对比", "管理层沟通"],
             "recommended_procedures": ["复核行业偏离原因", "检查关键指标口径", "访谈管理层经营计划"],
             "evidence_types": ["industry_signal", "financial_indicator", "management_interview"],
@@ -139,7 +174,7 @@ class RiskAnalysisService:
                     name="超额盈利与回款质量背离风险",
                     risk_category="财务风险",
                     risk_level="HIGH",
-                    description="企业毛利率显著高于行业且应收周转弱于行业，同时现金流或回款质量出现异常。",
+                    description="企业毛利率显著高于龙头基准且应收周转弱于龙头基准，同时现金流或回款质量出现异常。",
                     conditions={
                         "logic": "all",
                         "conditions": [
@@ -148,7 +183,7 @@ class RiskAnalysisService:
                     },
                     focus_accounts=["主营业务收入", "营业成本", "应收账款"],
                     focus_processes=["收入确认", "成本归集", "销售回款"],
-                    recommended_procedures=["对比行业毛利率", "执行收入截止测试", "复核期后回款和坏账准备"],
+                    recommended_procedures=["对比龙头基准毛利率", "执行收入截止测试", "复核期后回款和坏账准备"],
                     evidence_types=["行业数据", "财务指标", "应收账款账龄"],
                     weight=3.4,
                     enabled=True,
@@ -691,58 +726,59 @@ class RiskAnalysisService:
         )
         if not data_risks:
             return
-        top_risk = data_risks[0]
-        risk_level = self.financial_data_risk_service.result_level_code(top_risk)
-        evidence_type = "industry_signal" if top_risk["rule_code"] == "FIN_DATA_INDUSTRY_DEVIATION" else "financial_indicator"
-        source_label = "行业对比" if evidence_type == "industry_signal" else "AkShare"
-        evidence_chain = self._summarize_evidence_chain(
-            [
-                {
-                    "evidence_id": f"FD-{top_risk['rule_code']}",
-                    "evidence_type": evidence_type,
-                    "source": "akshare",
-                    "source_label": source_label,
-                    "title": top_risk["risk_name"],
-                    "snippet": top_risk["evidence"],
-                    "content": top_risk["evidence"],
-                    "report_period": ",".join(top_risk.get("periods") or []),
-                }
-            ],
-            default_title=top_risk["risk_name"],
-            default_type="financial_indicator",
-        )
-        result = RiskIdentificationResult(
-            enterprise_id=enterprise_id,
-            run_id=run_id,
-            rule_id=None,
-            rule_code=top_risk["rule_code"],
-            risk_name=top_risk["risk_name"],
-            risk_category="财务风险",
-            risk_level=risk_level,
-            risk_score=float(top_risk["risk_score"]),
-            source_type="financial_data",
-            reasons=[top_risk["judgment"], top_risk["evidence"]],
-            evidence_chain=evidence_chain,
-            feature_snapshot={"data_risks": data_risks, "industry_comparison": industry_comparison},
-            llm_summary=top_risk["judgment"],
-            llm_explanation=self._serialize_llm_explanation(top_risk),
-        )
-        db.add(result)
-        db.flush()
-        audit_scope = self._financial_data_audit_scope(top_risk)
-        db.add(
-            AuditRecommendation(
+        for risk in data_risks:
+            risk_level = self.financial_data_risk_service.result_level_code(risk)
+            evidence_type = "industry_signal" if risk["rule_code"] == "FIN_DATA_INDUSTRY_DEVIATION" else "financial_indicator"
+            source = "eastmoney_yjbb" if evidence_type == "industry_signal" else "akshare"
+            source_label = "龙头基准" if evidence_type == "industry_signal" else "AkShare"
+            evidence_chain = self._summarize_evidence_chain(
+                [
+                    {
+                        "evidence_id": f"FD-{risk['rule_code']}",
+                        "evidence_type": evidence_type,
+                        "source": source,
+                        "source_label": source_label,
+                        "title": risk["risk_name"],
+                        "snippet": risk["evidence"],
+                        "content": risk["evidence"],
+                        "report_period": ",".join(risk.get("periods") or []),
+                    }
+                ],
+                default_title=risk["risk_name"],
+                default_type="financial_indicator",
+            )
+            result = RiskIdentificationResult(
                 enterprise_id=enterprise_id,
                 run_id=run_id,
-                risk_result_id=result.id,
-                priority=risk_level.lower(),
-                focus_accounts=list(audit_scope["focus_accounts"]),
-                focus_processes=list(audit_scope["focus_processes"]),
-                recommended_procedures=list(audit_scope["recommended_procedures"]),
-                evidence_types=self._clean_text_list(["risk_rule", evidence_type] + list(audit_scope["evidence_types"])),
-                recommendation_text=f"{top_risk['risk_name']}：优先关注{'、'.join(audit_scope['focus_accounts'])}。",
+                rule_id=None,
+                rule_code=risk["rule_code"],
+                risk_name=risk["risk_name"],
+                risk_category="财务风险",
+                risk_level=risk_level,
+                risk_score=float(risk["risk_score"]),
+                source_type="financial_data",
+                reasons=[risk["judgment"], risk["evidence"]],
+                evidence_chain=evidence_chain,
+                feature_snapshot={"data_risks": data_risks, "industry_comparison": industry_comparison},
+                llm_summary=risk["judgment"],
+                llm_explanation=self._serialize_llm_explanation(risk),
             )
-        )
+            db.add(result)
+            db.flush()
+            audit_scope = self._financial_data_audit_scope(risk)
+            db.add(
+                AuditRecommendation(
+                    enterprise_id=enterprise_id,
+                    run_id=run_id,
+                    risk_result_id=result.id,
+                    priority=risk_level.lower(),
+                    focus_accounts=list(audit_scope["focus_accounts"]),
+                    focus_processes=list(audit_scope["focus_processes"]),
+                    recommended_procedures=list(audit_scope["recommended_procedures"]),
+                    evidence_types=self._clean_text_list(["risk_rule", evidence_type] + list(audit_scope["evidence_types"])),
+                    recommendation_text=f"{risk['risk_name']}：优先关注{'、'.join(audit_scope['focus_accounts'])}。",
+                )
+            )
 
     def _persist_announcement_risks(self, db: Session, enterprise_id: int, run_id: int) -> dict[str, Any]:
         payload = self.announcement_risk_service.build_announcement_risks(db, enterprise_id)

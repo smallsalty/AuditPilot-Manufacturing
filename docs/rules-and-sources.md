@@ -396,7 +396,7 @@ final_score = min(100, effective_weight * 20 + hit_condition_count * 10)
 
 ### 7.2 财务数据子分析
 
-财务数据子分析读取最近 4 个季度指标。结果只持久化最高分的一条，但完整 `data_risks` 会进入快照。
+财务数据子分析读取最近 4 个季度指标。全部命中项会分别持久化，并各自生成审计建议；完整 `data_risks` 同时进入快照。
 
 等级：
 
@@ -411,9 +411,14 @@ final_score = min(100, effective_weight * 20 + hit_condition_count * 10)
 | rule_code | 触发条件 | 评分 |
 | --- | --- | --- |
 | `FIN_DATA_REVENUE_VOLATILITY` | 任一季度收入环比绝对波动 `>= 30%` | `min(100, 60 + (max_abs - 30) * 0.8)` |
-| `FIN_DATA_PROFIT_CASH_MISMATCH` | 单季净利润为正且经营现金流为负，或近 4 季经营现金流/净利润 `< 0.8` | 单季错配基准 `82`；比例错配为 `max(75, min(100, 75 + (0.8 - ratio) * 25))` |
+| `FIN_DATA_PROFIT_CASH_MISMATCH` | 单季净利润现金含量 `< 0.8`，单季净利润为正且经营现金流为负，或近 4 季经营现金流/净利润 `< 0.8` | 单季错配基准 `82`；比例错配为 `max(75, min(100, 75 + (0.8 - ratio) * 25))`；多个条件取最高分 |
 | `FIN_DATA_MARGIN_DECLINE` | 毛利率较近 4 季首期下降 `>= 5` 个百分点，或净利率下降 `>= 3` 个百分点 | 毛利率：`65 + abs(delta + 5) * 3`；净利率：`65 + abs(delta + 3) * 4`；取高值并封顶 |
 | `FIN_DATA_LEVERAGE_PRESSURE` | 最新资产负债率 `>= 65%`，或近 4 季上升 `>= 5` 个百分点 | 负债率：`70 + (latest - 65) * 1.2`；上升幅度：`70 + (change - 5) * 2`；取高值并封顶 |
+| `FIN_DATA_DEDUCT_PROFIT_DEPENDENCE` | 最新季度归母净利润为正，且扣非净利润 / 归母净利润 `< 0.8` | `min(100, 70 + (0.8 - ratio) * 50)` |
+| `FIN_DATA_AR_TURNOVER_DECLINE` | 近 4 季首尾应收账款周转率下降 `>= 30%` | `min(100, 65 + (decline_ratio - 0.30) * 80)` |
+| `FIN_DATA_INVENTORY_TURNOVER_DECLINE` | 近 4 季首尾存货周转率下降 `>= 30%` | `min(100, 65 + (decline_ratio - 0.30) * 80)` |
+| `FIN_DATA_INTEREST_DEBT_PRESSURE` | 最新有息负债率 `>= 30%`，或近 4 季上升 `>= 5` 个百分点 | 绝对值和上升幅度均以 `70` 为基准，取较高值并封顶 |
+| `FIN_DATA_EXPENSE_RATIO_INCREASE` | 近 4 季首尾期间费用率上升 `>= 3` 个百分点 | `min(100, 65 + (increase - 3) * 4)` |
 | `FIN_DATA_FIXED_ASSET_VOLATILITY` | 近 4 季固定资产最大最小差 / 期初固定资产 `>= 15%` | `min(100, 60 + (ratio - 0.15) * 120)` |
 | `FIN_DATA_INDUSTRY_DEVIATION` | 龙头基准对比至少 2 项异常 | 2 项异常 `78`；3 项及以上 `88` |
 
@@ -421,9 +426,15 @@ final_score = min(100, effective_weight * 20 + hit_condition_count * 10)
 
 | 指标 | 异常条件 |
 | --- | --- |
-| 毛利率高于龙头基准 | `gap >= 8` 个百分点 |
+| 营收增长率低于龙头基准 | `gap <= -20` 个百分点 |
+| 毛利率偏离龙头基准 | `abs(gap) >= 8` 个百分点 |
+| 净利率偏离龙头基准 | `abs(gap) >= 5` 个百分点 |
 | 应收周转低于龙头基准 | `gap_pct <= -0.30` |
+| 存货周转低于龙头基准 | `gap_pct <= -0.30` |
 | 资产负债率高于龙头基准 | `gap >= 10` 个百分点 |
+| 期间费用率高于龙头基准 | `gap >= 3` 个百分点 |
+
+营业收入绝对规模只用于展示，不直接判定数据风险。财报页展示全部命中项；综合风险分析为每个命中项分别写入风险结果和审计建议。
 
 ### 7.3 税务风险
 

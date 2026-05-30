@@ -24,7 +24,6 @@ export default function AuditFocusPage() {
 
   const items = focus?.items ?? [];
   const riskByTitle = useMemo(() => buildRiskLookup(risks ?? []), [risks]);
-  const pageSummary = useMemo(() => buildAdviceSummary(items, riskByTitle), [items, riskByTitle]);
   const handleRefreshAdvice = useCallback(async () => {
     if (!currentEnterpriseId || refreshingAdvice) {
       return;
@@ -92,12 +91,6 @@ export default function AuditFocusPage() {
           >
             {refreshingAdvice ? "刷新中..." : "刷新审计建议"}
           </Button>
-          <div className="mt-5 rounded-2xl border border-[#1d1912]/10 bg-[#fffdf7]/88 p-4 lg:col-span-2">
-            <p className="font-mono text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#8f3148]">
-              总结
-            </p>
-            <p className="mt-2 text-sm font-semibold leading-6 text-[#5d503b]">{pageSummary}</p>
-          </div>
         </div>
       </section>
 
@@ -212,17 +205,6 @@ function buildRiskLookup(risks: RiskResultPayload[]): Map<string, RiskResultPayl
     }
   }
   return lookup;
-}
-
-function buildAdviceSummary(items: FocusItem[], riskByTitle: Map<string, RiskResultPayload>): string {
-  if (!items.length) {
-    return "暂无建议。";
-  }
-  const riskTypes = items
-    .map((item) => getRiskType(item, riskByTitle.get(item.title)))
-    .filter((value, index, array) => value && array.indexOf(value) === index);
-  const firstType = riskTypes[0] || "主要风险";
-  return `共${items.length}条建议。覆盖${riskTypes.length}类风险。先处理${firstType}。`;
 }
 
 function getRiskType(item: FocusItem, risk?: RiskResultPayload): string {

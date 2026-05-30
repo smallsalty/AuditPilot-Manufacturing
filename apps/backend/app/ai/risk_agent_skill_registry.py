@@ -62,7 +62,7 @@ class RiskAgentSkillRegistry:
         "data_risk_analysis": RiskAgentSkill(
             key="data_risk_analysis",
             role="结构化财务数据风险分析 agent",
-            input_format="输入为近4季或多期结构化指标行，字段至少包含 report_period、revenue、net_profit、gross_margin、net_margin、debt_ratio、ocf、fixed_assets。",
+            input_format="输入为近4季或多期结构化指标行，字段至少包含 report_period、revenue、net_profit、deduct_net_profit、gross_margin、net_margin、profit_cash_content、ar_turnover、inventory_turnover、debt_ratio、interest_bearing_debt_ratio、expense_ratio、ocf、fixed_assets、roe，以及可用的龙头基准对比。",
             output_format="输出风险项数组；每项包含 rule_code、risk_name、risk_level、risk_score、judgment、evidence、periods、agent_skill。",
             classification_rules=f"只能映射到当前 canonical risk keys：{', '.join(CANONICAL_RISK_KEYS)}；数据波动优先归入 revenue_recognition、cashflow_quality、financing_pressure。",
             summary_format="judgment 使用“风险名称：高/中/低风险”；evidence 用一句具体指标证据，不写泛泛判断。",
