@@ -40,12 +40,9 @@ type IndustryComparisonCardModel = {
   value: string;
   companyValue: string;
   industryValue: string;
-  industryRange: string;
   gap: string;
   sampleText: string;
-  referenceText: string;
   selectedIndustryText: string;
-  confidenceText: string;
   periodText: string;
   available: boolean;
 };
@@ -105,14 +102,14 @@ function IndustryComparisonCard({ metric }: { metric: IndustryComparisonCardMode
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-semibold text-[#5d503b]">{metric.label}</p>
         <span className="rounded-full border border-[#d8c8aa] bg-[#f8f3e8] px-2 py-1 font-mono text-[0.68rem] font-bold text-[#6c5d45]">
-          {metric.available ? metric.periodText : "行业数据未加载"}
+          {metric.available ? metric.periodText : "龙头基准未加载"}
         </span>
       </div>
       {metric.available ? (
         <div className="flex flex-col gap-3">
-          <div className="grid gap-2 text-xs font-semibold leading-5 text-[#5d503b] sm:grid-cols-3">
-            <span>中位 {metric.industryValue}</span>
-            <span>{metric.industryRange}</span>
+          <div className="flex flex-col gap-1 text-sm font-bold leading-6 text-[#15130f]">
+            <span>龙头基准 {metric.industryValue}</span>
+            <span>公司值 {metric.companyValue}</span>
             <span>{metric.gap}</span>
           </div>
           <p className="text-xs font-semibold leading-5 text-[#8a7759]">{metric.sampleText}</p>
@@ -319,14 +316,14 @@ function buildIndustryComparisonCards(report: FinancialReportPayload | null): In
   const comparison = report?.industry_comparison;
   const referenceName = resolveReferenceIndustryName(report);
   return [
-    buildIndustryComparisonCard("营业收入增长率", comparison?.revenue_growth, "percent", false, referenceName),
-    buildIndustryComparisonCard("毛利率", comparison?.gross_margin, "percent", false, referenceName),
-    buildIndustryComparisonCard("净利率", comparison?.net_margin, "percent", false, referenceName),
-    buildIndustryComparisonCard("营业收入", comparison?.revenue, "money", true, referenceName),
-    buildIndustryComparisonCard("应收账款周转率", comparison?.ar_turnover, "number", true, referenceName),
-    buildIndustryComparisonCard("存货周转率", comparison?.inventory_turnover, "number", true, referenceName),
-    buildIndustryComparisonCard("资产负债率", comparison?.debt_ratio, "percent", false, referenceName),
-    buildIndustryComparisonCard("费用率", comparison?.expense_ratio, "percent", false, referenceName),
+    buildIndustryComparisonCard("营业收入增长率", comparison?.metrics.revenue_growth, "percent", false, referenceName, comparison?.period),
+    buildIndustryComparisonCard("毛利率", comparison?.metrics.gross_margin, "percent", false, referenceName, comparison?.period),
+    buildIndustryComparisonCard("净利率", comparison?.metrics.net_margin, "percent", false, referenceName, comparison?.period),
+    buildIndustryComparisonCard("营业收入", comparison?.metrics.revenue, "money", true, referenceName, comparison?.period),
+    buildIndustryComparisonCard("应收账款周转率", comparison?.metrics.ar_turnover, "number", true, referenceName, comparison?.period),
+    buildIndustryComparisonCard("存货周转率", comparison?.metrics.inventory_turnover, "number", true, referenceName, comparison?.period),
+    buildIndustryComparisonCard("资产负债率", comparison?.metrics.debt_ratio, "percent", false, referenceName, comparison?.period),
+    buildIndustryComparisonCard("费用率", comparison?.metrics.expense_ratio, "percent", false, referenceName, comparison?.period),
   ];
 }
 
@@ -336,48 +333,34 @@ function buildIndustryComparisonCard(
   valueType: "percent" | "number" | "money",
   usePercentGap: boolean,
   referenceName: string,
+  period: string | null | undefined,
 ): IndustryComparisonCardModel {
   const available = Boolean(metric?.available);
   const companyValue = formatIndustryValue(metric?.company_value, valueType);
-  const industryValue = formatIndustryValue(metric?.industry_median ?? metric?.industry_mean, valueType);
-  const metricReferenceName = metric?.industry_name ?? referenceName;
+  const industryValue = formatIndustryValue(metric?.leader_benchmark, valueType);
   return {
     label,
-    value: available ? industryValue : "行业数据未加载",
+    value: available ? industryValue : "龙头基准未加载",
     companyValue: companyValue === "--" ? "待补" : companyValue,
     industryValue,
-    industryRange: `区间 ${formatIndustryValue(metric?.p25, valueType)} - ${formatIndustryValue(metric?.p75, valueType)}`,
     gap: `差异 ${formatSignedGap(metric?.gap, metric?.gap_pct, valueType, usePercentGap)}`,
-    sampleText: `样本 ${metric?.sample_count ?? 0}`,
-    referenceText: `参考${metricReferenceName}行业同行`,
-    selectedIndustryText: `已选择：${formatIndustryName(metricReferenceName)}`,
-    confidenceText: formatConfidence(metric?.confidence),
-    periodText: formatPeriodText(metric),
+    sampleText: `龙头样本数 ${metric?.sample_count ?? 0}`,
+    selectedIndustryText: `已选择：${formatIndustryName(referenceName)}`,
+    periodText: period ?? "期间待补",
     available,
   };
 }
 
 function resolveReferenceIndustryName(report: FinancialReportPayload | null): string {
   const comparison = report?.industry_comparison;
-  return comparison?.reference_industry_name ?? comparison?.industry_name ?? "未识别行业";
+  return comparison?.industry_name ?? "未识别行业";
 }
 
 function getIndustryComparisonMetrics(
   report: FinancialReportPayload | null,
 ): Array<FinancialIndustryComparisonMetric | null | undefined> {
   const comparison = report?.industry_comparison;
-  return comparison
-    ? [
-        comparison.revenue_growth,
-        comparison.gross_margin,
-        comparison.net_margin,
-        comparison.revenue,
-        comparison.ar_turnover,
-        comparison.inventory_turnover,
-        comparison.debt_ratio,
-        comparison.expense_ratio,
-      ]
-    : [];
+  return comparison ? Object.values(comparison.metrics) : [];
 }
 
 function hasAvailableIndustryMetrics(report: FinancialReportPayload | null): boolean {
@@ -388,16 +371,16 @@ function buildIndustryStatusText(report: FinancialReportPayload | null): string 
   const referenceName = resolveReferenceIndustryName(report);
   const hasIndustryData = hasAvailableIndustryMetrics(report);
   return hasIndustryData
-    ? `参考${formatIndustryName(referenceName)}同行`
-    : `已选择${formatIndustryName(referenceName)}，行业数据未加载`;
+    ? `参考${formatIndustryName(referenceName)}龙头企业`
+    : `已选择${formatIndustryName(referenceName)}，龙头基准未加载`;
 }
 
 function sanitizeIndustryRefreshError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (/HTTPSConnectionPool|ProxyError|Max retries|RemoteDisconnected|eastmoney/i.test(message)) {
-    return "行业基准刷新暂时不可用，请稍后再试。";
+    return "龙头基准刷新暂时不可用，请稍后再试。";
   }
-  return message || "同行基准刷新失败。";
+  return message || "龙头基准刷新失败。";
 }
 
 function formatIndustryName(value: string | null | undefined): string {
@@ -446,26 +429,6 @@ function formatSignedGap(
     return `${gap >= 0 ? "+" : ""}${gap.toFixed(2)}`;
   }
   return formatSignedPoint(gap);
-}
-
-function formatConfidence(confidence: string | null | undefined): string {
-  const labels: Record<string, string> = {
-    high: "高可信",
-    limited: "可参考",
-    cautious: "谨慎看",
-  };
-  return labels[String(confidence || "")] ?? "缓存中";
-}
-
-function formatPeriodText(metric: FinancialIndustryComparisonMetric | null | undefined): string {
-  if (!metric?.period) {
-    return "期间待补";
-  }
-  if (metric.period_aligned) {
-    return metric.period;
-  }
-  const range = metric.actual_peer_period_range?.length ? metric.actual_peer_period_range.join("~") : metric.period;
-  return `${range}弱参考`;
 }
 
 function formatDateTime(value: string | null | undefined): string {
@@ -584,7 +547,7 @@ export default function FinancialsPage() {
           return;
         }
         setIndustryRefreshState("idle");
-        setIndustryRefreshNotice("本次没有获取到行业数据，已保留当前页面。");
+        setIndustryRefreshNotice("本次没有获取到龙头基准，旧基准已隐藏。");
       })
       .catch((refreshError) => {
         setIndustryRefreshNotice(null);
@@ -708,7 +671,6 @@ export default function FinancialsPage() {
                 <section key={group.title} className="flex flex-col gap-3">
                   <div>
                     <h3 className="audit-title text-base">{group.title}</h3>
-                    <p className="audit-copy mt-1 text-xs">{group.description}</p>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {group.metrics.map((metric) => (
@@ -721,24 +683,24 @@ export default function FinancialsPage() {
           </FinancialSection>
 
           <FinancialSection
-            title="行业对比"
+            title="细分行业龙头对比"
             description={industryStatusText}
             action={
               <Button onClick={handleIndustryRefresh} disabled={!currentEnterpriseId || industryRefreshing}>
                 <RefreshCw className={`mr-2 h-4 w-4 ${industryRefreshing ? "animate-spin" : ""}`} />
-                {industryRefreshing ? "刷新中" : "刷新同行基准"}
+                {industryRefreshing ? "刷新中" : "刷新龙头基准"}
               </Button>
             }
           >
             {industryRefreshError ? (
               <Alert variant="warning">
-                <AlertTitle>同行基准刷新失败</AlertTitle>
+                <AlertTitle>龙头基准刷新失败</AlertTitle>
                 <AlertDescription>{industryRefreshError}</AlertDescription>
               </Alert>
             ) : null}
             {industryRefreshNotice ? (
               <Alert>
-                <AlertTitle>行业数据未更新</AlertTitle>
+                <AlertTitle>龙头基准未更新</AlertTitle>
                 <AlertDescription>{industryRefreshNotice}</AlertDescription>
               </Alert>
             ) : null}

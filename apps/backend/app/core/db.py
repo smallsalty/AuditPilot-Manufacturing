@@ -22,23 +22,31 @@ def get_db() -> Generator[Session, None, None]:
 def create_all() -> None:
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
-    ensure_industry_mapping_tables()
-    ensure_industry_benchmark_snapshot_table()
     ensure_phase1_sync_columns()
     ensure_phase2_document_columns()
 
 
-def ensure_industry_mapping_tables() -> None:
-    for table_name in ("company_industry_mapping", "industry_sample_pool"):
-        table = Base.metadata.tables.get(table_name)
-        if table is not None:
-            table.create(bind=engine, checkfirst=True)
-
-
-def ensure_industry_benchmark_snapshot_table() -> None:
-    table = Base.metadata.tables.get("industry_benchmark_snapshot")
-    if table is not None:
-        table.create(bind=engine, checkfirst=True)
+def rebuild_industry_benchmark_schema(*, confirm: bool, bind=engine) -> None:
+    if not confirm:
+        raise ValueError("Industry benchmark schema rebuild requires explicit confirmation.")
+    table_names = (
+        "industry_leader_benchmark",
+        "industry_leader_company",
+        "industry_benchmark_refresh_state",
+        "industry_benchmark_snapshot",
+        "industry_sample_pool",
+        "company_industry_mapping",
+        "industry_benchmark",
+    )
+    with bind.begin() as connection:
+        for table_name in table_names:
+            connection.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    for table_name in (
+        "industry_benchmark_refresh_state",
+        "industry_leader_company",
+        "industry_leader_benchmark",
+    ):
+        Base.metadata.tables[table_name].create(bind=bind, checkfirst=True)
 
 
 def ensure_phase1_sync_columns() -> None:

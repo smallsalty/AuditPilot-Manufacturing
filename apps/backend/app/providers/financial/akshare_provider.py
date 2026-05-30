@@ -69,6 +69,7 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         "TAX_PAYABLE": ("tax_payable", "应交税费"),
         "TOTAL_ASSETS": ("total_assets", "资产总计"),
     }
+    Q4_FALLBACK_INDICATORS = {"expense_ratio", "ar_turnover", "interest_bearing_debt_ratio"}
 
     def __init__(self) -> None:
         self._profile_provider = AkshareFastProvider()
@@ -100,6 +101,8 @@ class AkshareFinancialProvider(BaseFinancialProvider):
         rows.extend(self._fetch_expense_ratio_rows(ak, ticker, exchange_symbol, include_quarterly))
         rows.extend(self._fetch_turnover_rows(ak, ticker, exchange_symbol, include_quarterly))
         deduped = self._dedupe_rows(rows, include_quarterly=include_quarterly)
+        if include_quarterly:
+            deduped.extend(self._derive_q4_fallback_rows(deduped))
         deduped.extend(self._derive_profit_cash_content_rows(deduped))
         return self._dedupe_rows(deduped, include_quarterly=include_quarterly)
 
@@ -568,6 +571,19 @@ class AkshareFinancialProvider(BaseFinancialProvider):
                     unit="ratio",
                 )
             )
+        return derived
+
+    def _derive_q4_fallback_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        existing_keys = {(row["report_period"], row["period_type"], row["indicator_code"]) for row in rows}
+        derived: list[dict[str, Any]] = []
+        for row in rows:
+            if row["period_type"] != "annual" or row["indicator_code"] not in self.Q4_FALLBACK_INDICATORS:
+                continue
+            key = (row["report_period"], "quarterly", row["indicator_code"])
+            if key in existing_keys:
+                continue
+            derived.append({**row, "period_type": "quarterly", "report_quarter": 4})
+            existing_keys.add(key)
         return derived
 
     def _fetch_turnover_rows(

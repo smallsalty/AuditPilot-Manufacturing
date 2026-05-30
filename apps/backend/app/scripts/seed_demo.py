@@ -17,8 +17,9 @@ from app.models import (
     EnterpriseProfile,
     ExternalEvent,
     FinancialIndicator,
-    IndustryBenchmark,
-    IndustryBenchmarkSnapshot,
+    IndustryBenchmarkRefreshState,
+    IndustryLeaderBenchmark,
+    IndustryLeaderCompany,
     KnowledgeChunk,
     MacroIndicator,
     RiskAlertRecord,
@@ -75,8 +76,9 @@ def seed() -> None:
         db.execute(delete(ExternalEvent))
         db.execute(delete(FinancialIndicator))
         db.execute(delete(AuditRule))
-        db.execute(delete(IndustryBenchmark))
-        db.execute(delete(IndustryBenchmarkSnapshot))
+        db.execute(delete(IndustryLeaderBenchmark))
+        db.execute(delete(IndustryLeaderCompany))
+        db.execute(delete(IndustryBenchmarkRefreshState))
         db.execute(delete(MacroIndicator))
         db.execute(delete(EnterpriseProfile))
         db.commit()
@@ -169,22 +171,6 @@ def seed() -> None:
                         report_period=row["report_period"],
                         value=float(row["value"]),
                         unit=row.get("unit"),
-                        source=row.get("source", "mock"),
-                    )
-                )
-
-        with (settings.data_root / "mock" / "macro" / "industry_benchmark.csv").open(
-            "r", encoding="utf-8-sig", newline=""
-        ) as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                db.add(
-                    IndustryBenchmark(
-                        industry_tag=row["industry_tag"],
-                        report_period=row["report_period"],
-                        metric_code=row["metric_code"],
-                        metric_name=row["metric_name"],
-                        value=float(row["value"]),
                         source=row.get("source", "mock"),
                     )
                 )

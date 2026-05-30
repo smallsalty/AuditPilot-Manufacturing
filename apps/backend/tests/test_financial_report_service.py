@@ -10,54 +10,39 @@ def _industry_metric(
     *,
     available: bool = True,
     company_value: float | None = 0.0,
-    industry_mean: float | None = 0.0,
+    leader_benchmark: float | None = 0.0,
     gap: float | None = 0.0,
     gap_pct: float | None = 0.0,
     sample_count: int = 12,
 ) -> dict:
     return {
         "company_value": company_value,
-        "industry_mean": industry_mean,
-        "industry_median": industry_mean,
-        "p25": industry_mean - 1 if industry_mean is not None else None,
-        "p75": industry_mean + 1 if industry_mean is not None else None,
+        "leader_benchmark": leader_benchmark,
         "gap": gap,
         "gap_pct": gap_pct,
-        "zscore": None,
-        "percentile": None,
         "available": available,
         "sample_count": sample_count,
-        "confidence": "limited",
-        "source": "peer_financials",
-        "unavailable_reason": None if available else "insufficient_sample",
-        "distribution_available": False,
-        "metric": None,
-        "period": "2025FY",
-        "actual_peer_period_range": ["2025FY"],
-        "period_aligned": True,
     }
 
 
 def _industry_comparison() -> dict:
     return {
-        "industry_code": "manufacturing",
+        "status": "ready",
+        "industry_code": "BK0001",
         "industry_name": "制造业",
-        "industry_source": "mapping",
-        "latest_year": 2025,
-        "reference_industry_name": "制造业",
-        "industry_level": "manufacturing",
-        "fallback_used": False,
-        "original_industry": "制造业",
-        "cache_state": "hit",
-        "cache_updated_at": None,
-        "revenue_growth": _industry_metric(company_value=12.0, industry_mean=8.0, gap=4.0),
-        "gross_margin": _industry_metric(company_value=32.0, industry_mean=22.0, gap=10.0),
-        "net_margin": _industry_metric(company_value=12.0, industry_mean=8.0, gap=4.0),
-        "revenue": _industry_metric(company_value=1200.0, industry_mean=900.0, gap=300.0, gap_pct=0.33),
-        "ar_turnover": _industry_metric(company_value=2.2, industry_mean=4.0, gap=-1.8, gap_pct=-0.45),
-        "inventory_turnover": _industry_metric(company_value=3.4, industry_mean=4.4, gap=-1.0, gap_pct=-0.22),
-        "debt_ratio": _industry_metric(company_value=62.0, industry_mean=58.0, gap=4.0),
-        "expense_ratio": _industry_metric(company_value=9.0, industry_mean=10.0, gap=-1.0),
+        "source": "eastmoney_yjbb",
+        "period": "2025FY",
+        "leader_companies": [{"rank": 1, "ticker": "000001", "name": "龙头一"}],
+        "metrics": {
+            "revenue_growth": _industry_metric(company_value=12.0, leader_benchmark=8.0, gap=4.0),
+            "gross_margin": _industry_metric(company_value=32.0, leader_benchmark=22.0, gap=10.0),
+            "net_margin": _industry_metric(company_value=12.0, leader_benchmark=8.0, gap=4.0),
+            "revenue": _industry_metric(company_value=1200.0, leader_benchmark=900.0, gap=300.0, gap_pct=0.33),
+            "ar_turnover": _industry_metric(company_value=2.2, leader_benchmark=4.0, gap=-1.8, gap_pct=-0.45),
+            "inventory_turnover": _industry_metric(company_value=3.4, leader_benchmark=4.4, gap=-1.0, gap_pct=-0.22),
+            "debt_ratio": _industry_metric(company_value=62.0, leader_benchmark=58.0, gap=4.0),
+            "expense_ratio": _industry_metric(company_value=9.0, leader_benchmark=10.0, gap=-1.0),
+        },
     }
 
 
@@ -198,5 +183,7 @@ def test_build_report_includes_industry_comparison_and_data_risk():
 
     assert payload["industry_comparison"] == comparison
     assert validated.industry_comparison.industry_name == "制造业"
-    assert validated.industry_comparison.expense_ratio.company_value == 9.0
+    assert validated.industry_comparison.metrics["expense_ratio"].company_value == 9.0
+    assert validated.industry_comparison.metrics["expense_ratio"].leader_benchmark == 10.0
+    assert validated.industry_comparison.leader_companies[0].ticker == "000001"
     assert "FIN_DATA_INDUSTRY_DEVIATION" in codes

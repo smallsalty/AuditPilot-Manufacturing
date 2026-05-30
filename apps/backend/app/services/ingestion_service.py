@@ -5,7 +5,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import EnterpriseProfile, ExternalEvent, FinancialIndicator, IndustryBenchmark, MacroIndicator
+from app.models import EnterpriseProfile, ExternalEvent, FinancialIndicator, MacroIndicator
 from app.providers import AkshareFinancialProvider, MockCorporateRiskProvider, MockFinancialProvider
 
 
@@ -81,9 +81,7 @@ class IngestionService:
 
     def ingest_macro(self, db: Session, industry_tag: str) -> int:
         macro_file = settings.data_root / "mock" / "macro" / "macro_indicators.csv"
-        benchmark_file = settings.data_root / "mock" / "macro" / "industry_benchmark.csv"
         db.execute(delete(MacroIndicator))
-        db.execute(delete(IndustryBenchmark).where(IndustryBenchmark.industry_tag == industry_tag))
         inserted = 0
         with open(macro_file, "r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle)
@@ -95,22 +93,6 @@ class IngestionService:
                         report_period=row["report_period"],
                         value=float(row["value"]),
                         unit=row.get("unit"),
-                        source=row.get("source", "mock"),
-                    )
-                )
-                inserted += 1
-        with open(benchmark_file, "r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                if row["industry_tag"] != industry_tag:
-                    continue
-                db.add(
-                    IndustryBenchmark(
-                        industry_tag=row["industry_tag"],
-                        report_period=row["report_period"],
-                        metric_code=row["metric_code"],
-                        metric_name=row["metric_name"],
-                        value=float(row["value"]),
                         source=row.get("source", "mock"),
                     )
                 )

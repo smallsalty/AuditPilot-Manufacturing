@@ -291,7 +291,7 @@ def refresh_industry_benchmarks(enterprise_id: int, db: Session = Depends(get_db
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=502, detail="行业基准刷新暂时不可用，请稍后再试。") from exc
+        raise HTTPException(status_code=502, detail="龙头基准刷新暂时不可用，请稍后再试。") from exc
 
     try:
         return FinancialReportService().build_report(

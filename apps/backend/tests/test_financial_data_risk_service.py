@@ -7,20 +7,16 @@ def _industry_metric(
     *,
     available: bool = True,
     company_value: float | None = 0.0,
-    industry_mean: float | None = 0.0,
+    leader_benchmark: float | None = 0.0,
     gap: float | None = 0.0,
     gap_pct: float | None = 0.0,
-    zscore: float | None = None,
-    percentile: float | None = None,
     sample_count: int = 12,
 ) -> dict:
     return {
         "company_value": company_value,
-        "industry_mean": industry_mean,
+        "leader_benchmark": leader_benchmark,
         "gap": gap,
         "gap_pct": gap_pct,
-        "zscore": zscore,
-        "percentile": percentile,
         "available": available,
         "sample_count": sample_count,
         "unavailable_reason": None if available else "insufficient_sample",
@@ -29,14 +25,17 @@ def _industry_metric(
 
 def _industry_comparison(**overrides: dict) -> dict:
     payload = {
-        "industry_code": "manufacturing",
+        "status": "ready",
+        "industry_code": "BK0001",
         "industry_name": "制造业",
-        "industry_source": "mapping",
-        "latest_year": 2025,
-        "gross_margin": _industry_metric(company_value=32.0, industry_mean=22.0, gap=10.0),
-        "ar_turnover": _industry_metric(company_value=2.2, industry_mean=4.0, gap=-1.8, gap_pct=-0.45),
-        "debt_ratio": _industry_metric(company_value=62.0, industry_mean=58.0, gap=4.0),
-        "expense_ratio": _industry_metric(company_value=9.0, industry_mean=10.0, gap=-1.0),
+        "source": "eastmoney_yjbb",
+        "period": "2025FY",
+        "metrics": {
+            "gross_margin": _industry_metric(company_value=32.0, leader_benchmark=22.0, gap=10.0),
+            "ar_turnover": _industry_metric(company_value=2.2, leader_benchmark=4.0, gap=-1.8, gap_pct=-0.45),
+            "debt_ratio": _industry_metric(company_value=62.0, leader_benchmark=58.0, gap=4.0),
+            "expense_ratio": _industry_metric(company_value=9.0, leader_benchmark=10.0, gap=-1.0),
+        },
     }
     payload.update(overrides)
     return payload
@@ -117,8 +116,9 @@ def test_industry_deviation_risk_triggers_when_two_metrics_hit():
 
     assert industry_risk["risk_name"] == "行业对比偏离"
     assert industry_risk["risk_score"] == 78.0
-    assert "毛利率高于行业" in industry_risk["evidence"]
-    assert "应收账款周转率低于行业" in industry_risk["evidence"]
+    assert "毛利率高于龙头基准" in industry_risk["evidence"]
+    assert "应收账款周转率低于龙头基准" in industry_risk["evidence"]
+    assert "龙头基准 22.00" in industry_risk["evidence"]
 
 
 def test_industry_deviation_risk_scores_88_when_three_metrics_hit():
@@ -127,25 +127,31 @@ def test_industry_deviation_risk_scores_88_when_three_metrics_hit():
     risks = service.evaluate_rows(
         [],
         industry_comparison=_industry_comparison(
-            debt_ratio=_industry_metric(company_value=72.0, industry_mean=58.0, gap=14.0, percentile=0.9),
+            metrics={
+                **_industry_comparison()["metrics"],
+                "debt_ratio": _industry_metric(company_value=72.0, leader_benchmark=58.0, gap=14.0),
+            },
         ),
     )
     industry_risk = next(risk for risk in risks if risk["rule_code"] == "FIN_DATA_INDUSTRY_DEVIATION")
 
     assert industry_risk["risk_score"] == 88.0
-    assert "资产负债率高于行业" in industry_risk["evidence"]
+    assert "资产负债率高于龙头基准" in industry_risk["evidence"]
 
 
 def test_industry_deviation_risk_ignores_unavailable_metrics():
     service = FinancialDataRiskService()
-    unavailable = _industry_metric(available=False, company_value=None, industry_mean=None, gap=None, gap_pct=None, sample_count=2)
+    unavailable = _industry_metric(available=False, company_value=None, leader_benchmark=None, gap=None, gap_pct=None, sample_count=2)
 
     risks = service.evaluate_rows(
         [],
         industry_comparison=_industry_comparison(
-            gross_margin=unavailable,
-            ar_turnover=unavailable,
-            debt_ratio=unavailable,
+            metrics={
+                **_industry_comparison()["metrics"],
+                "gross_margin": unavailable,
+                "ar_turnover": unavailable,
+                "debt_ratio": unavailable,
+            },
         ),
     )
 

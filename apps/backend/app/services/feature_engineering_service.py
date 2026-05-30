@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from app.models import ExternalEvent, FinancialIndicator, IndustryBenchmark
+from app.models import ExternalEvent, FinancialIndicator
 
 
 class FeatureEngineeringService:
@@ -10,7 +10,6 @@ class FeatureEngineeringService:
         self,
         financials: list[FinancialIndicator],
         events: list[ExternalEvent],
-        industry_benchmarks: list[IndustryBenchmark],
         industry_comparison: dict | None = None,
     ) -> dict:
         rows = [
@@ -124,13 +123,7 @@ class FeatureEngineeringService:
         features["executive_change_count"] = float(event_counts["executive_change"])
         features["related_party_complexity_score"] = float(event_counts["related_party"])
 
-        demand_index = 0.0
-        for benchmark in industry_benchmarks:
-            if benchmark.metric_code == "demand_index_yoy":
-                demand_index = benchmark.value
-        features["industry_demand_down_inventory_up"] = (
-            1.0 if demand_index < 0 and features["inventory_growth_rate"] > 0 else 0.0
-        )
+        features["industry_demand_down_inventory_up"] = 0.0
         self._merge_industry_comparison(features, industry_comparison or {})
         return features
 
@@ -158,35 +151,29 @@ class FeatureEngineeringService:
             "ar_turnover": ar_turnover,
             "debt_ratio": debt_ratio,
         }.items():
-            for key in ("company_value", "industry_mean", "gap", "gap_pct", "zscore", "percentile", "sample_count"):
+            for key in ("company_value", "leader_benchmark", "gap", "gap_pct", "sample_count"):
                 value = metric.get(key)
                 if value is not None:
                     features[f"{metric_name}_{key}"] = float(value)
 
     def _comparison_metric(self, comparison: dict, metric: str) -> dict:
-        value = comparison.get(metric) if isinstance(comparison, dict) else {}
+        metrics = comparison.get("metrics") if isinstance(comparison, dict) else {}
+        value = metrics.get(metric) if isinstance(metrics, dict) else {}
         return value if isinstance(value, dict) else {}
 
     def _gross_margin_high(self, metric: dict) -> bool:
         if not metric.get("available"):
             return False
-        return (
-            self._gte(metric.get("zscore"), 2.0)
-            or self._gte(metric.get("percentile"), 0.90)
-            or self._gte(metric.get("gap"), 8.0)
-        )
+        return self._gte(metric.get("gap"), 8.0)
 
     def _ar_turnover_low(self, metric: dict) -> bool:
         if not metric.get("available"):
             return False
-        return (
-            self._lte(metric.get("zscore"), -1.5)
-            or self._lte(metric.get("percentile"), 0.20)
-            or self._lte(metric.get("gap_pct"), -0.30)
-        )
+        return self._lte(metric.get("gap_pct"), -0.30)
 
     def _debt_ratio_high(self, metric: dict) -> bool:
-        return bool(metric.get("available")) and self._gte(metric.get("industry_mean"), 60.0)
+        benchmark = metric.get("leader_benchmark")
+        return bool(metric.get("available")) and self._gte(benchmark, 60.0)
 
     def _quality_signal(self, features: dict) -> bool:
         return (

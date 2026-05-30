@@ -39,7 +39,7 @@ def test_refresh_industry_benchmarks_route_uses_latest_financial_period(monkeypa
                 "refresh": refresh,
                 "include_quarterly": include_quarterly,
             }
-            return {"enterprise_id": enterprise_id, "industry_comparison": {"cache_state": "hit"}}
+            return {"enterprise_id": enterprise_id, "industry_comparison": {"status": "ready"}}
 
     monkeypatch.setattr(enterprise_routes, "EnterpriseRepository", FakeRepo)
     monkeypatch.setattr(enterprise_routes, "IndustryBenchmarkRefreshService", FakeRefreshService)
@@ -86,8 +86,8 @@ def test_refresh_industry_benchmarks_route_degrades_when_provider_network_fails(
             return {
                 "enterprise_id": enterprise_id,
                 "industry_comparison": {
-                    "cache_state": "missing",
-                    "reference_industry_name": "专用设备",
+                    "status": "error",
+                    "industry_name": "专用设备",
                 },
             }
 
@@ -98,7 +98,7 @@ def test_refresh_industry_benchmarks_route_degrades_when_provider_network_fails(
     payload = enterprise_routes.refresh_industry_benchmarks(enterprise.id, SimpleNamespace())
 
     assert payload["enterprise_id"] == enterprise.id
-    assert payload["industry_comparison"]["cache_state"] == "missing"
+    assert payload["industry_comparison"]["status"] == "error"
 
 
 def test_refresh_industry_benchmarks_route_keeps_404_for_missing_enterprise(monkeypatch):

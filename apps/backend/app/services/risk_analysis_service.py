@@ -17,7 +17,6 @@ from app.models import (
     AnalysisRun,
     AuditRecommendation,
     AuditRule,
-    IndustryBenchmark,
     RiskAlertRecord,
     RiskIdentificationResult,
 )
@@ -29,7 +28,6 @@ from app.services.document_risk_service import DocumentRiskService
 from app.services.feature_engineering_service import FeatureEngineeringService
 from app.services.financial_data_risk_service import FinancialDataRiskService
 from app.services.industry_benchmark_service import IndustryBenchmarkService
-from app.services.industry_classifier_service import IndustryClassifierService
 from app.services.tax_risk_service import TaxRiskService
 
 
@@ -98,8 +96,7 @@ class RiskAnalysisService:
         self.financial_data_risk_service = FinancialDataRiskService()
         self.tax_risk_service = TaxRiskService()
         self.announcement_risk_service = AnnouncementRiskService()
-        self.industry_classifier = IndustryClassifierService()
-        self.industry_benchmark_service = IndustryBenchmarkService(self.industry_classifier)
+        self.industry_benchmark_service = IndustryBenchmarkService()
 
     def _summarize_evidence_chain(
         self,
@@ -146,7 +143,7 @@ class RiskAnalysisService:
                     conditions={
                         "logic": "all",
                         "conditions": [
-                            {"metric": "excess_profit_risk_signal", "operator": ">=", "value": 1, "label": "毛利率高于行业且回款质量偏弱"}
+                            {"metric": "excess_profit_risk_signal", "operator": ">=", "value": 1, "label": "毛利率高于龙头基准且回款质量偏弱"}
                         ],
                     },
                     focus_accounts=["主营业务收入", "营业成本", "应收账款"],
@@ -376,8 +373,6 @@ class RiskAnalysisService:
         events = enterprise_repo.get_external_events(enterprise_id, official_only=True)
         documents = enterprise_repo.get_documents(enterprise_id, official_only=True)
         readiness = self.get_analysis_readiness(enterprise, financials, events, documents)
-        benchmarks = list(db.scalars(select(IndustryBenchmark).where(IndustryBenchmark.source != "mock")).all())
-
         if not readiness["risk_analysis_ready"]:
             raise ValueError(readiness["risk_analysis_message"])
 
@@ -394,8 +389,8 @@ class RiskAnalysisService:
         logger.info("risk analysis started enterprise_id=%s run_id=%s", enterprise_id, run.id)
 
         try:
-            industry_comparison = self.industry_benchmark_service.build_comparison(db, enterprise, financials, benchmarks)
-            features = self.feature_engineering_service.build_features(financials, events, benchmarks, industry_comparison)
+            industry_comparison = self.industry_benchmark_service.build_comparison(db, enterprise, financials)
+            features = self.feature_engineering_service.build_features(financials, events, industry_comparison)
 
             risk_repo = RiskRepository(db)
             risk_repo.clear_enterprise_results(enterprise_id)

@@ -559,52 +559,32 @@ export type FinancialReportSummaryItem = {
   text: string;
 };
 
+export type FinancialIndustryLeaderCompany = {
+  rank: number;
+  ticker: string;
+  name?: string | null;
+};
+
 export type FinancialIndustryComparisonMetric = {
   company_value?: number | null;
-  industry_mean?: number | null;
-  industry_median?: number | null;
-  p25?: number | null;
-  p75?: number | null;
+  leader_benchmark?: number | null;
   gap?: number | null;
   gap_pct?: number | null;
-  zscore?: number | null;
-  percentile?: number | null;
   available: boolean;
   sample_count: number;
-  confidence?: string | null;
-  source?: string | null;
-  unavailable_reason?: string | null;
-  distribution_available: boolean;
-  metric?: string | null;
-  period?: string | null;
-  requested_period?: string | null;
-  actual_peer_period_range?: string[];
-  period_aligned?: boolean;
-  industry_name?: string | null;
-  industry_level?: string | null;
-  fallback_used?: boolean;
-  aggregation_method?: string | null;
 };
 
 export type FinancialIndustryComparisonPayload = {
-  industry_code: string;
-  industry_name: string;
-  industry_source: string;
-  latest_year?: number | null;
-  reference_industry_name?: string | null;
-  industry_level?: string | null;
-  fallback_used?: boolean;
-  original_industry?: string | null;
-  cache_state?: string | null;
-  cache_updated_at?: string | null;
-  revenue_growth: FinancialIndustryComparisonMetric;
-  gross_margin: FinancialIndustryComparisonMetric;
-  net_margin: FinancialIndustryComparisonMetric;
-  revenue: FinancialIndustryComparisonMetric;
-  ar_turnover: FinancialIndustryComparisonMetric;
-  inventory_turnover: FinancialIndustryComparisonMetric;
-  debt_ratio: FinancialIndustryComparisonMetric;
-  expense_ratio: FinancialIndustryComparisonMetric;
+  status: "ready" | "missing" | "error";
+  industry_name?: string | null;
+  industry_code?: string | null;
+  source?: "eastmoney_yjbb" | null;
+  period?: string | null;
+  refreshed_at?: string | null;
+  unavailable_reason?: string | null;
+  board_validation_status?: "verified" | "unavailable" | "not_matched" | null;
+  leader_companies: FinancialIndustryLeaderCompany[];
+  metrics: Record<string, FinancialIndustryComparisonMetric>;
 };
 
 export type FinancialDataRiskItem = {

@@ -210,41 +210,28 @@ class FinancialDataRiskService:
         gross_margin = self._comparison_metric(industry_comparison, "gross_margin")
         if (
             self._metric_available(gross_margin)
-            and (
-                self._gte(gross_margin.get("gap"), 8.0)
-                or self._gte(gross_margin.get("percentile"), 0.90)
-                or self._gte(gross_margin.get("zscore"), 2.0)
-            )
+            and self._gte(gross_margin.get("gap"), 8.0)
         ):
-            hits.append(self._format_industry_hit("毛利率高于行业", gross_margin, percent_gap=False))
+            hits.append(self._format_industry_hit("毛利率高于龙头基准", gross_margin, percent_gap=False))
 
         ar_turnover = self._comparison_metric(industry_comparison, "ar_turnover")
         if (
             self._metric_available(ar_turnover)
-            and (
-                self._lte(ar_turnover.get("gap_pct"), -0.30)
-                or self._lte(ar_turnover.get("percentile"), 0.20)
-                or self._lte(ar_turnover.get("zscore"), -1.5)
-            )
+            and self._lte(ar_turnover.get("gap_pct"), -0.30)
         ):
-            hits.append(self._format_industry_hit("应收账款周转率低于行业", ar_turnover, percent_gap=True))
+            hits.append(self._format_industry_hit("应收账款周转率低于龙头基准", ar_turnover, percent_gap=True))
 
         debt_ratio = self._comparison_metric(industry_comparison, "debt_ratio")
         if (
             self._metric_available(debt_ratio)
-            and (
-                self._gte(debt_ratio.get("gap"), 10.0)
-                or self._gte(debt_ratio.get("percentile"), 0.85)
-                or self._gte(debt_ratio.get("zscore"), 1.5)
-            )
+            and self._gte(debt_ratio.get("gap"), 10.0)
         ):
-            hits.append(self._format_industry_hit("资产负债率高于行业", debt_ratio, percent_gap=False))
+            hits.append(self._format_industry_hit("资产负债率高于龙头基准", debt_ratio, percent_gap=False))
 
         if len(hits) < 2:
             return None
 
-        latest_year = industry_comparison.get("latest_year")
-        period = str(latest_year) if latest_year else "行业对比"
+        period = str(industry_comparison.get("period") or "行业对比")
         score = 88.0 if len(hits) >= 3 else 78.0
         return self._risk(
             "FIN_DATA_INDUSTRY_DEVIATION",
@@ -304,7 +291,8 @@ class FinancialDataRiskService:
         return current_value - previous_value
 
     def _comparison_metric(self, comparison: dict[str, Any], metric: str) -> dict[str, Any]:
-        value = comparison.get(metric)
+        metrics = comparison.get("metrics")
+        value = metrics.get(metric) if isinstance(metrics, dict) else None
         return value if isinstance(value, dict) else {}
 
     def _metric_available(self, metric: dict[str, Any]) -> bool:
@@ -312,14 +300,14 @@ class FinancialDataRiskService:
 
     def _format_industry_hit(self, label: str, metric: dict[str, Any], *, percent_gap: bool) -> str:
         company_value = self._number(metric.get("company_value"))
-        industry_mean = self._number(metric.get("industry_mean"))
+        leader_benchmark = self._number(metric.get("leader_benchmark"))
         gap = self._number(metric.get("gap_pct" if percent_gap else "gap"))
         if gap is None:
             return label
         gap_text = f"{gap * 100:.2f}%" if percent_gap else f"{gap:.2f}个百分点"
-        if company_value is None or industry_mean is None:
+        if company_value is None or leader_benchmark is None:
             return f"{label} {gap_text}"
-        return f"{label} {gap_text}（公司 {company_value:.2f}，行业 {industry_mean:.2f}）"
+        return f"{label} {gap_text}（公司 {company_value:.2f}，龙头基准 {leader_benchmark:.2f}）"
 
     def _gte(self, value: Any, threshold: float) -> bool:
         number = self._number(value)
